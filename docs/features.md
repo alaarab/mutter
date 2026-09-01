@@ -13,7 +13,12 @@ run on a device yet.
 | Listen to a channel without joining (1.4 listeners) | Done |
 | Priority speaker, server mute/deafen, self mute/deafen, suppress | Done |
 | Local per-user mute and volume | Done |
-| Bluetooth / AirPods / speakerphone routing, echo cancellation | Done |
+| Bluetooth / AirPods / speakerphone routing | Done |
+| Echo cancellation and automatic gain (Apple voice processing) | Done |
+| System Voice Isolation mic mode (Apple's ML isolation, FaceTime-grade) | Done: picker in Voice & audio settings |
+| Spectral noise suppression for hiss, fans, hum (own DSP) | Done: Off / Light / Strong |
+| Adaptive voice gate that tracks room noise | Done |
+| Click-free playback (fade-in/out, soft limiter) | Done |
 | Stays connected with the screen locked or the app in the background | Done (audio background mode keeps the session alive) |
 | Positional audio, recording, sidetone | Not planned (desktop features) |
 

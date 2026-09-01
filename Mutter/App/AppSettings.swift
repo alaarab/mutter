@@ -59,6 +59,9 @@ final class AppSettings {
     var defaultIdentityID: UUID? { didSet { defaults.set(defaultIdentityID?.uuidString, forKey: "defaultIdentityID") } }
     var hasSeenWelcome: Bool { didSet { defaults.set(hasSeenWelcome, forKey: "hasSeenWelcome") } }
     var hideEmptyChannels: Bool { didSet { defaults.set(hideEmptyChannels, forKey: "hideEmptyChannels") } }
+    var noiseSuppression: NoiseSuppressor.Level { didSet { defaults.set(noiseSuppression.rawValue, forKey: "noiseSuppression") } }
+    var voiceProcessing: Bool { didSet { defaults.set(voiceProcessing, forKey: "voiceProcessing") } }
+    var autoSensitivity: Bool { didSet { defaults.set(autoSensitivity, forKey: "autoSensitivity") } }
     var headsetButtonAction: HeadsetAction { didSet { defaults.set(headsetButtonAction.rawValue, forKey: "headsetButtonAction") } }
 
     init(defaults: UserDefaults = .standard) {
@@ -78,6 +81,9 @@ final class AppSettings {
         defaultIdentityID = defaults.string(forKey: "defaultIdentityID").flatMap(UUID.init(uuidString:))
         hasSeenWelcome = defaults.bool(forKey: "hasSeenWelcome")
         hideEmptyChannels = defaults.bool(forKey: "hideEmptyChannels")
+        noiseSuppression = NoiseSuppressor.Level(rawValue: defaults.string(forKey: "noiseSuppression") ?? "") ?? .strong
+        voiceProcessing = defaults.object(forKey: "voiceProcessing") as? Bool ?? true
+        autoSensitivity = defaults.object(forKey: "autoSensitivity") as? Bool ?? true
         headsetButtonAction = HeadsetAction(rawValue: defaults.string(forKey: "headsetButtonAction") ?? "") ?? .toggleMute
     }
 }

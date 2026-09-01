@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 import MumbleClient
 
 struct SettingsView: View {
@@ -110,19 +111,41 @@ struct AudioSettingsView: View {
 
             if settings.transmitMode == .voiceActivity {
                 Section {
+                    Toggle("Automatic sensitivity", isOn: $settings.autoSensitivity)
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
-                            Text("Sensitivity")
+                            Text(settings.autoSensitivity ? "Threshold (auto)" : "Sensitivity")
                             Spacer()
-                            Text("\(Int(settings.vadThresholdDb)) dB").foregroundStyle(Theme.muted)
+                            Text("\(Int(settings.autoSensitivity ? model.audio.effectiveThresholdDb : settings.vadThresholdDb)) dB").foregroundStyle(Theme.muted)
                         }
-                        Slider(value: $settings.vadThresholdDb, in: -60 ... -15, step: 1)
-                        LevelMeter(level: model.audio.inputLevelDb, threshold: settings.vadThresholdDb, active: model.audio.isTransmitting)
-                        Text(model.audio.isRunning ? "Speak normally: the bar should pass the marker when you talk and stay below it when you're quiet." : "Connect to a server to see your live level here.")
-                            .font(.caption)
-                            .foregroundStyle(Theme.muted)
+                        if !settings.autoSensitivity {
+                            Slider(value: $settings.vadThresholdDb, in: -60 ... -15, step: 1)
+                        }
+                        LevelMeter(level: model.audio.inputLevelDb, threshold: settings.autoSensitivity ? model.audio.effectiveThresholdDb : settings.vadThresholdDb, active: model.audio.isTransmitting)
+                        if model.audio.isRunning {
+                            Text(settings.autoSensitivity
+                                 ? "Room noise is about \(Int(model.audio.noiseFloorDb)) dB; the gate opens 12 dB above it and follows the room as it changes."
+                                 : "Speak normally: the bar should pass the marker when you talk and stay below it when you're quiet.")
+                                .font(.caption)
+                                .foregroundStyle(Theme.muted)
+                        } else {
+                            Text("Connect to a server to see your live level here.")
+                                .font(.caption)
+                                .foregroundStyle(Theme.muted)
+                        }
                     }
                 } header: { SectionLabel(text: "Voice activity") }
+            }
+
+            Section {
+                Picker("Noise suppression", selection: $settings.noiseSuppression) {
+                    ForEach(NoiseSuppressor.Level.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                Toggle("Echo cancellation & auto gain", isOn: $settings.voiceProcessing)
+                MicrophoneModeRow()
+            } header: { SectionLabel(text: "Noise & echo") } footer: {
+                Text("Noise suppression removes hiss, fans and hum before your voice is sent. Echo cancellation uses Apple's voice processing, which also unlocks the system Voice Isolation mic mode: the same machine-learning isolation FaceTime uses, and the closest thing on iOS to Discord's Krisp.")
             }
 
             Section {
@@ -151,6 +174,9 @@ struct AudioSettingsView: View {
         .onChange(of: settings.bitrate) { _, _ in model.applyAudioSettings() }
         .onChange(of: settings.frameMilliseconds) { _, _ in model.applyAudioSettings() }
         .onChange(of: settings.speakerphone) { _, _ in model.applyAudioSettings() }
+        .onChange(of: settings.noiseSuppression) { _, _ in model.applyAudioSettings() }
+        .onChange(of: settings.voiceProcessing) { _, _ in model.applyAudioSettings() }
+        .onChange(of: settings.autoSensitivity) { _, _ in model.applyAudioSettings() }
     }
 
     private var transmitFooter: String {
@@ -158,6 +184,39 @@ struct AudioSettingsView: View {
         case .pushToTalk: return "Nothing is sent until you press the talk button. Best in noisy places."
         case .voiceActivity: return "Mutter opens the mic when it hears you speak. Tune the sensitivity below."
         case .continuous: return "Your mic is always live. Use with a headset."
+        }
+    }
+}
+
+/// Shows the system microphone mode (Standard / Voice Isolation / Wide Spectrum) and opens
+/// the Control Centre picker for it. Voice Isolation is only offered while a voice-processing
+/// audio session is active, i.e. while connected with echo cancellation on.
+struct MicrophoneModeRow: View {
+    @Environment(AppModel.self) private var model
+    @State private var mode = AVCaptureDevice.activeMicrophoneMode
+
+    private var modeName: String {
+        switch mode {
+        case .voiceIsolation: return "Voice Isolation"
+        case .wideSpectrum: return "Wide Spectrum"
+        default: return "Standard"
+        }
+    }
+
+    var body: some View {
+        Button {
+            AVCaptureDevice.showSystemUserInterface(.microphoneModes)
+        } label: {
+            HStack {
+                Text("Microphone mode").foregroundStyle(Theme.ink)
+                Spacer()
+                Text(modeName).foregroundStyle(Theme.muted)
+                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(Theme.muted)
+            }
+        }
+        .disabled(!model.audio.isRunning)
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+            mode = AVCaptureDevice.activeMicrophoneMode
         }
     }
 }

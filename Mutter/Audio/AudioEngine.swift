@@ -38,10 +38,20 @@ final class AudioEngine: VoiceSink {
     private(set) var isRunning = false
     private(set) var lastError: String?
     private(set) var currentRoute: String = ""
+    /// Estimated ambient noise level in dB, tracked while the gate is closed.
+    private(set) var noiseFloorDb: Float = -60
+    /// The threshold the gate is actually using (auto or manual).
+    private(set) var effectiveThresholdDb: Float = -38
 
     // Configuration
     var transmitMode: TransmitMode = .voiceActivity { didSet { updateGate(force: true) } }
     var vadThresholdDb: Float = -38
+    /// Derive the gate threshold from the measured noise floor instead of the manual slider.
+    var autoSensitivity = true
+    /// Apple's voice processing I/O: echo cancellation, automatic gain, and the system
+    /// Voice Isolation mic mode. Changing it rebuilds the audio graph.
+    var useVoiceProcessing = true { didSet { if oldValue != useVoiceProcessing { rebuildIfRunning() } } }
+    var noiseSuppression: NoiseSuppressor.Level = .strong { didSet { processingQueue.async { self.suppressor?.level = self.noiseSuppression } } }
     var bitrate: Int32 = 40_000 { didSet { encoder?.setBitrate(bitrate) } }
     var frameMilliseconds: Int = 20
     var isPushToTalkPressed = false { didSet { updateGate(force: false) } }
@@ -69,6 +79,9 @@ final class AudioEngine: VoiceSink {
     @ObservationIgnored private var sourceNode: AVAudioSourceNode?
     @ObservationIgnored private var levelTick = 0
     @ObservationIgnored private var localVolumes: [UInt32: Float] = [:]
+    @ObservationIgnored private var suppressor: NoiseSuppressor? = NoiseSuppressor()
+    @ObservationIgnored private var floorDb: Float = -60
+    @ObservationIgnored private var openFrames = 0
 
     private static let format48kMono = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000, channels: 1, interleaved: false)!
 
@@ -115,6 +128,7 @@ final class AudioEngine: VoiceSink {
         encoder = nil
         converter = nil
         pending = []
+        processingQueue.async { self.suppressor?.reset() }
         isRunning = false
         gateOpen = false
         isTransmitting = false
@@ -138,8 +152,26 @@ final class AudioEngine: VoiceSink {
         refreshRoute()
     }
 
+    private func rebuildIfRunning() {
+        guard isRunning else { return }
+        stop()
+        start()
+    }
+
     private func buildGraph() throws {
         let input = engine.inputNode
+        // Must happen before the tap is installed and before the engine starts.
+        do {
+            try input.setVoiceProcessingEnabled(useVoiceProcessing)
+        } catch {
+            // Some simulators and devices refuse; carry on without it.
+        }
+        if useVoiceProcessing {
+            input.isVoiceProcessingBypassed = false
+            if #available(iOS 17.0, *) {
+                input.isVoiceProcessingAGCEnabled = true
+            }
+        }
         let hardwareFormat = input.outputFormat(forBus: 0)
         guard hardwareFormat.sampleRate > 0 else { throw NSError(domain: "Mutter", code: 1, userInfo: [NSLocalizedDescriptionKey: "No microphone available."]) }
         converter = AVAudioConverter(from: hardwareFormat, to: AudioEngine.format48kMono)
@@ -191,7 +223,8 @@ final class AudioEngine: VoiceSink {
     }
 
     private func process(_ samples: [Float]) {
-        pending.append(contentsOf: samples)
+        let cleaned = suppressor?.process(samples) ?? samples
+        pending.append(contentsOf: cleaned)
         let frameSize = 48 * frameMilliseconds
         while pending.count >= frameSize {
             let frame = Array(pending[0..<frameSize])
@@ -212,6 +245,17 @@ final class AudioEngine: VoiceSink {
             DispatchQueue.main.async { self.inputLevelDb = level }
         }
 
+        // Noise floor: drops instantly to any quieter frame, rises at ~0.5 dB/s while the gate is closed.
+        if !gateOpen {
+            if db < floorDb { floorDb = db } else { floorDb += 0.01 }
+            floorDb = min(max(floorDb, -80), -20)
+        }
+        let threshold: Float = autoSensitivity ? min(max(floorDb + 12, -60), -15) : vadThresholdDb
+        if levelTick % 5 == 0 {
+            let f = floorDb, t = threshold
+            DispatchQueue.main.async { self.noiseFloorDb = f; self.effectiveThresholdDb = t }
+        }
+
         // Gate decision
         let now = Date().timeIntervalSinceReferenceDate
         var shouldSend: Bool
@@ -221,7 +265,13 @@ final class AudioEngine: VoiceSink {
         case .continuous:
             shouldSend = true
         case .voiceActivity:
-            if db >= vadThresholdDb { lastVoiceAt = now }
+            // Open after two consecutive loud frames (kills single clicks), close 350 ms after the last one.
+            if db >= threshold {
+                openFrames += 1
+                if openFrames >= 2 || gateOpen { lastVoiceAt = now }
+            } else {
+                openFrames = 0
+            }
             shouldSend = now - lastVoiceAt < 0.35
         }
         if isMuted { shouldSend = false }
@@ -298,10 +348,15 @@ final class AudioEngine: VoiceSink {
         let active = Array(streams.values)
         os_unfair_lock_unlock(&streamsLock)
         for s in active { s.mix(into: out, frames: frames, masterGain: outputGain) }
-        // Soft clip
+        // Soft limiter: transparent below 0.8, then rounds off instead of clipping (which sounds like static).
         for i in 0..<frames {
             let v = out[i]
-            if v > 1 { out[i] = 1 } else if v < -1 { out[i] = -1 }
+            let a = abs(v)
+            if a > 0.8 {
+                let over = a - 0.8
+                let limited = 0.8 + 0.2 * (1 - exp(-over / 0.2))
+                out[i] = v < 0 ? -limited : limited
+            }
         }
     }
 

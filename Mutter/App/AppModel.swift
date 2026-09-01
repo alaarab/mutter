@@ -163,6 +163,9 @@ final class AppModel {
         audio.bitrate = Int32(settings.bitrate)
         audio.frameMilliseconds = settings.frameMilliseconds
         audio.useSpeaker = settings.speakerphone
+        audio.noiseSuppression = settings.noiseSuppression
+        audio.autoSensitivity = settings.autoSensitivity
+        audio.useVoiceProcessing = settings.voiceProcessing
     }
 
     // MARK: - Voice controls
