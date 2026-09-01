@@ -48,9 +48,18 @@ struct SettingsView: View {
                 Section {
                     Toggle("Notify me about messages", isOn: $settings.notifyOnMessage)
                     Toggle("Show join and leave notices", isOn: $settings.showPresenceNotices)
+                    Toggle("Hide empty channels", isOn: $settings.hideEmptyChannels)
                     Toggle("Haptic when voice activates", isOn: $settings.hapticsOnTransmit)
                     Toggle("Keep screen awake while connected", isOn: $settings.keepScreenAwake)
                 } header: { SectionLabel(text: "Behaviour") }
+
+                Section {
+                    Picker("Headset button", selection: $settings.headsetButtonAction) {
+                        ForEach(HeadsetAction.allCases) { Text($0.title).tag($0) }
+                    }
+                } header: { SectionLabel(text: "Lock screen & buttons") } footer: {
+                    Text("While connected, the lock screen and Dynamic Island show who's speaking with mute and talk buttons. The play/pause button on AirPods and headsets runs the action above. Add “Push to talk” or “Toggle mute” from Mutter to the Action button or a Shortcut in the Shortcuts app; Siri understands “Push to talk in Mutter” and “Connect to <server> in Mutter”.")
+                }
 
                 Section {
                     LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")

@@ -5,6 +5,7 @@ import MumbleClient
 struct ServerInfoView: View {
     @Environment(AppModel.self) private var model
     @State private var showDisconnect = false
+    @State private var showRegistered = false
 
     private var session: ServerSession { model.session }
     private var info: ServerInfo { session.serverInfo }
@@ -74,6 +75,12 @@ struct ServerInfoView: View {
             } header: { SectionLabel(text: "You") }
 
             Section {
+                Button { showRegistered = true } label: {
+                    Label("Registered users", systemImage: "person.text.rectangle")
+                }
+            } header: { SectionLabel(text: "Accounts") }
+
+            Section {
                 Button(role: .destructive) { showDisconnect = true } label: {
                     Label("Disconnect", systemImage: "phone.down.fill").frame(maxWidth: .infinity)
                 }
@@ -85,6 +92,7 @@ struct ServerInfoView: View {
         .confirmationDialog("Disconnect from this server?", isPresented: $showDisconnect, titleVisibility: .visible) {
             Button("Disconnect", role: .destructive) { model.disconnect() }
         }
+        .sheet(isPresented: $showRegistered) { RegisteredUsersView() }
     }
 
     private func format(_ bytes: UInt64) -> String {

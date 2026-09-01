@@ -38,7 +38,10 @@ app/
     ├── App/                        AppModel (composition root), settings, server store
     ├── Audio/                      AVAudioEngine capture/playback, Opus, jitter buffer, VAD, PTT
     ├── Design/                     Theme tokens, components, HTML message rendering
-    └── Features/                   Servers, Session (tabs + voice bar), Channels, Chat, Settings, Identity
+    ├── Features/                   Servers, Session (tabs + voice bar), Channels, Chat, Settings, Identity
+    ├── LiveActivity/, Intents/     Lock screen presence, App Intents (Siri / Shortcuts / Action button)
+    └── Shared/                     Types compiled into both the app and the widget extension
+MutterWidgets/                      Widget extension: Live Activity + Dynamic Island
 ```
 
 ## First build
@@ -89,10 +92,21 @@ Things most likely to need a touch on first build:
   choose per server. Server certificates are pinned by SHA-256 with a first-contact/changed prompt.
 - Auto-reconnect with backoff after a drop.
 
+- Whisper to people or shout to a channel: pick targets, hold the whisper button or flip the mic
+  into whisper mode.
+- Send photos in chat; they're shrunk to fit the server's image limit.
+- Lock screen and Dynamic Island Live Activity showing the channel and who's speaking, with mute
+  and talk buttons that work without unlocking. Now Playing shows the session too, and the
+  play/pause button on AirPods or a headset toggles mute or talk.
+- App Intents for Siri, Shortcuts and the Action button: connect to a server, toggle mute, push
+  to talk, deafen, disconnect.
+- Registered users list with rename and remove, hide-empty-channels filter.
+
+Full coverage table: `docs/features.md`.
+
 ## Not done yet
 
-- Positional audio, recording, ACL editing, whisper target editor (the protocol pieces exist,
-  there's no UI).
+- Positional audio, recording, ACL and ban list editors, context actions.
 - Exporting a certificate as .p12 (iOS has no API to build PKCS#12 without OpenSSL).
 - iPad split-view layout; the phone layout works on iPad but isn't tailored.
 - App icon artwork (the catalog has an empty slot).

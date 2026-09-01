@@ -41,6 +41,7 @@ targets:
         product: MumbleProtocol
       - package: Opus
         product: Opus
+      - target: MutterWidgets
     info:
       path: Mutter/Resources/Info.plist
       properties:
@@ -71,6 +72,8 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
+        NSSupportsLiveActivities: true
+        NSSupportsLiveActivitiesFrequentUpdates: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.alaarab.mutter
@@ -85,6 +88,25 @@ targets:
       properties:
         keychain-access-groups:
           - $(AppIdentifierPrefix)com.alaarab.mutter
+
+  MutterWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: MutterWidgets
+      - path: Mutter/Shared
+      - path: Mutter/Design/Theme.swift
+    info:
+      path: MutterWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Mutter
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.alaarab.mutter.widgets
+        SWIFT_VERSION: "5.0"
+        INFOPLIST_KEY_CFBundleDisplayName: Mutter
 
 schemes:
   Mutter:

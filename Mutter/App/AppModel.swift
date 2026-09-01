@@ -15,6 +15,9 @@ struct TrustPrompt: Identifiable {
 @MainActor
 @Observable
 final class AppModel {
+    /// Set on init so App Intents (Siri, Shortcuts, Action button, lock screen) can reach the running app.
+    static weak var shared: AppModel?
+
     let settings = AppSettings()
     let servers = ServerStore()
     let client: MumbleClient
@@ -22,6 +25,15 @@ final class AppModel {
 
     private(set) var identities: [ClientIdentity] = IdentityStore.shared.identities
     private(set) var activeServer: SavedServer?
+    /// Registered as voice target 1 on the server; nil means whispering is off.
+    private(set) var whisperTarget: WhisperTarget?
+    /// Route all speech to the whisper target (for voice-activity and always-on modes).
+    var isWhisperMode = false { didSet { syncTransmitTarget() } }
+    private(set) var isWhisperHeld = false
+
+    @ObservationIgnored private let liveActivity = VoiceActivityController()
+    @ObservationIgnored private let remote = RemoteCommands()
+    @ObservationIgnored private var presenceTimer: Timer?
     var trustPrompt: TrustPrompt?
     var toast: SessionNotice?
     var pendingChatScope: MessageScope?
@@ -37,6 +49,7 @@ final class AppModel {
     init() {
         client = MumbleClient()
         client.voiceSink = audio
+        AppModel.shared = self
 
         client.certificateTrust = { [weak self] question in
             await withCheckedContinuation { continuation in
@@ -54,14 +67,35 @@ final class AppModel {
                 self?.servers.setFingerprint(info.sha256Fingerprint, for: endpoint)
             }
         }
-        audio.onEncodedPacket = { [weak self] data, frames, terminator in
-            self?.client.sendAudio(opus: data, frameCount: frames, isTerminator: terminator)
+        let client = self.client
+        audio.onEncodedPacket = { data, frames, terminator, target in
+            client.sendAudio(opus: data, frameCount: frames, isTerminator: terminator, target: target)
         }
         audio.onTransmitChanged = { [weak self] on in
+            Task { @MainActor in
+                guard let self else { return }
+                self.client.setTransmitting(on)
+                if self.settings.hapticsOnTransmit && self.settings.transmitMode == .voiceActivity {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                }
+                self.refreshPresence()
+            }
+        }
+        IntentBridge.shared.handler = { [weak self] action in
             guard let self else { return }
-            self.client.setTransmitting(on)
-            if self.settings.hapticsOnTransmit && self.settings.transmitMode == .voiceActivity {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            switch action {
+            case .toggleMute: self.toggleMute()
+            case .toggleDeafen: self.toggleDeafen()
+            case .toggleTalk: self.toggleTalk()
+            case .disconnect: self.disconnect()
+            }
+        }
+        remote.onToggle = { [weak self] in
+            guard let self else { return }
+            switch self.settings.headsetButtonAction {
+            case .toggleMute: self.toggleMute()
+            case .toggleTalk: self.toggleTalk()
+            case .nothing: break
             }
         }
         applyAudioSettings()
@@ -99,6 +133,9 @@ final class AppModel {
         client.disconnect()
         audio.stop()
         activeServer = nil
+        whisperTarget = nil
+        isWhisperMode = false
+        stopPresence()
     }
 
     /// Called by the root view whenever the session state changes.
@@ -109,9 +146,12 @@ final class AppModel {
             applyAudioSettings()
             audio.start()
             UIApplication.shared.isIdleTimerDisabled = settings.keepScreenAwake
+            if let target = whisperTarget { client.setVoiceTarget(VoiceTargetID(1), entries: target.entries) }
+            startPresence()
         case .disconnected:
             audio.stop()
             UIApplication.shared.isIdleTimerDisabled = false
+            stopPresence()
         default:
             break
         }
@@ -144,6 +184,92 @@ final class AppModel {
         audio.isDeafened = next
         if next { audio.isMuted = true }
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    }
+
+    /// Lock screen / Action button / headset: toggles the talk button in push-to-talk mode,
+    /// otherwise toggles mute.
+    func toggleTalk() {
+        if settings.transmitMode == .pushToTalk {
+            audio.isPushToTalkPressed.toggle()
+            UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+        } else {
+            toggleMute()
+        }
+        refreshPresence()
+    }
+
+    // MARK: - Whisper / shout
+
+    func setWhisperTarget(_ target: WhisperTarget?) {
+        whisperTarget = target
+        if let target {
+            client.setVoiceTarget(VoiceTargetID(1), entries: target.entries)
+        } else {
+            isWhisperMode = false
+            isWhisperHeld = false
+        }
+        syncTransmitTarget()
+    }
+
+    /// Hold-to-whisper button: transmits to the whisper target while held, in any transmit mode.
+    func setWhisperHeld(_ held: Bool) {
+        guard whisperTarget != nil, !isMuted else { return }
+        isWhisperHeld = held
+        syncTransmitTarget()
+        if settings.transmitMode == .pushToTalk {
+            audio.isPushToTalkPressed = held
+        }
+    }
+
+    private func syncTransmitTarget() {
+        let whisper = whisperTarget != nil && (isWhisperMode || isWhisperHeld)
+        audio.transmitTarget = whisper ? VoiceTargetID(1) : .normal
+    }
+
+    var isWhisperingNow: Bool { audio.transmitTarget != .normal }
+
+    // MARK: - Lock screen presence (Live Activity + Now Playing)
+
+    private func startPresence() {
+        remote.activate()
+        liveActivity.start(serverName: activeServer?.displayName ?? session.endpoint?.displayString ?? "Mutter", state: presenceState())
+        presenceTimer?.invalidate()
+        presenceTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refreshPresence() }
+        }
+        refreshPresence()
+    }
+
+    private func stopPresence() {
+        presenceTimer?.invalidate()
+        presenceTimer = nil
+        liveActivity.end()
+        remote.deactivate()
+    }
+
+    private func presenceState() -> VoiceActivityAttributes.ContentState {
+        VoiceActivityAttributes.ContentState(
+            channelName: session.myChannel?.name ?? "",
+            speakers: Array(session.talkingUsers.filter { $0.session != session.mySession }.map { $0.name }.prefix(4)),
+            isMuted: isMuted,
+            isDeafened: isDeafened,
+            isTransmitting: audio.isTransmitting,
+            onlineCount: session.users.count,
+            isPushToTalk: settings.transmitMode == .pushToTalk,
+            isWhispering: isWhisperingNow
+        )
+    }
+
+    func refreshPresence() {
+        guard session.isConnected else { return }
+        let state = presenceState()
+        liveActivity.update(state)
+        remote.setNowPlaying(
+            server: activeServer?.displayName ?? "Mutter",
+            channel: state.channelName,
+            muted: state.isMuted,
+            speakers: state.speakers
+        )
     }
 
     func setLocalMute(_ user: User, muted: Bool) {

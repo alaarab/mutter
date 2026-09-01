@@ -4,6 +4,7 @@ import MumbleClient
 /// Persistent voice controls shown above the tab strip while connected.
 struct VoiceBar: View {
     @Environment(AppModel.self) private var model
+    @State private var showTargets = false
 
     private var session: ServerSession { model.session }
     private var audio: AudioEngine { model.audio }
@@ -78,6 +79,14 @@ struct VoiceBar: View {
                     )) {
                         ForEach(TransmitMode.allCases) { m in Label(m.title, systemImage: m.symbol).tag(m) }
                     }
+                    Button { showTargets = true } label: {
+                        Label(model.whisperTarget == nil ? "Whisper or shout…" : "Whisper target: \(model.whisperTarget!.title(in: session))", systemImage: "person.wave.2")
+                    }
+                    if model.whisperTarget != nil && model.settings.transmitMode != .pushToTalk {
+                        Toggle(isOn: Binding(get: { model.isWhisperMode }, set: { model.isWhisperMode = $0 })) {
+                            Label("Whisper mode", systemImage: "waveform.badge.mic")
+                        }
+                    }
                     Button(role: .destructive) { model.disconnect() } label: { Label("Disconnect", systemImage: "phone.down.fill") }
                 } label: {
                     Image(systemName: "ellipsis")
@@ -89,10 +98,21 @@ struct VoiceBar: View {
             }
 
             if model.settings.transmitMode == .pushToTalk {
-                PushToTalkButton()
-            } else if model.settings.transmitMode == .voiceActivity {
-                LevelMeter(level: audio.inputLevelDb, threshold: model.settings.vadThresholdDb, active: audio.isTransmitting)
-                    .padding(.horizontal, 2)
+                HStack(spacing: 8) {
+                    PushToTalkButton()
+                    if model.whisperTarget != nil { WhisperHoldButton() }
+                }
+            } else {
+                if model.settings.transmitMode == .voiceActivity {
+                    LevelMeter(level: audio.inputLevelDb, threshold: model.settings.vadThresholdDb, active: audio.isTransmitting)
+                        .padding(.horizontal, 2)
+                }
+                if model.whisperTarget != nil && !model.isWhisperMode { WhisperHoldButton() }
+            }
+            if model.isWhisperingNow, let target = model.whisperTarget {
+                Label("Whispering to \(target.title(in: session))", systemImage: "person.wave.2.fill")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(Theme.whisper)
             }
             if let error = audio.lastError {
                 Text(error).font(.caption2).foregroundStyle(Theme.danger)
@@ -100,6 +120,7 @@ struct VoiceBar: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+        .sheet(isPresented: $showTargets) { VoiceTargetsSheet() }
     }
 
     private var statusLine: String {
@@ -111,6 +132,39 @@ struct VoiceBar: View {
         case .voiceActivity: return "Listening for your voice"
         case .continuous: return "Always transmitting"
         }
+    }
+}
+
+/// Hold to send your voice to the whisper/shout target instead of the channel.
+struct WhisperHoldButton: View {
+    @Environment(AppModel.self) private var model
+    @State private var pressed = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "person.wave.2.fill").font(.system(size: 15, weight: .semibold))
+            Text(model.isWhisperHeld ? "Whispering" : "Whisper").font(.system(.subheadline, weight: .semibold))
+        }
+        .foregroundStyle(model.isWhisperHeld ? .white : Theme.whisper)
+        .padding(.horizontal, 14)
+        .frame(height: 48)
+        .background(model.isWhisperHeld ? Theme.whisper : Theme.whisper.opacity(0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    if !pressed {
+                        pressed = true
+                        model.setWhisperHeld(true)
+                        UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+                    }
+                }
+                .onEnded { _ in
+                    pressed = false
+                    model.setWhisperHeld(false)
+                }
+        )
+        .accessibilityLabel("Hold to whisper")
     }
 }
 
