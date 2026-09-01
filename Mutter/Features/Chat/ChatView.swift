@@ -1,0 +1,242 @@
+import SwiftUI
+import MumbleProtocol
+import MumbleClient
+
+struct ChatView: View {
+    @Environment(AppModel.self) private var model
+    var onUser: (UInt32) -> Void
+
+    @State private var draft = ""
+    @State private var customScope: MessageScope?
+    @FocusState private var composerFocused: Bool
+
+    private var session: ServerSession { model.session }
+
+    private var scope: MessageScope {
+        if let customScope, isValid(customScope) { return customScope }
+        return .channel(session.me?.channelID ?? Channel.rootID)
+    }
+
+    private func isValid(_ s: MessageScope) -> Bool {
+        switch s {
+        case .channel(let id), .tree(let id): return session.channels[id] != nil
+        case .user(let id): return session.users[id] != nil
+        case .system: return false
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        if session.messages.isEmpty {
+                            EmptyState(symbol: "bubble.left.and.bubble.right", title: "No messages yet", message: "Messages sent to your channel, or directly to you, show up here.")
+                                .padding(.top, 40)
+                        }
+                        ForEach(session.messages) { message in
+                            MessageRow(message: message, onUser: onUser)
+                                .id(message.id)
+                        }
+                        Color.clear.frame(height: 1).id("bottom")
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                }
+                .scrollDismissesKeyboard(.interactively)
+                .onChange(of: session.messages.count, initial: true) { _, _ in
+                    withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) }
+                }
+                .onChange(of: composerFocused) { _, focused in
+                    if focused { proxy.scrollTo("bottom", anchor: .bottom) }
+                }
+            }
+            composer
+        }
+        .background(Theme.background)
+        .onChange(of: model.pendingChatScope, initial: true) { _, pending in
+            if let pending {
+                customScope = pending
+                model.pendingChatScope = nil
+                composerFocused = true
+            }
+        }
+    }
+
+    // MARK: Composer
+
+    private var composer: some View {
+        VStack(spacing: 6) {
+            Divider().overlay(Theme.separator)
+            HStack(alignment: .bottom, spacing: 8) {
+                Menu {
+                    Section("Send to") {
+                        if let mine = session.myChannel {
+                            Button { customScope = nil } label: { Label("#\(mine.name) (your channel)", systemImage: "number") }
+                            if !session.children(of: mine.id).isEmpty {
+                                Button { customScope = .tree(mine.id) } label: { Label("#\(mine.name) and sub-channels", systemImage: "arrow.triangle.branch") }
+                            }
+                        }
+                        let others = session.users.values.filter { $0.session != session.mySession }.sorted { $0.name < $1.name }
+                        if !others.isEmpty {
+                            Menu("Direct message") {
+                                ForEach(others) { u in
+                                    Button { customScope = .user(u.session) } label: { Text(u.name) }
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: scopeSymbol).font(.caption.weight(.bold))
+                        Text(scopeTitle).font(.caption.weight(.semibold)).lineLimit(1)
+                        Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .bold))
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .foregroundStyle(scopeColor)
+                    .background(scopeColor.opacity(0.12), in: Capsule())
+                }
+
+                TextField("Message", text: $draft, axis: .vertical)
+                    .lineLimit(1...5)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Theme.surfaceSunken, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .focused($composerFocused)
+                    .onSubmit { send() }
+
+                Button(action: send) {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 34, height: 34)
+                        .background(canSend ? Theme.coral : Theme.muted, in: Circle())
+                }
+                .disabled(!canSend)
+                .accessibilityLabel("Send")
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
+        }
+        .background(Theme.background)
+    }
+
+    private var canSend: Bool {
+        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && session.isConnected
+    }
+
+    private var scopeTitle: String {
+        switch scope {
+        case .channel(let id): return session.channels[id]?.name ?? "Channel"
+        case .tree(let id): return "\(session.channels[id]?.name ?? "Channel") +subs"
+        case .user(let id): return session.users[id]?.name ?? "User"
+        case .system: return "System"
+        }
+    }
+
+    private var scopeSymbol: String {
+        switch scope {
+        case .channel: return "number"
+        case .tree: return "arrow.triangle.branch"
+        case .user: return "person.fill"
+        case .system: return "info.circle"
+        }
+    }
+
+    private var scopeColor: Color {
+        if case .user = scope { return Theme.whisper }
+        return Theme.coral
+    }
+
+    private func send() {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        model.client.sendText(html: HTMLText.htmlFromPlain(text), to: scope)
+        draft = ""
+    }
+}
+
+struct MessageRow: View {
+    @Environment(AppModel.self) private var model
+    var message: ChatMessage
+    var onUser: (UInt32) -> Void
+
+    private var rendered: HTMLText.Rendered { HTMLText.render(message.html) }
+
+    var body: some View {
+        if message.isSystem {
+            VStack(spacing: 4) {
+                Text(rendered.text)
+                    .font(.footnote)
+                    .foregroundStyle(Theme.muted)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                images
+            }
+        } else {
+            HStack(alignment: .top, spacing: 8) {
+                if message.isOwn { Spacer(minLength: 40) } else {
+                    Button { if let s = message.senderSession { onUser(s) } } label: {
+                        Avatar(name: message.senderName, texture: model.session.users[message.senderSession ?? 0]?.texture, size: 30)
+                    }
+                    .buttonStyle(.plain)
+                }
+                VStack(alignment: message.isOwn ? .trailing : .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        if !message.isOwn {
+                            Text(message.senderName).font(.caption.weight(.semibold)).foregroundStyle(Theme.ink)
+                        }
+                        scopeTag
+                        Text(message.date, style: .time).font(.caption2).foregroundStyle(Theme.muted)
+                    }
+                    Text(rendered.text)
+                        .font(.body)
+                        .foregroundStyle(message.isOwn ? .white : Theme.ink)
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            message.isOwn ? Theme.coral : Theme.surface,
+                            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .strokeBorder(message.isOwn ? Color.clear : Theme.separator, lineWidth: 1)
+                        )
+                    images
+                }
+                if !message.isOwn { Spacer(minLength: 40) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var scopeTag: some View {
+        switch message.scope {
+        case .user:
+            Pill(text: "DM", symbol: "lock.fill", color: Theme.whisper)
+        case .tree(let id):
+            Pill(text: "#\(model.session.channels[id]?.name ?? "") +subs", color: Theme.muted)
+        case .channel(let id):
+            if id != model.session.me?.channelID {
+                Pill(text: "#\(model.session.channels[id]?.name ?? "")", color: Theme.muted)
+            }
+        case .system:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private var images: some View {
+        ForEach(Array(rendered.images.enumerated()), id: \.offset) { _, image in
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: 260, maxHeight: 260)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+    }
+}
