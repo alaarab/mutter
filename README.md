@@ -77,6 +77,9 @@ Things most likely to need a touch on first build:
   automatic return when it comes back. Crypt resync on decode stalls.
 - Push-to-talk (hold or toggle), voice activity with a live meter and adjustable threshold, or always on.
 - Opus 16–96 kbit/s, 10–60 ms packets, in-band FEC, per-user jitter buffer with packet-loss concealment.
+- Clean audio: Apple voice processing (echo cancellation, auto gain, and the system Voice
+  Isolation mic mode), a built-in spectral noise suppressor for hiss and fans, a voice gate that
+  adapts to the room's noise floor, and fade/limiter on playback so nothing clicks or crackles.
 - Bluetooth/AirPods routing, speakerphone toggle, echo cancellation via the voice-chat audio mode,
   background audio so calls keep running with the screen off.
 - Channel tree that collapses, remembers what you collapsed, shows live speaking rings and user

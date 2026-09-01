@@ -20,6 +20,9 @@ final class UserStream {
     private var lastFrameNumber: UInt64 = 0
     private var lastPacketAt = Date()
     private var lock = os_unfair_lock()
+    /// Ramp applied at stream start so the first samples don't click.
+    private var fadeIn = 0
+    private let rampSamples = 96
 
     private let prebufferSamples: Int
     private let capacity: Int
@@ -78,7 +81,10 @@ final class UserStream {
             writeIndex = (writeIndex + 1) % capacity
             available += 1
         }
-        if !started && available >= prebufferSamples { started = true }
+        if !started && available >= prebufferSamples {
+            started = true
+            fadeIn = rampSamples
+        }
     }
 
     // MARK: Render side
@@ -96,11 +102,23 @@ final class UserStream {
             return 0
         }
         let gain = volume * masterGain
+        // If this call drains the buffer, fade the tail out so the coming silence doesn't click.
+        let draining = n < frames || available - n < 48
+        let rampOut = draining ? min(n, rampSamples) : 0
         for i in 0..<n {
-            out[i] += ring[readIndex] * gain
+            var g = gain
+            if fadeIn > 0 {
+                g *= Float(rampSamples - fadeIn) / Float(rampSamples)
+                fadeIn -= 1
+            }
+            if rampOut > 0 && i >= n - rampOut {
+                g *= Float(n - i) / Float(rampOut)
+            }
+            out[i] += ring[readIndex] * g
             readIndex = (readIndex + 1) % capacity
         }
         available -= n
+        if n < frames { started = false }
         return n
     }
 
@@ -110,6 +128,7 @@ final class UserStream {
         writeIndex = 0
         available = 0
         started = false
+        fadeIn = 0
         os_unfair_lock_unlock(&lock)
         decoder.reset()
         lastFrameNumber = 0
