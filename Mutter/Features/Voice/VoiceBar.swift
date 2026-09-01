@@ -19,6 +19,7 @@ struct VoiceBar: View {
                             .font(.label)
                             .foregroundStyle(Theme.ink)
                             .lineLimit(1)
+                            .truncationMode(.tail)
                     }
                     HStack(spacing: -6) {
                         ForEach(session.talkingUsers.prefix(5)) { u in
@@ -38,7 +39,8 @@ struct VoiceBar: View {
                         }
                     }
                 }
-                Spacer(minLength: 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .layoutPriority(-1)
 
                 RoundIconButton(
                     symbol: model.isMuted ? "mic.slash.fill" : "mic.fill",

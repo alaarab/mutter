@@ -38,22 +38,20 @@ struct SessionView: View {
     private var session: ServerSession { model.session }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            VStack(spacing: 0) {
-                header
-                content
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                dock
-            }
-            .background(Theme.background.ignoresSafeArea())
-
-            if let toast = model.toast {
-                ToastView(notice: toast)
-                    .padding(.top, 8)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .zIndex(2)
-            }
+        VStack(spacing: 0) {
+            header
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay(alignment: .bottom) {
+                    if let toast = model.toast {
+                        ToastView(notice: toast)
+                            .padding(.bottom, 10)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+            dock
         }
+        .background(Theme.background.ignoresSafeArea())
         .animation(.snappy, value: model.toast)
         .sheet(item: $userSheet) { id in UserSheet(sessionID: id.id) }
         .sheet(item: $channelSheet) { id in ChannelSheet(channelID: id.id) }

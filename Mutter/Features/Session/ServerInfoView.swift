@@ -54,10 +54,11 @@ struct ServerInfoView: View {
                     if let exp = cert.notValidAfter { LabeledContent("Expires", value: exp.formatted(date: .abbreviated, time: .omitted)) }
                     VStack(alignment: .leading, spacing: 4) {
                         Text("SHA-256 fingerprint").foregroundStyle(Theme.ink)
-                        Text(cert.fingerprintDisplay)
-                            .font(.system(.caption2, design: .monospaced))
+                        Text(cert.wrappedFingerprint)
+                            .font(.system(size: 12, design: .monospaced))
                             .foregroundStyle(Theme.muted)
                             .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 } header: { SectionLabel(text: "Certificate") }
             }
