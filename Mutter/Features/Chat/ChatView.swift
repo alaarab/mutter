@@ -218,15 +218,18 @@ struct MessageRow: View {
                 VStack(alignment: message.isOwn ? .trailing : .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         if !message.isOwn {
-                            Text(message.senderName).font(.caption.weight(.semibold)).foregroundStyle(Theme.ink)
+                            Text(message.senderName).font(.caption.weight(.semibold)).foregroundStyle(Theme.ink).lineLimit(1)
                         }
                         scopeTag
                         Text(message.date, style: .time).font(.caption2).foregroundStyle(Theme.muted)
                     }
+                    .frame(maxWidth: 300, alignment: message.isOwn ? .trailing : .leading)
                     Text(rendered.text)
                         .font(.body)
                         .foregroundStyle(message.isOwn ? .white : Theme.ink)
                         .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: 300, alignment: .leading)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .background(

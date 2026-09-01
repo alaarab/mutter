@@ -130,20 +130,17 @@ struct HomeView: View {
                         .font(.display(18))
                         .foregroundStyle(Theme.ink)
                         .lineLimit(1)
-                    HStack(spacing: 6) {
-                        Text(server.endpoint.displayString)
-                        if !server.username.isEmpty {
-                            Text("·")
-                            Text(server.username)
-                        }
-                    }
-                    .font(.caption)
-                    .foregroundStyle(Theme.muted)
-                    .lineLimit(1)
+                    Text(server.username.isEmpty ? server.endpoint.displayString : "\(server.endpoint.displayString) · \(server.username)")
+                        .font(.caption)
+                        .foregroundStyle(Theme.muted)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 Spacer(minLength: 8)
                 if let status {
                     VStack(alignment: .trailing, spacing: 4) {
+                        Spacer(minLength: 0)
                         Pill(text: "\(status.users)/\(status.maxUsers)", symbol: "person.2.fill", color: status.users > 0 ? Theme.speaking : Theme.muted)
                         HStack(spacing: 4) {
                             StatusDot(color: latencyColor(status.latencyMs))

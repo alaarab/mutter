@@ -230,6 +230,8 @@ struct UserRow: View {
                         .font(.system(.subheadline, weight: isMe ? .semibold : .regular))
                         .foregroundStyle(user.isSilenced ? Theme.muted : Theme.ink)
                         .lineLimit(1)
+                        .truncationMode(.tail)
+                        .layoutPriority(1)
                     if isMe { Text("you").font(.caption2).foregroundStyle(Theme.muted) }
                     if user.isPrioritySpeaker { Image(systemName: "star.fill").font(.caption2).foregroundStyle(Theme.warning) }
                     if user.isRecording { Image(systemName: "record.circle").font(.caption2).foregroundStyle(Theme.danger) }
@@ -249,7 +251,7 @@ struct UserRow: View {
             }
         }
         .padding(.leading, CGFloat(depth) * 18 + 12)
-        .padding(.vertical, 3)
+        .padding(.vertical, 5)
         .contentShape(Rectangle())
         .onTapGesture { onUser(user) }
         .listRowSeparator(.hidden)

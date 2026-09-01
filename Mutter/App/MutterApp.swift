@@ -4,6 +4,20 @@ import SwiftUI
 struct MutterApp: App {
     @State private var model = AppModel()
 
+    init() {
+        // Serif display type for navigation titles, matching the server and channel names.
+        let large = UINavigationBarAppearance()
+        large.configureWithTransparentBackground()
+        if let serif = UIFontDescriptor.preferredFontDescriptor(withTextStyle: .largeTitle).withDesign(.serif) {
+            large.largeTitleTextAttributes = [.font: UIFont(descriptor: serif, size: 34)]
+        }
+        if let serifTitle = UIFontDescriptor.preferredFontDescriptor(withTextStyle: .headline).withDesign(.serif) {
+            large.titleTextAttributes = [.font: UIFont(descriptor: serifTitle, size: 18)]
+        }
+        UINavigationBar.appearance().standardAppearance = large
+        UINavigationBar.appearance().scrollEdgeAppearance = large
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()
