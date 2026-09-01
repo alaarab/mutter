@@ -878,6 +878,25 @@ public final class MumbleClient {
         queue.async { self.send(UserListMessage()) }
     }
 
+    /// Renames a registered account (needs the Register permission on the root channel).
+    public func renameRegisteredUser(id: UInt32, name: String) {
+        queue.async {
+            var list = UserListMessage()
+            list.users = [RegisteredUser(userId: id, name: name)]
+            self.send(list)
+        }
+    }
+
+    /// Deletes a registered account. Sending an entry without a name removes it.
+    public func removeRegisteredUser(id: UInt32) {
+        queue.async {
+            var list = UserListMessage()
+            list.users = [RegisteredUser(userId: id)]
+            self.send(list)
+            self.ui { s in s.registeredUsers.removeAll { $0.userId == id } }
+        }
+    }
+
     /// Registers a whisper/shout target the audio engine can then transmit to with `target`.
     public func setVoiceTarget(_ id: VoiceTargetID, entries: [VoiceTargetEntry]) {
         queue.async { self.send(VoiceTargetMessage(id: UInt32(id.rawValue), targets: entries)) }

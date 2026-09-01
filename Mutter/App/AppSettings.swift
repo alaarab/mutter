@@ -21,6 +21,18 @@ enum Appearance: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+enum HeadsetAction: String, CaseIterable, Identifiable, Codable {
+    case toggleMute, toggleTalk, nothing
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .toggleMute: return "Toggle mute"
+        case .toggleTalk: return "Push to talk (toggle)"
+        case .nothing: return "Do nothing"
+        }
+    }
+}
+
 enum PushToTalkStyle: String, CaseIterable, Identifiable, Codable {
     case hold, toggle
     var id: String { rawValue }
@@ -46,6 +58,8 @@ final class AppSettings {
     var hapticsOnTransmit: Bool { didSet { defaults.set(hapticsOnTransmit, forKey: "hapticsOnTransmit") } }
     var defaultIdentityID: UUID? { didSet { defaults.set(defaultIdentityID?.uuidString, forKey: "defaultIdentityID") } }
     var hasSeenWelcome: Bool { didSet { defaults.set(hasSeenWelcome, forKey: "hasSeenWelcome") } }
+    var hideEmptyChannels: Bool { didSet { defaults.set(hideEmptyChannels, forKey: "hideEmptyChannels") } }
+    var headsetButtonAction: HeadsetAction { didSet { defaults.set(headsetButtonAction.rawValue, forKey: "headsetButtonAction") } }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -63,5 +77,7 @@ final class AppSettings {
         hapticsOnTransmit = defaults.object(forKey: "hapticsOnTransmit") as? Bool ?? true
         defaultIdentityID = defaults.string(forKey: "defaultIdentityID").flatMap(UUID.init(uuidString:))
         hasSeenWelcome = defaults.bool(forKey: "hasSeenWelcome")
+        hideEmptyChannels = defaults.bool(forKey: "hideEmptyChannels")
+        headsetButtonAction = HeadsetAction(rawValue: defaults.string(forKey: "headsetButtonAction") ?? "") ?? .toggleMute
     }
 }

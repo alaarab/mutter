@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 import MumbleProtocol
 import MumbleClient
 
@@ -8,6 +9,9 @@ struct ChatView: View {
 
     @State private var draft = ""
     @State private var customScope: MessageScope?
+    @State private var photoItem: PhotosPickerItem?
+    @State private var sendingImage = false
+    @State private var imageError: String?
     @FocusState private var composerFocused: Bool
 
     private var session: ServerSession { model.session }
@@ -61,6 +65,28 @@ struct ChatView: View {
                 composerFocused = true
             }
         }
+        .onChange(of: photoItem) { _, item in
+            guard let item else { return }
+            Task { await sendImage(item) }
+        }
+    }
+
+    private func sendImage(_ item: PhotosPickerItem) async {
+        sendingImage = true
+        defer { sendingImage = false; photoItem = nil }
+        guard let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data) else {
+            imageError = "Couldn't read that photo."
+            return
+        }
+        let limit = Int(session.serverInfo.imageMessageLength ?? UInt32(ImageMessageEncoder.defaultLimit))
+        let target = scope
+        let html = await Task.detached(priority: .userInitiated) { ImageMessageEncoder.html(for: image, limit: limit) }.value
+        guard let html else {
+            imageError = "That photo is too large for this server, even after shrinking it."
+            return
+        }
+        imageError = nil
+        model.client.sendText(html: html, to: target)
     }
 
     // MARK: Composer
@@ -68,7 +94,12 @@ struct ChatView: View {
     private var composer: some View {
         VStack(spacing: 6) {
             Divider().overlay(Theme.separator)
+            if let imageError {
+                Text(imageError).font(.caption).foregroundStyle(Theme.danger).padding(.horizontal, 12)
+            }
             HStack(alignment: .bottom, spacing: 8) {
+                AttachImageButton(selection: $photoItem, busy: sendingImage)
+
                 Menu {
                     Section("Send to") {
                         if let mine = session.myChannel {

@@ -622,6 +622,13 @@ public struct RegisteredUser: Hashable, Sendable {
     public var name: String?
     public var lastSeen: String?
     public var lastChannel: UInt32?
+
+    public init(userId: UInt32, name: String? = nil, lastSeen: String? = nil, lastChannel: UInt32? = nil) {
+        self.userId = userId
+        self.name = name
+        self.lastSeen = lastSeen
+        self.lastChannel = lastChannel
+    }
 }
 
 public struct UserListMessage: DecodableControlMessage, Sendable {

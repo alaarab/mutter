@@ -49,9 +49,11 @@ final class AudioEngine: VoiceSink {
     var isDeafened = false
     var outputGain: Float = 1.0
     var useSpeaker = false { didSet { applyOutputRoute() } }
+    /// Voice target for outgoing packets: `.normal` for the channel, 1 for the whisper/shout target.
+    var transmitTarget: VoiceTargetID = .normal
 
     /// Encoded packets ready for the network. Called on the audio processing queue.
-    var onEncodedPacket: ((Data, Int, Bool) -> Void)?
+    var onEncodedPacket: ((Data, Int, Bool, VoiceTargetID) -> Void)?
     var onTransmitChanged: ((Bool) -> Void)?
 
     @ObservationIgnored private let engine = AVAudioEngine()
@@ -243,7 +245,7 @@ final class AudioEngine: VoiceSink {
         } catch {
             return
         }
-        onEncodedPacket?(packet, frame.count / 480, terminator)
+        onEncodedPacket?(packet, frame.count / 480, terminator, transmitTarget)
         if terminator { encoder.reset() }
     }
 

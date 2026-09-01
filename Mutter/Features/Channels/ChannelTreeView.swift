@@ -25,6 +25,13 @@ struct ChannelTreeView: View {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.muted)
                     }
                     .buttonStyle(.plain)
+                } else {
+                    Button { model.settings.hideEmptyChannels.toggle() } label: {
+                        Image(systemName: model.settings.hideEmptyChannels ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                            .foregroundStyle(model.settings.hideEmptyChannels ? Theme.coral : Theme.muted)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(model.settings.hideEmptyChannels ? "Show empty channels" : "Hide empty channels")
                 }
             }
             .padding(.horizontal, 12)
@@ -92,9 +99,21 @@ struct ChannelNode: View {
             ForEach(session.users(in: channel.id)) { user in
                 UserRow(user: user, depth: depth + 1, showChannel: false, onUser: onUser)
             }
-            ForEach(session.children(of: channel.id)) { child in
+            ForEach(visibleChildren(session)) { child in
                 ChannelNode(channel: child, depth: depth + 1, onUser: onUser, onChannel: onChannel)
             }
+        }
+    }
+}
+
+extension ChannelNode {
+    /// With "hide empty channels" on, skip sub-trees nobody is in (but never the one we're in).
+    func visibleChildren(_ session: ServerSession) -> [Channel] {
+        let children = session.children(of: channel.id)
+        guard model.settings.hideEmptyChannels else { return children }
+        let mine = session.me?.channelID
+        return children.filter { child in
+            session.userCount(inTree: child.id) > 0 || session.path(to: mine ?? Channel.rootID).contains { $0.id == child.id }
         }
     }
 }
