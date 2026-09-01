@@ -1,0 +1,463 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; -webkit-font-smoothing: antialiased; }
+  body { margin: 0; background: #d8d4cc; font-family: "Liberation Sans", "DejaVu Sans", system-ui, sans-serif; }
+  .stage { display: flex; flex-wrap: wrap; gap: 40px; padding: 40px; }
+
+  .phone {
+    position: relative; width: 390px; height: 844px; overflow: hidden; border-radius: 48px;
+    box-shadow: 0 0 0 10px #111, 0 0 0 12px #333, 0 30px 60px rgba(0,0,0,.35);
+    font-size: 17px; line-height: 1.25;
+    --bg:#FAF9F5; --surface:#FFFFFF; --elev:#EFE9DE; --sunken:#F2EFE8; --sep:#E6DFD8;
+    --ink:#141413; --body:#3D3D3A; --muted:#6C6A64;
+    --coral:#CC785C; --green:#5DB872; --amber:#D4A017; --red:#C64545; --indigo:#7B8CDE;
+    background: var(--bg); color: var(--ink);
+  }
+  .phone.dark {
+    --bg:#181715; --surface:#252320; --elev:#2E2B27; --sunken:#1F1D1A; --sep:#3A3733;
+    --ink:#FAF9F5; --body:#D9D5CC; --muted:#9A968D;
+  }
+  .serif { font-family: "Liberation Serif", "DejaVu Serif", Georgia, serif; }
+  .mono { font-family: "DejaVu Sans Mono", monospace; }
+
+  /* status bar + home indicator */
+  .statusbar { height: 54px; display: flex; align-items: flex-end; justify-content: space-between; padding: 0 30px 8px; font-weight: 600; font-size: 15px; }
+  .statusbar .right { display: flex; gap: 6px; align-items: center; }
+  .dynisland { position: absolute; top: 11px; left: 50%; transform: translateX(-50%); width: 122px; height: 36px; background: #000; border-radius: 20px; }
+  .homebar { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); width: 134px; height: 5px; border-radius: 3px; background: var(--ink); opacity: .9; }
+
+  /* nav */
+  .navbar { display: flex; align-items: center; justify-content: space-between; padding: 6px 16px 0; height: 44px; }
+  .navbar .icons { display: flex; gap: 18px; color: var(--coral); }
+  .largetitle { padding: 6px 20px 8px; font-size: 34px; font-weight: 700; letter-spacing: -.5px; }
+  .icon { width: 22px; height: 22px; display: inline-block; vertical-align: middle; }
+  .icon svg { width: 100%; height: 100%; display: block; }
+
+  /* grouped list */
+  .grouped { padding: 0 16px; }
+  .sectionlabel { font-size: 12px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--muted); margin: 18px 4px 8px; }
+  .group { background: var(--surface); border-radius: 12px; border: 1px solid var(--sep); overflow: hidden; }
+  .row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; }
+  .row + .row { border-top: 1px solid var(--sep); }
+  .avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: 14px; flex: none; position: relative; }
+  .avatar.sq { border-radius: 12px; width: 44px; height: 44px; font-size: 16px; }
+  .title { font-size: 18px; }
+  .sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .grow { flex: 1; min-width: 0; }
+  .pill { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; padding: 4px 8px; border-radius: 999px; }
+  .pill.green { color: var(--green); background: rgba(93,184,114,.14); }
+  .pill.muted { color: var(--muted); background: rgba(108,106,100,.14); }
+  .pill.amber { color: var(--amber); background: rgba(212,160,23,.14); }
+  .pill.indigo { color: var(--indigo); background: rgba(123,140,222,.14); }
+  .pill.coral { color: var(--coral); background: rgba(204,120,92,.14); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .stack-r { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; font-size: 11px; color: var(--muted); }
+
+  /* session header */
+  .sheader { display: flex; align-items: center; gap: 12px; padding: 10px 16px; }
+  .circlebtn { width: 36px; height: 36px; border-radius: 50%; background: var(--elev); display: flex; align-items: center; justify-content: center; color: var(--ink); flex: none; }
+  .sheader .name { font-size: 20px; font-weight: 500; }
+  .sheader .state { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  /* search */
+  .search { margin: 0 16px 6px; display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: var(--sunken); border-radius: 12px; color: var(--muted); font-size: 16px; }
+
+  /* tree */
+  .tree { padding: 2px 16px; }
+  .ch { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 10px; }
+  .ch.mine { background: rgba(204,120,92,.10); }
+  .ch .chev { width: 20px; color: var(--muted); font-size: 11px; text-align: center; }
+  .ch .hash { width: 16px; color: var(--muted); font-weight: 700; text-align: center; }
+  .ch.mine .hash { color: var(--coral); }
+  .ch .cname { flex: 1; font-weight: 500; }
+  .ch.mine .cname { font-weight: 600; }
+  .count { font-size: 12px; font-weight: 600; color: var(--muted); background: var(--elev); padding: 2px 7px; border-radius: 999px; }
+  .join { width: 22px; height: 22px; color: var(--coral); }
+  .usr { display: flex; align-items: center; gap: 10px; padding: 4px 8px; }
+  .usr .avatar { width: 30px; height: 30px; font-size: 12px; }
+  .usr .uname { font-size: 15px; }
+  .usr .ustate { font-size: 11px; color: var(--green); margin-top: 1px; }
+  .usr .you { font-size: 11px; color: var(--muted); margin-left: 5px; }
+  .talk::before { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2.5px solid var(--green); }
+  .talk.wh::before { border-color: var(--indigo); }
+  .badge { position: absolute; right: -3px; bottom: -3px; width: 14px; height: 14px; border-radius: 50%; background: var(--muted); border: 1.5px solid var(--bg); display: flex; align-items: center; justify-content: center; }
+  .badge.red { background: var(--red); }
+  .badge svg { width: 8px; height: 8px; }
+
+  /* dock */
+  .dock { position: absolute; left: 0; right: 0; bottom: 0; background: var(--surface); border-top: 1px solid var(--sep); padding-bottom: 22px; }
+  .voicebar { padding: 10px 14px 8px; }
+  .voicebar .top { display: flex; align-items: center; gap: 10px; }
+  .voicebar .chan { font-size: 15px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
+  .voicebar .chan .hash { color: var(--coral); font-weight: 700; font-size: 12px; }
+  .voicebar .talkers { display: flex; align-items: center; margin-top: 3px; font-size: 11px; color: var(--green); }
+  .voicebar .talkers .avatar { width: 18px; height: 18px; font-size: 8px; margin-right: -6px; border: 1.5px solid var(--surface); }
+  .voicebar .talkers span { margin-left: 14px; }
+  .rb { width: 42px; height: 42px; border-radius: 50%; background: var(--elev); display: flex; align-items: center; justify-content: center; color: var(--ink); flex: none; position: relative; }
+  .rb.active { background: var(--red); color: #fff; }
+  .rb.tx::after { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 2.5px solid var(--green); }
+  .meter { margin: 10px 2px 0; height: 6px; border-radius: 3px; background: var(--sep); position: relative; }
+  .meter .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--green); }
+  .meter .thr { position: absolute; top: -1px; bottom: -1px; width: 2px; background: var(--coral); }
+  .ptt { margin-top: 10px; height: 48px; border-radius: 14px; background: var(--elev); display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; font-size: 15px; }
+  .ptt.on { background: var(--green); color: #fff; }
+  .tabs { display: flex; padding: 4px 0 0; }
+  .tab { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 0; font-size: 10px; font-weight: 500; color: var(--muted); position: relative; }
+  .tab.on { color: var(--coral); }
+  .tab .icon { width: 24px; height: 24px; }
+  .unread { position: absolute; top: 0; left: calc(50% + 6px); background: var(--coral); color: #fff; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 999px; }
+
+  /* chat */
+  .msgs { padding: 8px 12px; display: flex; flex-direction: column; gap: 12px; }
+  .sys { text-align: center; font-size: 13px; color: var(--muted); padding: 6px 20px; }
+  .msg { display: flex; gap: 8px; align-items: flex-start; }
+  .msg .avatar { width: 30px; height: 30px; font-size: 12px; }
+  .msg .meta { display: flex; gap: 6px; align-items: center; font-size: 12px; margin-bottom: 3px; }
+  .msg .meta b { color: var(--ink); }
+  .msg .meta span { color: var(--muted); font-size: 11px; }
+  .bubble { padding: 8px 12px; border-radius: 16px; background: var(--surface); border: 1px solid var(--sep); max-width: 270px; font-size: 16px; }
+  .msg.own { justify-content: flex-end; }
+  .msg.own .col { align-items: flex-end; display: flex; flex-direction: column; }
+  .msg.own .bubble { background: var(--coral); color: #fff; border-color: transparent; }
+  .link { color: var(--coral); text-decoration: underline; }
+  .composer { position: absolute; left: 0; right: 0; bottom: 0; padding: 8px 12px 30px; background: var(--bg); border-top: 1px solid var(--sep); display: flex; gap: 8px; align-items: flex-end; }
+  .scope { display: flex; align-items: center; gap: 4px; padding: 8px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--coral); background: rgba(204,120,92,.12); white-space: nowrap; }
+  .field { flex: 1; background: var(--sunken); border-radius: 18px; padding: 9px 12px; color: var(--muted); font-size: 16px; }
+  .send { width: 34px; height: 34px; border-radius: 50%; background: var(--muted); color: #fff; display: flex; align-items: center; justify-content: center; flex: none; }
+  .send.on { background: var(--coral); }
+
+  /* sheets */
+  .dim { position: absolute; inset: 0; background: rgba(0,0,0,.45); }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; top: 60px; background: var(--bg); border-radius: 16px 16px 0 0; box-shadow: 0 -10px 40px rgba(0,0,0,.3); }
+  .grabber { width: 36px; height: 5px; border-radius: 3px; background: var(--sep); margin: 6px auto 0; }
+  .sheetnav { display: flex; justify-content: flex-end; padding: 8px 16px 0; color: var(--coral); font-weight: 600; }
+  .toggle { width: 51px; height: 31px; border-radius: 16px; background: var(--sep); position: relative; flex: none; }
+  .toggle::after { content: ""; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,.25); }
+  .toggle.on { background: var(--green); }
+  .toggle.on::after { left: 22px; }
+  .slider { position: relative; height: 4px; background: var(--sep); border-radius: 2px; margin: 12px 0 4px; }
+  .slider .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--coral); border-radius: 2px; }
+  .slider .knob { position: absolute; top: -12px; width: 28px; height: 28px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.3); }
+  .kv { display: flex; justify-content: space-between; padding: 12px 14px; font-size: 16px; }
+  .kv + .kv { border-top: 1px solid var(--sep); }
+  .kv span:last-child { color: var(--muted); }
+  .rowlabel { display: flex; align-items: center; gap: 12px; }
+  .rowlabel .icon { color: var(--coral); }
+  .danger { color: var(--red); }
+  .card { background: var(--surface); border: 1px solid var(--sep); border-radius: 12px; padding: 14px; }
+  .btn { flex: 1; padding: 12px; border-radius: 10px; text-align: center; font-weight: 600; font-size: 16px; }
+  .btn.primary { background: var(--coral); color: #fff; }
+  .btn.secondary { background: rgba(204,120,92,.14); color: var(--coral); }
+  .seg { display: flex; background: var(--sunken); border-radius: 9px; padding: 2px; font-size: 13px; font-weight: 500; }
+  .seg div { flex: 1; text-align: center; padding: 6px; border-radius: 7px; color: var(--ink); }
+  .seg .on { background: var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+  .radio { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--sep); flex: none; }
+  .radio.on { border: 7px solid var(--coral); }
+  .footer { font-size: 13px; color: var(--muted); margin: 8px 4px 0; line-height: 1.35; }
+  .toast { position: absolute; top: 118px; left: 16px; right: 16px; display: flex; gap: 8px; align-items: center; padding: 10px 14px; background: var(--surface); border: 1px solid var(--sep); border-radius: 999px; box-shadow: 0 4px 12px rgba(0,0,0,.12); font-size: 15px; }
+</style>
+</head>
+<body>
+<div class="stage">
+
+<!-- ============ 1. HOME (light) ============ -->
+<div class="phone light" id="home">
+  <div class="dynisland"></div>
+  <div class="statusbar"><span>9:41</span><span class="right">▂▄▆ <span style="font-size:11px">●●●</span> ▮</span></div>
+  <div class="navbar">
+    <span class="icon" style="color:var(--coral)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></span>
+    <div class="icons">
+      <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg></span>
+      <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg></span>
+    </div>
+  </div>
+  <div class="largetitle">Mutter</div>
+  <div class="grouped">
+    <div class="sectionlabel">Favourites</div>
+    <div class="group">
+      <div class="row">
+        <div class="avatar sq" style="background:#CC785C">BC</div>
+        <div class="grow"><div class="title serif">Basement Crew</div><div class="sub">voice.basement.gg · ali</div></div>
+        <div class="stack-r"><span class="pill green">👥 14/50</span><span><span class="dot" style="background:var(--green)"></span> 34 ms</span></div>
+      </div>
+      <div class="row">
+        <div class="avatar sq" style="background:#7B8CDE">RN</div>
+        <div class="grow"><div class="title serif">Raid Night</div><div class="sub">mumble.raidnight.io:64739 · ali</div></div>
+        <div class="stack-r"><span class="pill green">👥 3/100</span><span><span class="dot" style="background:var(--amber)"></span> 128 ms</span></div>
+      </div>
+      <div class="row">
+        <div class="avatar sq" style="background:#4FA3A5">ST</div>
+        <div class="grow"><div class="title serif">Studio Talkback</div><div class="sub">10.0.1.22 · ali</div></div>
+        <div class="stack-r"><span class="pill muted">⚡ Offline</span></div>
+      </div>
+    </div>
+    <div class="sectionlabel">Recent</div>
+    <div class="group">
+      <div class="row">
+        <div class="avatar sq" style="background:#5DB872">M</div>
+        <div class="grow"><div class="title serif">mumble.example.org</div><div class="sub">mumble.example.org · ali</div></div>
+        <div class="stack-r"><span class="pill muted">👥 0/25</span><span><span class="dot" style="background:var(--green)"></span> 61 ms</span></div>
+      </div>
+    </div>
+    <div class="sectionlabel">On this network</div>
+    <div class="group">
+      <div class="row">
+        <div class="avatar sq" style="background:var(--elev);color:var(--ink);font-weight:400">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8.5a15 15 0 0 1 20 0M5.5 12.5a10 10 0 0 1 13 0M9 16.5a5 5 0 0 1 6 0"/><circle cx="12" cy="20" r="1"/></svg>
+        </div>
+        <div class="grow"><div class="title serif">Ali’s MacBook Pro</div><div class="sub">192.168.1.40</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="homebar"></div>
+</div>
+
+<!-- ============ 2. CHANNELS (dark, voice activity) ============ -->
+<div class="phone dark" id="channels-dark">
+  <div class="dynisland"></div>
+  <div class="statusbar"><span>9:41</span><span class="right">▂▄▆ <span style="font-size:11px">●●●</span> ▮</span></div>
+  <div class="sheader">
+    <div class="circlebtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 5l-7 7 7 7"/></svg></div>
+    <div class="grow"><div class="name serif">Basement Crew</div><div class="state"><span class="dot" style="background:var(--green)"></span>14 online · in Lobby</div></div>
+    <span class="pill green">⚡ 34 ms</span>
+  </div>
+  <div class="search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg> Find a channel or person</div>
+  <div class="tree">
+    <div class="ch"><span class="chev">▼</span><span class="hash">#</span><span class="cname">Root</span><span class="count">14</span></div>
+    <div class="ch mine" style="margin-left:18px"><span class="chev">▼</span><span class="hash">#</span><span class="cname">Lobby</span><span class="count">4</span></div>
+    <div class="usr" style="margin-left:48px"><div class="avatar talk" style="background:#CC785C">A</div><div class="grow"><div class="uname"><b>ali</b><span class="you">you</span></div><div class="ustate">Speaking</div></div></div>
+    <div class="usr" style="margin-left:48px"><div class="avatar talk" style="background:#5DB872">MK</div><div class="grow"><div class="uname">marcus_k</div><div class="ustate">Speaking</div></div></div>
+    <div class="usr" style="margin-left:48px"><div class="avatar" style="background:#7B8CDE">J<div class="badge"><svg viewBox="0 0 24 24" fill="#fff"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zM3 3l18 18"/></svg></div></div><div class="grow"><div class="uname" style="color:var(--muted)">jules</div></div></div>
+    <div class="usr" style="margin-left:48px"><div class="avatar" style="background:#B86A9E">PR</div><div class="grow"><div class="uname">priya ✓</div></div></div>
+    <div class="ch" style="margin-left:18px"><span class="chev">▼</span><span class="hash">#</span><span class="cname">Games</span><span class="count">7</span><svg class="join" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="11"/><path d="M8 12h8m-3-3 3 3-3 3" stroke="#252320" stroke-width="2" fill="none" stroke-linecap="round"/></svg></div>
+    <div class="ch" style="margin-left:36px"><span class="chev">▶</span><span class="hash">#</span><span class="cname">Squad A</span><span class="count">5</span><svg class="join" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="11"/><path d="M8 12h8m-3-3 3 3-3 3" stroke="#252320" stroke-width="2" fill="none" stroke-linecap="round"/></svg></div>
+    <div class="ch" style="margin-left:36px"><span class="chev">▼</span><span class="hash">#</span><span class="cname">Squad B</span><span class="count">2</span><svg class="join" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="11"/><path d="M8 12h8m-3-3 3 3-3 3" stroke="#252320" stroke-width="2" fill="none" stroke-linecap="round"/></svg></div>
+    <div class="usr" style="margin-left:66px"><div class="avatar talk wh" style="background:#D4A017">T</div><div class="grow"><div class="uname">tomasz</div><div class="ustate" style="color:var(--indigo)">Whispering</div></div></div>
+    <div class="usr" style="margin-left:66px"><div class="avatar" style="background:#4FA3A5">LN</div><div class="grow"><div class="uname">lena ★</div></div></div>
+    <div class="ch" style="margin-left:18px"><span class="chev">▶</span><span class="hash" style="font-weight:400">🔒</span><span class="cname">Admins</span><span class="count" style="font-size:11px">1/5</span><svg class="join" viewBox="0 0 24 24" fill="var(--muted)"><circle cx="12" cy="12" r="11"/><path d="M8 12h8m-3-3 3 3-3 3" stroke="#252320" stroke-width="2" fill="none" stroke-linecap="round"/></svg></div>
+    <div class="ch" style="margin-left:18px"><span class="chev">▶</span><span class="hash" style="font-weight:400">◷</span><span class="cname">AFK</span><span class="count">2</span><svg class="join" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="11"/><path d="M8 12h8m-3-3 3 3-3 3" stroke="#252320" stroke-width="2" fill="none" stroke-linecap="round"/></svg></div>
+    <div class="ch" style="margin-left:18px"><span class="chev" style="opacity:.25">▶</span><span class="hash">#</span><span class="cname">Music</span><svg class="join" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="11"/><path d="M8 12h8m-3-3 3 3-3 3" stroke="#252320" stroke-width="2" fill="none" stroke-linecap="round"/></svg></div>
+  </div>
+  <div class="toast"><span style="color:var(--green)">＋</span> priya connected</div>
+  <div class="dock">
+    <div class="voicebar">
+      <div class="top">
+        <div class="grow">
+          <div class="chan"><span class="hash">#</span>Lobby</div>
+          <div class="talkers"><div class="avatar" style="background:#CC785C">A</div><div class="avatar" style="background:#5DB872">MK</div><span>ali, marcus_k</span></div>
+        </div>
+        <div class="rb tx"><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3" stroke="currentColor" stroke-width="2" fill="none"/></svg></div>
+        <div class="rb"><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11" stroke="currentColor" stroke-width="2" fill="none"/></svg></div>
+        <div class="rb"><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11M21 4a11 11 0 0 1 0 16" stroke="currentColor" stroke-width="2" fill="none"/></svg></div>
+        <div class="rb"><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></div>
+      </div>
+      <div class="meter"><div class="fill" style="width:62%"></div><div class="thr" style="left:37%"></div></div>
+    </div>
+    <div class="tabs">
+      <div class="tab on"><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/></svg></span>Channels</div>
+      <div class="tab"><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h10a3 3 0 0 1 3 3v3a3 3 0 0 1-3 3H9l-4 3v-3a3 3 0 0 1-1-6z"/><path d="M17 10h1a3 3 0 0 1 3 3v3a2 2 0 0 1-2 2v3l-3-3h-2"/></svg></span>Chat<span class="unread">3</span></div>
+      <div class="tab"><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><circle cx="7" cy="7" r=".8" fill="currentColor"/><circle cx="7" cy="17" r=".8" fill="currentColor"/></svg></span>Server</div>
+    </div>
+  </div>
+  <div class="homebar"></div>
+</div>
+
+<!-- ============ 3. CHANNELS (light, push to talk) ============ -->
+<div class="phone light" id="channels-light">
+  <div class="dynisland"></div>
+  <div class="statusbar"><span>9:41</span><span class="right">▂▄▆ <span style="font-size:11px">●●●</span> ▮</span></div>
+  <div class="sheader">
+    <div class="circlebtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 5l-7 7 7 7"/></svg></div>
+    <div class="grow"><div class="name serif">Raid Night</div><div class="state"><span class="dot" style="background:var(--green)"></span>3 online · in Healers</div></div>
+    <span class="pill amber">⚡ 128 ms</span>
+  </div>
+  <div class="search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg> Find a channel or person</div>
+  <div class="tree">
+    <div class="ch"><span class="chev">▼</span><span class="hash">#</span><span class="cname">Root</span><span class="count">3</span></div>
+    <div class="ch" style="margin-left:18px"><span class="chev">▼</span><span class="hash">#</span><span class="cname">Raid</span><span class="count">3</span><svg class="join" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="11"/><path d="M8 12h8m-3-3 3 3-3 3" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/></svg></div>
+    <div class="ch" style="margin-left:36px"><span class="chev">▼</span><span class="hash">#</span><span class="cname">Tanks</span><span class="count">1</span><svg class="join" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="11"/><path d="M8 12h8m-3-3 3 3-3 3" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/></svg></div>
+    <div class="usr" style="margin-left:66px"><div class="avatar" style="background:#C64545">RG</div><div class="grow"><div class="uname">rogue_one</div></div></div>
+    <div class="ch mine" style="margin-left:36px"><span class="chev">▼</span><span class="hash">#</span><span class="cname">Healers</span><span class="pill indigo" style="padding:2px 6px">👂</span><span class="count">2</span></div>
+    <div class="usr" style="margin-left:66px"><div class="avatar" style="background:#CC785C">A<div class="badge"><svg viewBox="0 0 24 24" fill="#fff"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zM3 3l18 18"/></svg></div></div><div class="grow"><div class="uname"><b>ali</b><span class="you">you</span></div></div></div>
+    <div class="usr" style="margin-left:66px"><div class="avatar talk" style="background:#4FA3A5">SN</div><div class="grow"><div class="uname">sunny ★</div><div class="ustate">Speaking</div></div></div>
+    <div class="ch" style="margin-left:36px"><span class="chev" style="opacity:.25">▶</span><span class="hash">#</span><span class="cname">DPS</span><svg class="join" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="11"/><path d="M8 12h8m-3-3 3 3-3 3" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/></svg></div>
+    <div class="ch" style="margin-left:18px"><span class="chev" style="opacity:.25">▶</span><span class="hash">#</span><span class="cname">Lounge</span><svg class="join" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="11"/><path d="M8 12h8m-3-3 3 3-3 3" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/></svg></div>
+  </div>
+  <div class="dock">
+    <div class="voicebar">
+      <div class="top">
+        <div class="grow">
+          <div class="chan"><span class="hash">#</span>Healers</div>
+          <div class="talkers" style="color:var(--muted)">Hold the button to talk</div>
+        </div>
+        <div class="rb"><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3" stroke="currentColor" stroke-width="2" fill="none"/></svg></div>
+        <div class="rb"><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11" stroke="currentColor" stroke-width="2" fill="none"/></svg></div>
+        <div class="rb"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg></div>
+        <div class="rb"><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></div>
+      </div>
+      <div class="ptt"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 13V6a2 2 0 1 1 4 0v6M12 11a2 2 0 1 1 4 0v2M16 12a2 2 0 1 1 4 0v4a6 6 0 0 1-6 6h-2a6 6 0 0 1-5-2.7L4 15a2 2 0 0 1 3-2.5l1 1"/></svg> Hold to talk</div>
+    </div>
+    <div class="tabs">
+      <div class="tab on"><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/></svg></span>Channels</div>
+      <div class="tab"><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h10a3 3 0 0 1 3 3v3a3 3 0 0 1-3 3H9l-4 3v-3a3 3 0 0 1-1-6z"/><path d="M17 10h1a3 3 0 0 1 3 3v3a2 2 0 0 1-2 2v3l-3-3h-2"/></svg></span>Chat</div>
+      <div class="tab"><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><circle cx="7" cy="7" r=".8" fill="currentColor"/><circle cx="7" cy="17" r=".8" fill="currentColor"/></svg></span>Server</div>
+    </div>
+  </div>
+  <div class="homebar"></div>
+</div>
+
+<!-- ============ 4. CHAT (light) ============ -->
+<div class="phone light" id="chat">
+  <div class="dynisland"></div>
+  <div class="statusbar"><span>9:41</span><span class="right">▂▄▆ <span style="font-size:11px">●●●</span> ▮</span></div>
+  <div class="sheader">
+    <div class="circlebtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 5l-7 7 7 7"/></svg></div>
+    <div class="grow"><div class="name serif">Basement Crew</div><div class="state"><span class="dot" style="background:var(--green)"></span>14 online · in Lobby</div></div>
+    <span class="pill green">⚡ 34 ms</span>
+  </div>
+  <div class="msgs">
+    <div class="sys">Welcome to Basement Crew. Be kind, use push-to-talk in Games.</div>
+    <div class="msg"><div class="avatar" style="background:#5DB872">MK</div><div class="col"><div class="meta"><b>marcus_k</b><span>9:12</span></div><div class="bubble">anyone up for a few rounds tonight?</div></div></div>
+    <div class="msg"><div class="avatar" style="background:#B86A9E">PR</div><div class="col"><div class="meta"><b>priya</b><span>9:14</span></div><div class="bubble">yes, joining in 10. new map is out: <span class="link">https://example.gg/maps/harbor</span></div></div></div>
+    <div class="msg own"><div class="col"><div class="meta"><span>9:15</span></div><div class="bubble">on my way, grabbing coffee first ☕</div></div></div>
+    <div class="msg"><div class="avatar" style="background:#D4A017">T</div><div class="col"><div class="meta"><b>tomasz</b><span class="pill indigo" style="padding:2px 6px;font-size:10px">🔒 DM</span><span>9:16</span></div><div class="bubble">can you move me to Squad B when you're back? mic's acting up</div></div></div>
+    <div class="msg"><div class="avatar" style="background:#7B8CDE">J</div><div class="col"><div class="meta"><b>jules</b><span class="pill muted" style="padding:2px 6px;font-size:10px">#Games</span><span>9:18</span></div><div class="bubble">screenshot from last night</div><div style="width:200px;height:120px;border-radius:12px;margin-top:6px;background:linear-gradient(135deg,#2E2B27,#7B8CDE 60%,#CC785C)"></div></div></div>
+    <div class="sys">jules moved to Games</div>
+  </div>
+  <div class="composer">
+    <div class="scope"># Lobby ⌃⌄</div>
+    <div class="field">Message</div>
+    <div class="send"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 19V5m-7 7 7-7 7 7"/></svg></div>
+  </div>
+  <div class="homebar"></div>
+</div>
+
+<!-- ============ 5. USER SHEET (dark) ============ -->
+<div class="phone dark" id="user-sheet">
+  <div class="dynisland"></div>
+  <div class="statusbar"><span>9:41</span><span class="right">▂▄▆ <span style="font-size:11px">●●●</span> ▮</span></div>
+  <div class="sheader">
+    <div class="circlebtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 5l-7 7 7 7"/></svg></div>
+    <div class="grow"><div class="name serif">Basement Crew</div><div class="state"><span class="dot" style="background:var(--green)"></span>14 online · in Lobby</div></div>
+  </div>
+  <div class="dim"></div>
+  <div class="sheet">
+    <div class="grabber"></div>
+    <div class="sheetnav">Done</div>
+    <div class="grouped">
+      <div class="group" style="margin-top:10px">
+        <div class="row" style="align-items:flex-start;padding-top:14px">
+          <div class="avatar talk" style="background:#5DB872;width:56px;height:56px;font-size:20px">MK</div>
+          <div class="grow">
+            <div class="serif" style="font-size:26px">marcus_k</div>
+            <div style="display:flex;gap:6px;margin:6px 0"><span class="pill muted">✓ Registered</span><span class="pill green">〰 Speaking</span></div>
+            <div class="sub">Root › Lobby</div>
+          </div>
+        </div>
+        <div class="row" style="font-size:15px;color:var(--body)">“streaming tues/thurs, dm for the link”</div>
+      </div>
+      <div class="sectionlabel">For you only</div>
+      <div class="group">
+        <div class="row"><span class="rowlabel"><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 9l4 6M21 9l-4 6"/></svg></span>Mute for me</span><span class="grow"></span><div class="toggle"></div></div>
+        <div class="row" style="flex-direction:column;align-items:stretch"><span class="rowlabel"><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 9a4 4 0 0 1 0 6"/></svg></span>Volume 120%</span><div class="slider"><div class="fill" style="width:60%"></div><div class="knob" style="left:calc(60% - 14px)"></div></div></div>
+        <div class="row"><span class="rowlabel" style="color:var(--coral)"><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h12a3 3 0 0 1 3 3v5a3 3 0 0 1-3 3H10l-5 4v-4a3 3 0 0 1-1-6z"/></svg></span>Send a message</span></div>
+      </div>
+      <div class="sectionlabel">Moderation</div>
+      <div class="group">
+        <div class="row"><span class="rowlabel"><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zM3 3l18 18"/></svg></span>Server mute</span><span class="grow"></span><div class="toggle"></div></div>
+        <div class="row"><span class="rowlabel"><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l2.5 5.5 6 .7-4.5 4 1.3 6-5.3-3-5.3 3 1.3-6-4.5-4 6-.7z"/></svg></span>Priority speaker</span><span class="grow"></span><div class="toggle on"></div></div>
+        <div class="row danger">Kick…</div>
+        <div class="row danger">Ban…</div>
+      </div>
+      <div class="sectionlabel">Details</div>
+      <div class="group">
+        <div class="kv"><span>Client</span><span>Mumble 1.5.735 on Win</span></div>
+        <div class="kv"><span>Online for</span><span>2 hr 14 min</span></div>
+        <div class="kv"><span>Ping (UDP)</span><span>41 ms</span></div>
+        <div class="kv"><span>Packets from them</span><span>12,410 good · 3 late · 0 lost</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="homebar" style="background:#fff"></div>
+</div>
+
+<!-- ============ 6. CERTIFICATE TRUST (light) ============ -->
+<div class="phone light" id="trust">
+  <div class="dynisland"></div>
+  <div class="statusbar"><span>9:41</span><span class="right">▂▄▆ <span style="font-size:11px">●●●</span> ▮</span></div>
+  <div class="navbar"></div>
+  <div class="largetitle">Mutter</div>
+  <div class="dim"></div>
+  <div class="sheet" style="top:40px">
+    <div class="grabber"></div>
+    <div style="padding:26px 20px 0;display:flex;gap:12px;align-items:flex-start">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#CC785C" stroke-width="1.8"><path d="M12 2l8 3v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V5z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>
+      <div>
+        <div class="serif" style="font-size:28px;font-weight:500">New server certificate</div>
+        <div style="font-size:15px;color:var(--body);margin-top:6px;line-height:1.35">This server uses a certificate Mutter hasn’t seen before. That’s normal for a first connection; check the fingerprint with the admin if you’re unsure.</div>
+      </div>
+    </div>
+    <div style="padding:18px 20px">
+      <div class="card">
+        <div class="sectionlabel" style="margin:0 0 6px">Issued to</div>
+        <div>voice.basement.gg</div>
+        <div class="sectionlabel" style="margin:14px 0 6px">Expires</div>
+        <div>14 March 2041</div>
+        <div class="sectionlabel" style="margin:14px 0 6px">SHA-256 fingerprint</div>
+        <div class="mono" style="font-size:12px;color:var(--body);line-height:1.5">7A:1C:0E:9B:44:F2:5D:A8:3B:C1:90:12:EF:6A:77:2D:<br>0F:B3:58:C4:E1:29:6D:AA:13:8F:47:D0:95:3C:E7:B6</div>
+      </div>
+    </div>
+    <div style="position:absolute;left:0;right:0;bottom:0;padding:16px 20px 40px;display:flex;gap:12px;background:var(--bg)">
+      <div class="btn secondary">Cancel</div>
+      <div class="btn primary">Trust &amp; connect</div>
+    </div>
+  </div>
+  <div class="homebar"></div>
+</div>
+
+<!-- ============ 7. VOICE & AUDIO SETTINGS (light) ============ -->
+<div class="phone light" id="audio">
+  <div class="dynisland"></div>
+  <div class="statusbar"><span>9:41</span><span class="right">▂▄▆ <span style="font-size:11px">●●●</span> ▮</span></div>
+  <div class="navbar" style="justify-content:center;position:relative">
+    <span style="position:absolute;left:16px;color:var(--coral);display:flex;align-items:center;gap:4px;font-size:17px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 5l-7 7 7 7"/></svg>Settings</span>
+    <span style="font-weight:600">Voice &amp; audio</span>
+  </div>
+  <div class="grouped">
+    <div class="sectionlabel">How you talk</div>
+    <div class="group">
+      <div class="row"><span class="rowlabel"><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 13V6a2 2 0 1 1 4 0v6M12 11a2 2 0 1 1 4 0v2M16 12a2 2 0 1 1 4 0v4a6 6 0 0 1-6 6h-2a6 6 0 0 1-5-2.7L4 15a2 2 0 0 1 3-2.5l1 1"/></svg></span>Push to talk</span><span class="grow"></span><div class="radio"></div></div>
+      <div class="row"><span class="rowlabel"><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h2l2-6 3 12 3-9 2 6 2-3h4"/></svg></span>Voice activity</span><span class="grow"></span><div class="radio on"></div></div>
+      <div class="row"><span class="rowlabel"><span class="icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3" stroke="currentColor" stroke-width="2" fill="none"/></svg></span>Always on</span><span class="grow"></span><div class="radio"></div></div>
+    </div>
+    <div class="footer">Mutter opens the mic when it hears you speak. Tune the sensitivity below.</div>
+    <div class="sectionlabel">Voice activity</div>
+    <div class="group">
+      <div class="row" style="flex-direction:column;align-items:stretch;gap:8px">
+        <div style="display:flex;justify-content:space-between"><span>Sensitivity</span><span style="color:var(--muted)">-38 dB</span></div>
+        <div class="slider"><div class="fill" style="width:49%"></div><div class="knob" style="left:calc(49% - 14px)"></div></div>
+        <div class="meter" style="margin:8px 0 0"><div class="fill" style="width:55%"></div><div class="thr" style="left:37%"></div></div>
+        <div class="footer" style="margin:2px 0 0">Speak normally: the bar should pass the marker when you talk and stay below it when you’re quiet.</div>
+      </div>
+    </div>
+    <div class="sectionlabel">Quality</div>
+    <div class="group">
+      <div class="kv"><span>Quality</span><span>40 kbit/s ›</span></div>
+      <div class="kv"><span>Audio per packet</span><span>20 ms ›</span></div>
+    </div>
+    <div class="footer">Higher quality uses more data. Longer packets cost a little latency but survive bad Wi‑Fi better. 40 kbit/s at 20 ms is a good default.</div>
+    <div class="sectionlabel">Output</div>
+    <div class="group">
+      <div class="row">Prefer speakerphone<span class="grow"></span><div class="toggle on"></div></div>
+    </div>
+    <div class="footer">Bluetooth headsets and AirPods are used automatically when connected.</div>
+  </div>
+  <div class="homebar"></div>
+</div>
+
+</div>
+</body>
+</html>
