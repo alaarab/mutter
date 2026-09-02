@@ -57,10 +57,19 @@ public final class MumbleClient {
     private var isSynced = false
     private var intentionalDisconnect = false
     private var reconnectAttempt = 0
+    /// After an unclean drop the server can still hold our old session, so reconnecting with the
+    /// same name is rejected as "username in use". We retry (the ghost times out server-side), and
+    /// if it's still taken after a couple of tries we reconnect as name2, name3, … to get back in.
+    private var usernameOverride: String?
+    private var usernameInUseRetries = 0
     private var pendingCertificate: ServerCertificateInfo?
 
     private var pingTimer: DispatchSourceTimer?
     private var talkTimer: DispatchSourceTimer?
+    /// Last time any frame arrived on the control channel. If this goes quiet while we think
+    /// we're connected (e.g. the phone left Wi-Fi range), the socket won't always error, so a
+    /// watchdog in `tick()` declares the connection dead and triggers a reconnect.
+    private var lastControlReceiveAt = Date()
     private var lastUDPReply: Date?
     private var udpAvailable = false
     private var tcpPingSamples: [Double] = []
@@ -85,6 +94,8 @@ public final class MumbleClient {
             self.options = options
             self.intentionalDisconnect = false
             self.reconnectAttempt = 0
+            self.usernameOverride = nil
+            self.usernameInUseRetries = 0
             self.ui { s in
                 s.reset()
                 s.messages = []
@@ -173,9 +184,23 @@ public final class MumbleClient {
 
     private func fail(_ error: ConnectionError) {
         let wasSynced = isSynced
+        let reconnecting = reconnectAttempt > 0
         teardown(keepState: true)
         let canRetry = (options?.autoReconnect ?? false) && !intentionalDisconnect && wasSynced
-        if case .rejected = error { scheduleReconnect(false, error: error); return }
+        if case .rejected(let type, _) = error {
+            // While reconnecting, "username in use" is almost always our own ghost session that
+            // the server hasn't dropped yet. Keep retrying (it times out), and if it's still taken
+            // after a couple of tries, come back as name2, name3, … so we always get back in.
+            if type == .usernameInUse, reconnecting || wasSynced {
+                usernameInUseRetries += 1
+                if usernameInUseRetries >= 2, let base = options?.username {
+                    usernameOverride = "\(base)\(usernameInUseRetries)"
+                }
+                scheduleReconnect(true, error: error)
+                return
+            }
+            scheduleReconnect(false, error: error); return
+        }
         if case .certificateRejected = error { scheduleReconnect(false, error: error); return }
         if case .certificateChanged = error { scheduleReconnect(false, error: error); return }
         scheduleReconnect(canRetry, error: error)
@@ -190,6 +215,10 @@ public final class MumbleClient {
                 s.state = .reconnecting(attempt: attempt)
                 s.lastError = error
                 s.isTransmitting = false
+                // Drop the stale roster/channels; the fresh sync assigns us a new session id, and
+                // keeping the old lists would show a ghost "old me" beside the reconnected one.
+                s.users = [:]
+                s.channels = [:]
                 s.appendNotice(.disconnected(reason: error.errorDescription))
             }
             queue.asyncAfter(deadline: .now() + delay) { [weak self] in
@@ -215,6 +244,7 @@ public final class MumbleClient {
             ui { $0.state = .authenticating }
             sendHandshake()
         case .frame(let frame):
+            lastControlReceiveAt = Date()
             do {
                 let message = try IncomingMessage.decode(type: frame.type, payload: frame.payload)
                 handle(message)
@@ -241,7 +271,7 @@ public final class MumbleClient {
             osVersion: options.osVersion
         )
         send(version)
-        var auth = AuthenticateMessage(username: options.username, password: options.password, tokens: options.tokens)
+        var auth = AuthenticateMessage(username: usernameOverride ?? options.username, password: options.password, tokens: options.tokens)
         auth.opus = true
         auth.clientType = 0
         send(auth)
@@ -309,6 +339,8 @@ public final class MumbleClient {
             mySession = sync.session
             isSynced = true
             reconnectAttempt = 0
+            usernameInUseRetries = 0
+            usernameOverride = nil
             let cert = pendingCertificate
             let ep = endpoint
             let permissions = Permissions(rawValue: UInt32(truncatingIfNeeded: sync.permissions ?? 0))
@@ -619,6 +651,7 @@ public final class MumbleClient {
     // MARK: - Timers & stats
 
     private func startTimers() {
+        lastControlReceiveAt = Date()
         pingTimer?.cancel()
         let t = DispatchSource.makeTimerSource(queue: queue)
         t.schedule(deadline: .now() + 1, repeating: 5.0)
@@ -648,6 +681,14 @@ public final class MumbleClient {
         ping.tcpPingVar = Float(variance(tcpPingSamples))
         send(ping)
         sendUDPPing()
+
+        // Connection watchdog: pings go out every 5 s and the server answers each one, so ~20 s
+        // of total silence means the link is gone even though the socket hasn't errored. Treat it
+        // as a drop and let auto-reconnect take over.
+        if isSynced, Date().timeIntervalSince(lastControlReceiveAt) > 20 {
+            fail(.timeout)
+            return
+        }
 
         // UDP health: no reply in 10 s means the path is blocked; fall back to the tunnel.
         if udpAvailable, let last = lastUDPReply, Date().timeIntervalSince(last) > 10 {
@@ -824,6 +865,12 @@ public final class MumbleClient {
             case .system: return
             }
             t.actor = nil
+            // Only echo the message locally if the link is actually up. Otherwise it never left
+            // the phone (e.g. out of range) and showing it as sent would be a lie.
+            guard self.isSynced, self.control != nil else {
+                self.ui { $0.appendNotice(.info("Not connected — message not sent.")) }
+                return
+            }
             self.send(t)
             let myName = self.mySession.flatMap { self.users[$0]?.name } ?? "Me"
             let me = self.mySession
