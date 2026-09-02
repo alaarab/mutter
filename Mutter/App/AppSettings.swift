@@ -49,8 +49,9 @@ final class AppSettings {
     var bitrate: Int { didSet { defaults.set(bitrate, forKey: "bitrate") } }
     var frameMilliseconds: Int { didSet { defaults.set(frameMilliseconds, forKey: "frameMilliseconds") } }
     var pushToTalkStyle: PushToTalkStyle { didSet { defaults.set(pushToTalkStyle.rawValue, forKey: "pushToTalkStyle") } }
-    var speakerphone: Bool { didSet { defaults.set(speakerphone, forKey: "speakerphone") } }
+    var audioRoute: AudioRoute { didSet { defaults.set(audioRoute.rawValue, forKey: "audioRoute") } }
     var appearance: Appearance { didSet { defaults.set(appearance.rawValue, forKey: "appearance") } }
+    var theme: ThemeStyle { didSet { defaults.set(theme.rawValue, forKey: "theme") } }
     var defaultUsername: String { didSet { defaults.set(defaultUsername, forKey: "defaultUsername") } }
     var notifyOnMessage: Bool { didSet { defaults.set(notifyOnMessage, forKey: "notifyOnMessage") } }
     var showPresenceNotices: Bool { didSet { defaults.set(showPresenceNotices, forKey: "showPresenceNotices") } }
@@ -71,8 +72,11 @@ final class AppSettings {
         bitrate = defaults.object(forKey: "bitrate") as? Int ?? 40_000
         frameMilliseconds = defaults.object(forKey: "frameMilliseconds") as? Int ?? 20
         pushToTalkStyle = PushToTalkStyle(rawValue: defaults.string(forKey: "pushToTalkStyle") ?? "") ?? .hold
-        speakerphone = defaults.object(forKey: "speakerphone") as? Bool ?? true
+        // Migrates the old "speakerphone" bool: true was speaker, false was earpiece/Bluetooth.
+        audioRoute = AudioRoute(rawValue: defaults.string(forKey: "audioRoute") ?? "")
+            ?? ((defaults.object(forKey: "speakerphone") as? Bool ?? true) ? .speaker : .earpiece)
         appearance = Appearance(rawValue: defaults.string(forKey: "appearance") ?? "") ?? .system
+        theme = ThemeStyle(rawValue: defaults.string(forKey: "theme") ?? "") ?? .midnight
         defaultUsername = defaults.string(forKey: "defaultUsername") ?? ""
         notifyOnMessage = defaults.object(forKey: "notifyOnMessage") as? Bool ?? true
         showPresenceNotices = defaults.object(forKey: "showPresenceNotices") as? Bool ?? true
@@ -85,5 +89,6 @@ final class AppSettings {
         voiceProcessing = defaults.object(forKey: "voiceProcessing") as? Bool ?? true
         autoSensitivity = defaults.object(forKey: "autoSensitivity") as? Bool ?? true
         headsetButtonAction = HeadsetAction(rawValue: defaults.string(forKey: "headsetButtonAction") ?? "") ?? .toggleMute
+        Theme.style = theme
     }
 }

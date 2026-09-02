@@ -48,7 +48,7 @@ struct RegisteredUsersView: View {
                     .swipeActions {
                         if canEdit {
                             Button(role: .destructive) { removing = user } label: { Label("Remove", systemImage: "trash") }
-                            Button { newName = user.name ?? ""; renaming = user } label: { Label("Rename", systemImage: "pencil") }.tint(Theme.coral)
+                            Button { newName = user.name ?? ""; renaming = user } label: { Label("Rename", systemImage: "pencil") }.tint(Theme.accent)
                         }
                     }
                 }

@@ -24,6 +24,11 @@ struct MutterApp: App {
                 .environment(model)
                 .preferredColorScheme(model.settings.appearance.colorScheme)
                 .tint(Theme.accent)
+                // Theme.* are resolved statically, so swap the palette and rebuild the tree.
+                .id(model.settings.theme)
+                .onChange(of: model.settings.theme, initial: true) { _, style in
+                    Theme.style = style
+                }
         }
     }
 }

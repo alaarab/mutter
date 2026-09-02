@@ -160,7 +160,7 @@ struct LevelMeter: View {
                     .animation(.linear(duration: 0.05), value: level)
                 if let threshold {
                     Rectangle()
-                        .fill(Theme.coral)
+                        .fill(Theme.accent)
                         .frame(width: 2)
                         .offset(x: geo.size.width * fraction(threshold))
                 }
@@ -215,7 +215,7 @@ struct RoundIconButton: View {
     var symbol: String
     var label: String
     var active = false
-    var activeColor: Color = Theme.coral
+    var activeColor: Color = Theme.accent
     var size: CGFloat = 46
     var action: () -> Void
 

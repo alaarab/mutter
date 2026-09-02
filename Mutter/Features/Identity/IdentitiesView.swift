@@ -34,8 +34,8 @@ struct IdentitiesView: View {
                             HStack(spacing: 12) {
                                 Image(systemName: identity.isImported ? "doc.badge.arrow.up" : "person.badge.key.fill")
                                     .frame(width: 32, height: 32)
-                                    .foregroundStyle(Theme.coral)
-                                    .background(Theme.coral.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                                    .foregroundStyle(Theme.accent)
+                                    .background(Theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(identity.name).font(.display(17)).foregroundStyle(Theme.ink)
                                     Text(identity.commonName).font(.caption).foregroundStyle(Theme.muted)
@@ -50,7 +50,7 @@ struct IdentitiesView: View {
                                 }
                                 Spacer()
                                 if settings.defaultIdentityID == identity.id {
-                                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.coral)
+                                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.accent)
                                 }
                             }
                         }

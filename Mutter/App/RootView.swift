@@ -25,6 +25,9 @@ struct RootView: View {
         .onChange(of: model.session.state) { _, state in
             model.sessionStateDidChange(state)
         }
+        .onChange(of: scenePhase) { _, phase in
+            DiagnosticsLog.shared.add("app", "scene → \(phase)")
+        }
         .onChange(of: model.session.notices.count) { _, _ in
             model.noticesDidChange(scenePhase: scenePhase)
         }

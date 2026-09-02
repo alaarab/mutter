@@ -28,7 +28,7 @@ struct ChannelTreeView: View {
                 } else {
                     Button { model.settings.hideEmptyChannels.toggle() } label: {
                         Image(systemName: model.settings.hideEmptyChannels ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
-                            .foregroundStyle(model.settings.hideEmptyChannels ? Theme.coral : Theme.muted)
+                            .foregroundStyle(model.settings.hideEmptyChannels ? Theme.accent : Theme.muted)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(model.settings.hideEmptyChannels ? "Show empty channels" : "Hide empty channels")
@@ -148,7 +148,7 @@ struct ChannelRow: View {
 
             Image(systemName: channel.isEnterRestricted && !channel.canEnter ? "lock.fill" : (channel.isTemporary ? "clock" : "number"))
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(isMine ? Theme.coral : Theme.muted)
+                .foregroundStyle(isMine ? Theme.accent : Theme.muted)
                 .frame(width: 16)
 
             VStack(alignment: .leading, spacing: 1) {
@@ -185,7 +185,7 @@ struct ChannelRow: View {
                 } label: {
                     Image(systemName: "arrow.right.circle.fill")
                         .font(.system(size: 20))
-                        .foregroundStyle(channel.canEnter ? Theme.coral : Theme.muted)
+                        .foregroundStyle(channel.canEnter ? Theme.accent : Theme.muted)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Join \(channel.name)")
@@ -195,7 +195,7 @@ struct ChannelRow: View {
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         .onTapGesture { onChannel(channel) }
-        .listRowBackground(isMine ? Theme.coral.opacity(0.10) : Color.clear)
+        .listRowBackground(isMine ? Theme.accent.opacity(0.10) : Color.clear)
         .listRowSeparator(.hidden)
         .contextMenu {
             if !isMine { Button { model.join(channel) } label: { Label("Join", systemImage: "arrow.right.circle") } }
