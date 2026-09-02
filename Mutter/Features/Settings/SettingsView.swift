@@ -214,8 +214,9 @@ struct AudioSettingsView: View {
                 Picker("Audio output", selection: $settings.audioRoute) {
                     ForEach(AudioRoute.allCases) { Label($0.title, systemImage: $0.symbol).tag($0) }
                 }
+                Toggle("Mix with other apps", isOn: $settings.mixWithOthers)
             } header: { SectionLabel(text: "Output") } footer: {
-                Text("Phone is the earpiece; Speaker is the loudspeaker. Bluetooth uses your headset or AirPods.")
+                Text("Phone is the earpiece; Speaker is the loudspeaker. Mixing lets videos and music play without pausing the call.")
             }
         }
         .scrollContentBackground(.hidden)
@@ -227,6 +228,7 @@ struct AudioSettingsView: View {
         .onChange(of: settings.bitrate) { _, _ in model.applyAudioSettings() }
         .onChange(of: settings.frameMilliseconds) { _, _ in model.applyAudioSettings() }
         .onChange(of: settings.audioRoute) { _, _ in model.applyAudioSettings() }
+        .onChange(of: settings.mixWithOthers) { _, _ in model.applyAudioSettings() }
         .onChange(of: settings.noiseSuppression) { _, _ in model.applyAudioSettings() }
         .onChange(of: settings.voiceProcessing) { _, _ in model.applyAudioSettings() }
         .onChange(of: settings.autoSensitivity) { _, _ in model.applyAudioSettings() }
