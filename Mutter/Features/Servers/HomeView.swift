@@ -14,6 +14,28 @@ struct HomeView: View {
     var body: some View {
         NavigationStack {
             List {
+                if model.activeServer != nil && model.session.state.isActive {
+                    Section {
+                        Button { model.isSessionMinimized = false } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "waveform")
+                                    .foregroundStyle(Theme.accent)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(model.activeServer?.displayName ?? "Connected")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(Theme.ink)
+                                    Text(model.session.isConnected ? "Connected · tap to return" : "Reconnecting…")
+                                        .font(.caption)
+                                        .foregroundStyle(Theme.muted)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right").font(.caption).foregroundStyle(Theme.muted)
+                            }
+                        }
+                        .listRowBackground(Theme.accent.opacity(0.12))
+                    }
+                }
+
                 if let error = model.session.lastError, model.session.state == .disconnected {
                     Section {
                         Label(error.errorDescription ?? "Connection failed", systemImage: "exclamationmark.triangle.fill")

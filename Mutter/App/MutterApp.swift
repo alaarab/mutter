@@ -16,6 +16,9 @@ struct MutterApp: App {
         }
         UINavigationBar.appearance().standardAppearance = large
         UINavigationBar.appearance().scrollEdgeAppearance = large
+
+        // Clear any Live Activity left running by a previous launch that was killed mid-session.
+        VoiceActivityController.endAllOnLaunch()
     }
 
     var body: some Scene {

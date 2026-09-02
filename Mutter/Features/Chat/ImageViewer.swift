@@ -11,12 +11,29 @@ struct ViewedImage: Identifiable {
 struct ImageViewerScreen: View {
     let image: UIImage
     @Environment(\.dismiss) private var dismiss
+    @State private var drag: CGSize = .zero
+
+    private var dragProgress: CGFloat { min(1, abs(drag.height) / 300) }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            Color.black.ignoresSafeArea()
+            Color.black.opacity(1 - dragProgress * 0.7).ignoresSafeArea()
             ZoomableImage(image: image)
                 .ignoresSafeArea()
+                .offset(drag)
+                .scaleEffect(1 - dragProgress * 0.15)
+                // Swipe down (or up) to flick the image away.
+                .gesture(
+                    DragGesture()
+                        .onChanged { drag = $0.translation }
+                        .onEnded { value in
+                            if abs(value.translation.height) > 120 {
+                                dismiss()
+                            } else {
+                                withAnimation(.spring(response: 0.3)) { drag = .zero }
+                            }
+                        }
+                )
             Button {
                 dismiss()
             } label: {
@@ -28,6 +45,7 @@ struct ImageViewerScreen: View {
             }
             .padding(.trailing, 16)
             .padding(.top, 8)
+            .opacity(1 - dragProgress)
         }
         .statusBarHidden()
     }

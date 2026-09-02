@@ -62,7 +62,7 @@ struct SettingsView: View {
                         ForEach(HeadsetAction.allCases) { Text($0.title).tag($0) }
                     }
                 } header: { SectionLabel(text: "Lock screen & buttons") } footer: {
-                    Text("While connected, the lock screen and Dynamic Island show who's speaking with mute and talk buttons. The play/pause button on AirPods and headsets runs the action above. Add “Push to talk” or “Toggle mute” from Mutter to the Action button or a Shortcut in the Shortcuts app; Siri understands “Push to talk in Mutter” and “Connect to <server> in Mutter”.")
+                    Text("Sets what the AirPods or headset play/pause button does. Siri and the Action button work too.")
                 }
 
                 Section {
@@ -70,7 +70,7 @@ struct SettingsView: View {
                         Label("Diagnostics", systemImage: "stethoscope")
                     }
                 } footer: {
-                    Text("Connection and audio events from this run, for tracking down disconnects. Actual crash reports live in the iPhone's Settings → Privacy & Security → Analytics & Improvements → Analytics Data, under “Mutter”.")
+                    Text("A log of connection and audio events, for chasing down disconnects.")
                 }
 
                 Section {
@@ -80,7 +80,7 @@ struct SettingsView: View {
                         Label("About Mumble", systemImage: "arrow.up.right.square")
                     }
                 } header: { SectionLabel(text: "About") } footer: {
-                    Text("Mutter is an independent Mumble client. Voice is encrypted end-to-server with OCB2-AES128 and the control channel uses TLS.")
+                    Text("An independent Mumble client. Voice and chat are encrypted.")
                 }
             }
             .scrollContentBackground(.hidden)
@@ -196,7 +196,7 @@ struct AudioSettingsView: View {
                 Toggle("Echo cancellation & auto gain", isOn: $settings.voiceProcessing)
                 MicrophoneModeRow()
             } header: { SectionLabel(text: "Noise & echo") } footer: {
-                Text("Noise suppression removes hiss, fans and hum before your voice is sent. Echo cancellation uses Apple's voice processing, which also unlocks the system Voice Isolation mic mode: the same machine-learning isolation FaceTime uses, and the closest thing on iOS to Discord's Krisp.")
+                Text("Removes background noise and echo before your voice is sent.")
             }
 
             Section {
@@ -207,7 +207,7 @@ struct AudioSettingsView: View {
                     ForEach(frameSizes, id: \.self) { Text("\($0) ms").tag($0) }
                 }
             } header: { SectionLabel(text: "Quality") } footer: {
-                Text("Higher quality uses more data. Longer packets cost a little latency but survive bad Wi‑Fi better. 40 kbit/s at 20 ms is a good default.")
+                Text("Higher quality uses more data. 40 kbit/s at 20 ms is a good default.")
             }
 
             Section {
@@ -215,7 +215,7 @@ struct AudioSettingsView: View {
                     ForEach(AudioRoute.allCases) { Label($0.title, systemImage: $0.symbol).tag($0) }
                 }
             } header: { SectionLabel(text: "Output") } footer: {
-                Text("Phone plays through the earpiece you hold to your ear; Speaker is the loudspeaker. Both always use the phone itself. Bluetooth routes to your headset or AirPods when one is connected. You can also switch from the voice bar during a call.")
+                Text("Phone is the earpiece; Speaker is the loudspeaker. Bluetooth uses your headset or AirPods.")
             }
         }
         .scrollContentBackground(.hidden)

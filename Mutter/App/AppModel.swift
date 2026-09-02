@@ -25,6 +25,9 @@ final class AppModel {
 
     private(set) var identities: [ClientIdentity] = IdentityStore.shared.identities
     private(set) var activeServer: SavedServer?
+    /// Back-arrow returns to the server list without leaving the call; this hides the session UI
+    /// while the connection keeps running. Leaving is the explicit Disconnect in the voice-bar menu.
+    var isSessionMinimized = false
     /// Registered as voice target 1 on the server; nil means whispering is off.
     private(set) var whisperTarget: WhisperTarget?
     /// Route all speech to the whisper target (for voice-activity and always-on modes).
@@ -117,6 +120,7 @@ final class AppModel {
             options.identity = IdentityStore.shared.secIdentity(for: identity)
         }
         collapsedChannels[s.id] = collapsedChannels[s.id] ?? []
+        isSessionMinimized = false
         lastNoticeCount = 0
         lastMessageCount = 0
         client.connect(to: s.endpoint, options: options)

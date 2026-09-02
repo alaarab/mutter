@@ -8,7 +8,7 @@ struct RootView: View {
     var body: some View {
         @Bindable var model = model
         Group {
-            if model.activeServer != nil && model.session.state.isActive {
+            if model.activeServer != nil && model.session.state.isActive && !model.isSessionMinimized {
                 SessionView()
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             } else {
@@ -17,6 +17,7 @@ struct RootView: View {
             }
         }
         .animation(.snappy, value: model.session.state.isActive)
+        .animation(.snappy, value: model.isSessionMinimized)
         .background(Theme.background.ignoresSafeArea())
         .sheet(item: $model.trustPrompt) { prompt in
             CertificateTrustSheet(prompt: prompt)

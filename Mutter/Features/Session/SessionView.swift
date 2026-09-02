@@ -33,7 +33,6 @@ struct SessionView: View {
     @State private var tab: SessionTab = .channels
     @State private var userSheet: SheetID?
     @State private var channelSheet: SheetID?
-    @State private var showLeaveConfirm = false
 
     private var session: ServerSession { model.session }
 
@@ -62,23 +61,20 @@ struct SessionView: View {
             if scope != nil { tab = .chat }
         }
         .onDisappear { session.isChatVisible = false }
-        .confirmationDialog("Leave this server?", isPresented: $showLeaveConfirm, titleVisibility: .visible) {
-            Button("Disconnect", role: .destructive) { model.disconnect() }
-        }
     }
 
     // MARK: Header
 
     private var header: some View {
         HStack(spacing: 12) {
-            Button { showLeaveConfirm = true } label: {
+            Button { model.isSessionMinimized = true } label: {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 17, weight: .semibold))
                     .frame(width: 36, height: 36)
                     .background(Theme.surfaceElevated, in: Circle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Leave server")
+            .accessibilityLabel("Back to servers")
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(model.activeServer?.displayName ?? session.endpoint?.displayString ?? "Server")
@@ -110,12 +106,15 @@ struct SessionView: View {
             let count = session.users.count
             let ch = session.myChannel?.name ?? ""
             return "\(count) online · in \(ch)"
-        case .connecting, .resolving: return "Connecting…"
-        case .authenticating: return "Authenticating…"
-        case .synchronizing: return "Loading channels…"
-        case .reconnecting(let n): return "Reconnecting (try \(n))…"
+        case .connecting, .resolving, .authenticating, .synchronizing: return "Connecting…"
+        case .reconnecting: return "Reconnecting…"
         case .disconnected: return "Disconnected"
         }
+    }
+
+    private var isReconnecting: Bool {
+        if case .reconnecting = session.state { return true }
+        return false
     }
 
     private var stateColor: Color {
@@ -137,14 +136,16 @@ struct SessionView: View {
 
     @ViewBuilder
     private var content: some View {
-        if !session.isConnected && session.channels.isEmpty {
+        if !session.isConnected {
             VStack(spacing: 14) {
                 ProgressView().controlSize(.large)
-                Text(subtitle).font(.subheadline).foregroundStyle(Theme.muted)
-                if let error = session.lastError, case .reconnecting = session.state {
-                    Text(error.errorDescription ?? "").font(.caption).foregroundStyle(Theme.danger)
+                Text(isReconnecting ? "Reconnecting…" : "Connecting…")
+                    .font(.headline).foregroundStyle(Theme.ink)
+                if isReconnecting {
+                    Text("Lost the connection. Hang tight.")
+                        .font(.subheadline).foregroundStyle(Theme.muted)
                 }
-                Button("Cancel") { model.disconnect() }.buttonStyle(.bordered)
+                Button("Leave") { model.disconnect() }.buttonStyle(.bordered)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
