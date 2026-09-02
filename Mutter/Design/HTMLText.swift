@@ -17,6 +17,20 @@ enum HTMLText {
         init(_ v: Rendered) { value = v }
     }
 
+    /// Drops leading/trailing whitespace and newlines, which server welcome messages are full of
+    /// (stray `<br>` tags) and which otherwise render as empty space above the text.
+    static func trimmed(_ text: AttributedString) -> AttributedString {
+        let ws = CharacterSet.whitespacesAndNewlines
+        var result = text
+        while let first = result.characters.first, first.unicodeScalars.allSatisfy(ws.contains) {
+            result.removeSubrange(result.startIndex..<result.index(afterCharacter: result.startIndex))
+        }
+        while let last = result.characters.last, last.unicodeScalars.allSatisfy(ws.contains) {
+            result.removeSubrange(result.index(beforeCharacter: result.endIndex)..<result.endIndex)
+        }
+        return result
+    }
+
     static func render(_ html: String) -> Rendered {
         if let cached = cache.object(forKey: html as NSString) { return cached.value }
         let images = extractImages(from: html)

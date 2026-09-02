@@ -14,11 +14,14 @@ struct ServerInfoView: View {
     var body: some View {
         List {
             if let welcome = info.welcomeText, !welcome.isEmpty {
-                Section {
-                    Text(HTMLText.render(welcome).text)
-                        .font(.subheadline)
-                        .foregroundStyle(Theme.body)
-                } header: { SectionLabel(text: "Welcome") }
+                let rendered = HTMLText.trimmed(HTMLText.render(welcome).text)
+                if !String(rendered.characters).isEmpty {
+                    Section {
+                        Text(rendered)
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.body)
+                    } header: { SectionLabel(text: "Welcome") }
+                }
             }
 
             Section {
