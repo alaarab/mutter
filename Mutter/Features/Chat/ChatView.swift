@@ -10,6 +10,7 @@ struct ChatView: View {
     @State private var draft = ""
     @State private var customScope: MessageScope?
     @State private var photoItem: PhotosPickerItem?
+    @State private var pendingPhoto: PendingPhoto?
     @State private var sendingImage = false
     @State private var imageError: String?
     @FocusState private var composerFocused: Bool
@@ -67,17 +68,29 @@ struct ChatView: View {
         }
         .onChange(of: photoItem) { _, item in
             guard let item else { return }
-            Task { await sendImage(item) }
+            Task { await loadPhoto(item) }
+        }
+        .sheet(item: $pendingPhoto) { photo in
+            PhotoConfirmSheet(image: photo.image, destination: scopeTitle) {
+                Task { await sendPhoto(photo.image) }
+            }
         }
     }
 
-    private func sendImage(_ item: PhotosPickerItem) async {
+    private func loadPhoto(_ item: PhotosPickerItem) async {
         sendingImage = true
         defer { sendingImage = false; photoItem = nil }
         guard let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data) else {
             imageError = "Couldn't read that photo."
             return
         }
+        imageError = nil
+        pendingPhoto = PendingPhoto(image: image)
+    }
+
+    private func sendPhoto(_ image: UIImage) async {
+        sendingImage = true
+        defer { sendingImage = false }
         let limit = Int(session.serverInfo.imageMessageLength ?? UInt32(ImageMessageEncoder.defaultLimit))
         let target = scope
         let html = await Task.detached(priority: .userInitiated) { ImageMessageEncoder.html(for: image, limit: limit) }.value
@@ -143,7 +156,7 @@ struct ChatView: View {
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(.white)
                         .frame(width: 34, height: 34)
-                        .background(canSend ? Theme.coral : Theme.muted, in: Circle())
+                        .background(canSend ? Theme.accent : Theme.muted, in: Circle())
                 }
                 .disabled(!canSend)
                 .accessibilityLabel("Send")
@@ -178,7 +191,7 @@ struct ChatView: View {
 
     private var scopeColor: Color {
         if case .user = scope { return Theme.whisper }
-        return Theme.coral
+        return Theme.accent
     }
 
     private func send() {
@@ -189,12 +202,66 @@ struct ChatView: View {
     }
 }
 
+struct PendingPhoto: Identifiable {
+    let id = UUID()
+    let image: UIImage
+}
+
+/// Preview shown after picking a photo, so nothing sends until you confirm.
+struct PhotoConfirmSheet: View {
+    let image: UIImage
+    let destination: String
+    var onSend: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Send photo")
+                .font(.headline)
+                .foregroundStyle(Theme.ink)
+                .padding(.top, 20)
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .frame(maxWidth: .infinity, maxHeight: 380)
+                .padding(.horizontal, 20)
+            Spacer(minLength: 0)
+            VStack(spacing: 10) {
+                Button {
+                    onSend()
+                    dismiss()
+                } label: {
+                    Label("Send to \(destination)", systemImage: "arrow.up.circle.fill")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(Theme.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                Button("Cancel") { dismiss() }
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(Theme.muted)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 16)
+        }
+        .presentationDetents([.medium, .large])
+        .presentationBackground(Theme.background)
+    }
+}
+
 struct MessageRow: View {
     @Environment(AppModel.self) private var model
     var message: ChatMessage
     var onUser: (UInt32) -> Void
+    @State private var viewedImage: ViewedImage?
 
     private var rendered: HTMLText.Rendered { HTMLText.render(message.html) }
+
+    private var hasText: Bool {
+        !String(rendered.text.characters).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     var body: some View {
         if message.isSystem {
@@ -224,23 +291,27 @@ struct MessageRow: View {
                         Text(message.date, style: .time).font(.caption2).foregroundStyle(Theme.muted)
                     }
                     .frame(maxWidth: 300, alignment: message.isOwn ? .trailing : .leading)
-                    Text(rendered.text)
-                        .font(.body)
-                        .foregroundStyle(message.isOwn ? .white : Theme.ink)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: 300, alignment: .leading)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            message.isOwn ? Theme.coral : Theme.surface,
-                            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .strokeBorder(message.isOwn ? Color.clear : Theme.separator, lineWidth: 1)
-                        )
-                    images
+                    VStack(alignment: .leading, spacing: 8) {
+                        if hasText {
+                            Text(rendered.text)
+                                .font(.body)
+                                .foregroundStyle(message.isOwn ? .white : Theme.ink)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: 300, alignment: .leading)
+                        }
+                        images
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, hasText ? 8 : 12)
+                    .background(
+                        message.isOwn ? Theme.accent : Theme.surface,
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .strokeBorder(message.isOwn ? Color.clear : Theme.separator, lineWidth: 1)
+                    )
                 }
                 if !message.isOwn { Spacer(minLength: 40) }
             }
@@ -266,11 +337,17 @@ struct MessageRow: View {
     @ViewBuilder
     private var images: some View {
         ForEach(Array(rendered.images.enumerated()), id: \.offset) { _, image in
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFit()
-                .frame(maxWidth: 260, maxHeight: 260)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            Button { viewedImage = ViewedImage(image: image) } label: {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: 260, maxHeight: 260)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .buttonStyle(.plain)
+        }
+        .fullScreenCover(item: $viewedImage) { viewed in
+            ImageViewerScreen(image: viewed.image)
         }
     }
 }
