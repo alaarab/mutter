@@ -50,6 +50,7 @@ final class AppSettings {
     var frameMilliseconds: Int { didSet { defaults.set(frameMilliseconds, forKey: "frameMilliseconds") } }
     var pushToTalkStyle: PushToTalkStyle { didSet { defaults.set(pushToTalkStyle.rawValue, forKey: "pushToTalkStyle") } }
     var audioRoute: AudioRoute { didSet { defaults.set(audioRoute.rawValue, forKey: "audioRoute") } }
+    var mixWithOthers: Bool { didSet { defaults.set(mixWithOthers, forKey: "mixWithOthers") } }
     var appearance: Appearance { didSet { defaults.set(appearance.rawValue, forKey: "appearance") } }
     var theme: ThemeStyle { didSet { defaults.set(theme.rawValue, forKey: "theme") } }
     var defaultUsername: String { didSet { defaults.set(defaultUsername, forKey: "defaultUsername") } }
@@ -75,6 +76,7 @@ final class AppSettings {
         // Migrates the old "speakerphone" bool: true was speaker, false was earpiece/Bluetooth.
         audioRoute = AudioRoute(rawValue: defaults.string(forKey: "audioRoute") ?? "")
             ?? ((defaults.object(forKey: "speakerphone") as? Bool ?? true) ? .speaker : .earpiece)
+        mixWithOthers = defaults.object(forKey: "mixWithOthers") as? Bool ?? true
         appearance = Appearance(rawValue: defaults.string(forKey: "appearance") ?? "") ?? .system
         theme = ThemeStyle(rawValue: defaults.string(forKey: "theme") ?? "") ?? .midnight
         defaultUsername = defaults.string(forKey: "defaultUsername") ?? ""

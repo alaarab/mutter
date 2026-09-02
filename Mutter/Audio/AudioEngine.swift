@@ -83,6 +83,9 @@ final class AudioEngine: VoiceSink {
     var isDeafened = false
     var outputGain: Float = 1.0
     var route: AudioRoute = .speaker { didSet { applyOutputRoute() } }
+    /// Mix with other apps' audio instead of fighting over the session. This is what lets a
+    /// video or music app play without interrupting the call (and vice versa).
+    var mixWithOthers = true { didSet { applyOutputRoute() } }
     /// Voice target for outgoing packets: `.normal` for the channel, 1 for the whisper/shout target.
     var transmitTarget: VoiceTargetID = .normal
 
@@ -163,10 +166,23 @@ final class AudioEngine: VoiceSink {
     /// Bluetooth is only in the category options when the user picked it, so "Earpiece"
     /// and "Speaker" stay put even while a headset is connected.
     private var categoryOptions: AVAudioSession.CategoryOptions {
+        var options: AVAudioSession.CategoryOptions
         switch route {
-        case .bluetooth: return [.allowBluetooth, .allowBluetoothA2DP]
-        case .speaker: return [.defaultToSpeaker]
-        case .earpiece: return []
+        case .bluetooth: options = [.allowBluetooth, .allowBluetoothA2DP]
+        case .speaker: options = [.defaultToSpeaker]
+        case .earpiece: options = []
+        }
+        if mixWithOthers { options.insert(.mixWithOthers) }
+        return options
+    }
+
+    /// Restarts a paused engine after an interruption or on returning to the foreground.
+    func ensureRunning() {
+        guard isRunning else { return }
+        if !engine.isRunning {
+            DiagnosticsLog.shared.add("audio", "resuming engine")
+            try? AVAudioSession.sharedInstance().setActive(true)
+            try? engine.start()
         }
     }
 
