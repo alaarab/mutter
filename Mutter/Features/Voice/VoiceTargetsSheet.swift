@@ -18,7 +18,7 @@ struct WhisperTarget: Hashable {
         return [VoiceTargetEntry(sessions: Array(sessions))]
     }
 
-    func title(in session: ServerSession) -> String {
+    @MainActor func title(in session: ServerSession) -> String {
         if let channelID {
             let name = session.channels[channelID]?.name ?? "channel"
             return includeChildren ? "#\(name) + subs" : "#\(name)"
@@ -70,7 +70,7 @@ struct VoiceTargetsSheet: View {
                                     }
                                     Spacer()
                                     Image(systemName: draft.sessions.contains(user.session) ? "checkmark.circle.fill" : "circle")
-                                        .foregroundStyle(draft.sessions.contains(user.session) ? Theme.coral : Theme.muted)
+                                        .foregroundStyle(draft.sessions.contains(user.session) ? Theme.accent : Theme.muted)
                                 }
                             }
                         }
@@ -88,7 +88,7 @@ struct VoiceTargetsSheet: View {
                                         .lineLimit(1)
                                     Spacer()
                                     if draft.channelID == channel.id {
-                                        Image(systemName: "checkmark").foregroundStyle(Theme.coral)
+                                        Image(systemName: "checkmark").foregroundStyle(Theme.accent)
                                     }
                                 }
                             }

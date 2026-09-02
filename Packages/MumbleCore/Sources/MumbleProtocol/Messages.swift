@@ -13,7 +13,7 @@ public protocol DecodableControlMessage: ControlMessage {
 
 // MARK: - Version (0)
 
-public struct VersionMessage: DecodableControlMessage, Sendable {
+public struct VersionMessage: DecodableControlMessage, Hashable, Sendable {
     public static let messageType = MessageType.version
     public var versionV1: UInt32?
     public var release: String?
@@ -801,7 +801,7 @@ public struct PacketStats: Hashable, Sendable {
     }
 }
 
-public struct UserStatsMessage: DecodableControlMessage, Sendable {
+public struct UserStatsMessage: DecodableControlMessage, Hashable, Sendable {
     public static let messageType = MessageType.userStats
     public var session: UInt32?
     public var statsOnly: Bool?

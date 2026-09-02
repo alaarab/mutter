@@ -41,7 +41,7 @@ final class OpusEncoderWrapper {
     /// Encodes exactly `frameSize` float samples (must be 120, 240, 480, 960, 1920 or 2880).
     func encode(_ pcm: UnsafePointer<Float>, frameSize: Int) throws -> Data {
         let n = output.withUnsafeMutableBufferPointer { buf -> Int32 in
-            opus_encode_float(encoder, pcm, Int32(frameSize), buf.baseAddress, Int32(buf.count))
+            opus_encode_float(encoder, pcm, Int32(frameSize), buf.baseAddress!, Int32(buf.count))
         }
         guard n >= 0 else { throw OpusError.encodeFailed(n) }
         return Data(output[0..<Int(n)])
@@ -76,10 +76,10 @@ final class OpusDecoderWrapper {
             if let packet, !packet.isEmpty {
                 return packet.withUnsafeBytes { raw -> Int32 in
                     let p = raw.bindMemory(to: UInt8.self).baseAddress
-                    return opus_decode_float(decoder, p, Int32(packet.count), out.baseAddress, Int32(out.count), 0)
+                    return opus_decode_float(decoder, p, Int32(packet.count), out.baseAddress!, Int32(out.count), 0)
                 }
             } else {
-                return opus_decode_float(decoder, nil, 0, out.baseAddress, Int32(plcSamples), 0)
+                return opus_decode_float(decoder, nil, 0, out.baseAddress!, Int32(plcSamples), 0)
             }
         }
         guard n >= 0 else { throw OpusError.decodeFailed(n) }
