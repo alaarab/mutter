@@ -99,7 +99,7 @@ enum HTMLText {
                 out[range].swiftUI.font = .body.italic()
             }
             if run.link != nil {
-                out[range].swiftUI.foregroundColor = Theme.coral
+                out[range].swiftUI.foregroundColor = Theme.accent
                 out[range].swiftUI.underlineStyle = .single
             }
         }

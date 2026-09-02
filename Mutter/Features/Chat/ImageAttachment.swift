@@ -55,8 +55,8 @@ struct AttachImageButton: View {
                 }
             }
             .frame(width: 34, height: 34)
-            .foregroundStyle(Theme.coral)
-            .background(Theme.coral.opacity(0.12), in: Circle())
+            .foregroundStyle(Theme.accent)
+            .background(Theme.accent.opacity(0.12), in: Circle())
         }
         .disabled(busy)
         .accessibilityLabel("Attach a photo")
