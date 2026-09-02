@@ -44,7 +44,10 @@ struct SettingsView: View {
                         ForEach(Appearance.allCases) { Text($0.title).tag($0) }
                     }
                     .pickerStyle(.segmented)
-                } header: { SectionLabel(text: "Appearance") }
+                    ThemePickerRow(selection: $settings.theme)
+                } header: { SectionLabel(text: "Appearance") } footer: {
+                    Text("Themes recolor the whole app.")
+                }
 
                 Section {
                     Toggle("Notify me about messages", isOn: $settings.notifyOnMessage)
@@ -63,6 +66,14 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    NavigationLink { DiagnosticsView() } label: {
+                        Label("Diagnostics", systemImage: "stethoscope")
+                    }
+                } footer: {
+                    Text("Connection and audio events from this run, for tracking down disconnects. Actual crash reports live in the iPhone's Settings → Privacy & Security → Analytics & Improvements → Analytics Data, under “Mutter”.")
+                }
+
+                Section {
                     LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")
                     LabeledContent("Protocol", value: "Mumble 1.5 (works with 1.2+ servers)")
                     Link(destination: URL(string: "https://www.mumble.info")!) {
@@ -78,6 +89,46 @@ struct SettingsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
+    }
+}
+
+/// Swatch row for picking the app theme: a circle per theme in its accent color on its
+/// dark background, ringed when selected.
+struct ThemePickerRow: View {
+    @Binding var selection: ThemeStyle
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Theme")
+            HStack(spacing: 14) {
+                ForEach(ThemeStyle.allCases) { style in
+                    let p = style.palette
+                    Button {
+                        selection = style
+                    } label: {
+                        VStack(spacing: 5) {
+                            ZStack {
+                                Circle().fill(Color(hex: p.background.dark))
+                                Circle().fill(Color(hex: p.accent)).padding(9)
+                            }
+                            .frame(width: 40, height: 40)
+                            .overlay(
+                                Circle().strokeBorder(
+                                    selection == style ? Color(hex: p.accent) : Theme.separator,
+                                    lineWidth: selection == style ? 2.5 : 1
+                                )
+                            )
+                            Text(style.title)
+                                .font(.caption2.weight(selection == style ? .semibold : .regular))
+                                .foregroundStyle(selection == style ? Theme.ink : Theme.muted)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .padding(.vertical, 4)
     }
 }
 
@@ -160,9 +211,11 @@ struct AudioSettingsView: View {
             }
 
             Section {
-                Toggle("Prefer speakerphone", isOn: $settings.speakerphone)
+                Picker("Audio output", selection: $settings.audioRoute) {
+                    ForEach(AudioRoute.allCases) { Label($0.title, systemImage: $0.symbol).tag($0) }
+                }
             } header: { SectionLabel(text: "Output") } footer: {
-                Text("Bluetooth headsets and AirPods are used automatically when connected.")
+                Text("Phone plays through the earpiece you hold to your ear; Speaker is the loudspeaker. Both always use the phone itself. Bluetooth routes to your headset or AirPods when one is connected. You can also switch from the voice bar during a call.")
             }
         }
         .scrollContentBackground(.hidden)
@@ -173,7 +226,7 @@ struct AudioSettingsView: View {
         .onChange(of: settings.vadThresholdDb) { _, _ in model.applyAudioSettings() }
         .onChange(of: settings.bitrate) { _, _ in model.applyAudioSettings() }
         .onChange(of: settings.frameMilliseconds) { _, _ in model.applyAudioSettings() }
-        .onChange(of: settings.speakerphone) { _, _ in model.applyAudioSettings() }
+        .onChange(of: settings.audioRoute) { _, _ in model.applyAudioSettings() }
         .onChange(of: settings.noiseSuppression) { _, _ in model.applyAudioSettings() }
         .onChange(of: settings.voiceProcessing) { _, _ in model.applyAudioSettings() }
         .onChange(of: settings.autoSensitivity) { _, _ in model.applyAudioSettings() }

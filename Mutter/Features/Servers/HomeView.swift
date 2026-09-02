@@ -157,7 +157,7 @@ struct HomeView: View {
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) { model.servers.remove(server) } label: { Label("Delete", systemImage: "trash") }
-            Button { editing = server } label: { Label("Edit", systemImage: "pencil") }.tint(Theme.coral)
+            Button { editing = server } label: { Label("Edit", systemImage: "pencil") }.tint(Theme.accent)
         }
         .swipeActions(edge: .leading) {
             Button {

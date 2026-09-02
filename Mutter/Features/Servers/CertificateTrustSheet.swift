@@ -22,10 +22,10 @@ struct CertificateTrustSheet: View {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack(alignment: .top, spacing: 14) {
                         ZStack {
-                            Circle().fill((isChange ? Theme.danger : Theme.coral).opacity(0.14))
+                            Circle().fill((isChange ? Theme.danger : Theme.accent).opacity(0.14))
                             Image(systemName: isChange ? "exclamationmark.shield.fill" : "checkmark.shield")
                                 .font(.system(size: 24, weight: .medium))
-                                .foregroundStyle(isChange ? Theme.danger : Theme.coral)
+                                .foregroundStyle(isChange ? Theme.danger : Theme.accent)
                         }
                         .frame(width: 48, height: 48)
                         VStack(alignment: .leading, spacing: 6) {
@@ -81,7 +81,7 @@ struct CertificateTrustSheet: View {
                         Text(isChange ? "Trust anyway" : "Trust & connect").frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(isChange ? Theme.danger : Theme.coral)
+                    .tint(isChange ? Theme.danger : Theme.accent)
                 }
                 .padding()
                 .background(Theme.background)

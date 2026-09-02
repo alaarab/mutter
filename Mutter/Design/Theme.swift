@@ -1,31 +1,96 @@
 import SwiftUI
 import UIKit
 
-/// Design tokens. Warm, editorial palette (cream "Paper" and warm-black "Ink") with a single
-/// coral accent, paired with a Discord-style information structure.
-enum Theme {
-    // Brand
-    static let coral = Color(hex: 0xCC785C)
-    static let coralActive = Color(hex: 0xA9583E)
-    static let accent = coral
+/// A complete color scheme. Every token has a light and dark variant; the accent pair is shared.
+struct ThemePalette {
+    var accent: UInt32
+    var accentActive: UInt32
+    var background, surface, surfaceElevated, surfaceSunken, separator: (light: UInt32, dark: UInt32)
+    var ink, body, muted: (light: UInt32, dark: UInt32)
+}
 
-    // Semantic
+enum ThemeStyle: String, CaseIterable, Codable, Identifiable {
+    case midnight
+    case paper
+    case emerald
+    case violet
+    case amber
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .midnight: return "Midnight"
+        case .paper: return "Paper"
+        case .emerald: return "Emerald"
+        case .violet: return "Violet"
+        case .amber: return "Amber"
+        }
+    }
+
+    var palette: ThemePalette {
+        switch self {
+        case .midnight: return ThemePalette(
+            accent: 0x5B9DD9, accentActive: 0x3D7DB8,
+            background: (0xF5F7FA, 0x10141B), surface: (0xFFFFFF, 0x1A2029),
+            surfaceElevated: (0xE7ECF2, 0x232B36), surfaceSunken: (0xEDF0F5, 0x0C0F15),
+            separator: (0xD9E0E8, 0x2E3742),
+            ink: (0x10151C, 0xEDF1F6), body: (0x39424E, 0xC9D2DD), muted: (0x66707D, 0x8794A3))
+        case .paper: return ThemePalette(
+            accent: 0xCC785C, accentActive: 0xA9583E,
+            background: (0xFAF9F5, 0x181715), surface: (0xFFFFFF, 0x252320),
+            surfaceElevated: (0xEFE9DE, 0x2E2B27), surfaceSunken: (0xF2EFE8, 0x1F1D1A),
+            separator: (0xE6DFD8, 0x3A3733),
+            ink: (0x141413, 0xFAF9F5), body: (0x3D3D3A, 0xD9D5CC), muted: (0x6C6A64, 0x9A968D))
+        case .emerald: return ThemePalette(
+            accent: 0x34C77B, accentActive: 0x219960,
+            background: (0xF4F7F4, 0x121412), surface: (0xFFFFFF, 0x1B1F1B),
+            surfaceElevated: (0xE6EEE7, 0x242A24), surfaceSunken: (0xECF1EC, 0x0E100E),
+            separator: (0xD8E2D9, 0x2E362E),
+            ink: (0x121712, 0xF2F4F1), body: (0x3A443B, 0xD3DAD2), muted: (0x687468, 0x93A093))
+        case .violet: return ThemePalette(
+            accent: 0x8B7CF6, accentActive: 0x6D5BD0,
+            background: (0xF6F5FA, 0x131218), surface: (0xFFFFFF, 0x1C1A24),
+            surfaceElevated: (0xEAE7F2, 0x262330), surfaceSunken: (0xEFEDF5, 0x0E0D13),
+            separator: (0xDDD9E8, 0x322E40),
+            ink: (0x141218, 0xF1F0F5), body: (0x3E3A4A, 0xD5D2DE), muted: (0x6E6980, 0x9994A8))
+        case .amber: return ThemePalette(
+            accent: 0xE8A33D, accentActive: 0xC4841F,
+            background: (0xFAF8F2, 0x0C0C0C), surface: (0xFFFFFF, 0x171614),
+            surfaceElevated: (0xF0EBDF, 0x22201C), surfaceSunken: (0xF4F0E7, 0x080808),
+            separator: (0xE4DDCE, 0x2E2B26),
+            ink: (0x161410, 0xF5F2EA), body: (0x44403A, 0xDAD5C8), muted: (0x746E63, 0x9C9689))
+        }
+    }
+}
+
+/// Design tokens, resolved through the active theme. Set `Theme.style` at launch and on change;
+/// the root view re-renders the tree via `.id(theme)`.
+enum Theme {
+    static var style: ThemeStyle = .midnight
+    private static var p: ThemePalette { style.palette }
+
+    // Brand
+    static var accent: Color { Color(hex: p.accent) }
+    static var accentActive: Color { Color(hex: p.accentActive) }
+
+    // Semantic (shared across themes)
     static let speaking = Color(hex: 0x5DB872)
     static let warning = Color(hex: 0xD4A017)
     static let danger = Color(hex: 0xC64545)
     static let whisper = Color(hex: 0x7B8CDE)
 
     // Adaptive surfaces
-    static let background = adaptive(light: 0xFAF9F5, dark: 0x181715)
-    static let surface = adaptive(light: 0xFFFFFF, dark: 0x252320)
-    static let surfaceElevated = adaptive(light: 0xEFE9DE, dark: 0x2E2B27)
-    static let surfaceSunken = adaptive(light: 0xF2EFE8, dark: 0x1F1D1A)
-    static let separator = adaptive(light: 0xE6DFD8, dark: 0x3A3733)
+    static var background: Color { adaptive(p.background) }
+    static var surface: Color { adaptive(p.surface) }
+    static var surfaceElevated: Color { adaptive(p.surfaceElevated) }
+    static var surfaceSunken: Color { adaptive(p.surfaceSunken) }
+    static var separator: Color { adaptive(p.separator) }
 
     // Text
-    static let ink = adaptive(light: 0x141413, dark: 0xFAF9F5)
-    static let body = adaptive(light: 0x3D3D3A, dark: 0xD9D5CC)
-    static let muted = adaptive(light: 0x6C6A64, dark: 0x9A968D)
+    static var ink: Color { adaptive(p.ink) }
+    static var body: Color { adaptive(p.body) }
+    static var muted: Color { adaptive(p.muted) }
 
     // Stable per-server / per-user colours
     static let palette: [Color] = [
@@ -48,9 +113,9 @@ enum Theme {
     static let radiusMedium: CGFloat = 12
     static let radiusLarge: CGFloat = 16
 
-    private static func adaptive(light: UInt32, dark: UInt32) -> Color {
+    private static func adaptive(_ pair: (light: UInt32, dark: UInt32)) -> Color {
         Color(uiColor: UIColor { traits in
-            traits.userInterfaceStyle == .dark ? UIColor(hex: dark) : UIColor(hex: light)
+            traits.userInterfaceStyle == .dark ? UIColor(hex: pair.dark) : UIColor(hex: pair.light)
         })
     }
 }

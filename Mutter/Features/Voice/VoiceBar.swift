@@ -5,6 +5,7 @@ import MumbleClient
 struct VoiceBar: View {
     @Environment(AppModel.self) private var model
     @State private var showTargets = false
+    @State private var showSettings = false
 
     private var session: ServerSession { model.session }
     private var audio: AudioEngine { model.audio }
@@ -14,7 +15,7 @@ struct VoiceBar: View {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
-                        Image(systemName: "number").font(.caption.weight(.bold)).foregroundStyle(Theme.coral)
+                        Image(systemName: "number").font(.caption.weight(.bold)).foregroundStyle(Theme.accent)
                         Text(session.myChannel?.name ?? "—")
                             .font(.label)
                             .foregroundStyle(Theme.ink)
@@ -64,15 +65,21 @@ struct VoiceBar: View {
                     size: 42
                 ) { model.toggleDeafen() }
 
-                RoundIconButton(
-                    symbol: model.settings.speakerphone ? "speaker.wave.3.fill" : "iphone.gen3",
-                    label: model.settings.speakerphone ? "Switch to earpiece" : "Switch to speaker",
-                    active: false,
-                    size: 42
-                ) {
-                    model.settings.speakerphone.toggle()
-                    audio.useSpeaker = model.settings.speakerphone
+                Menu {
+                    Picker("Audio output", selection: Binding(
+                        get: { model.settings.audioRoute },
+                        set: { model.settings.audioRoute = $0; audio.route = $0 }
+                    )) {
+                        ForEach(AudioRoute.allCases) { r in Label(r.title, systemImage: r.symbol).tag(r) }
+                    }
+                } label: {
+                    Image(systemName: model.settings.audioRoute.symbol)
+                        .font(.system(size: 17, weight: .semibold))
+                        .frame(width: 42, height: 42)
+                        .foregroundStyle(Theme.ink)
+                        .background(Theme.surfaceElevated, in: Circle())
                 }
+                .accessibilityLabel("Audio output: \(model.settings.audioRoute.title)")
 
                 Menu {
                     Picker("Transmit", selection: Binding(
@@ -89,6 +96,7 @@ struct VoiceBar: View {
                             Label("Whisper mode", systemImage: "waveform.badge.mic")
                         }
                     }
+                    Button { showSettings = true } label: { Label("Settings", systemImage: "gearshape") }
                     Button(role: .destructive) { model.disconnect() } label: { Label("Disconnect", systemImage: "phone.down.fill") }
                 } label: {
                     Image(systemName: "ellipsis")
@@ -123,6 +131,7 @@ struct VoiceBar: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .sheet(isPresented: $showTargets) { VoiceTargetsSheet() }
+        .sheet(isPresented: $showSettings) { SettingsView() }
     }
 
     private var statusLine: String {

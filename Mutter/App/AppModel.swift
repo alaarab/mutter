@@ -140,6 +140,7 @@ final class AppModel {
 
     /// Called by the root view whenever the session state changes.
     func sessionStateDidChange(_ state: ConnectionState) {
+        DiagnosticsLog.shared.add("connection", "state → \(state)\(session.lastError.map { " (\($0))" } ?? "")")
         switch state {
         case .connected:
             if let server = activeServer { servers.markConnected(server.id) }
@@ -162,7 +163,7 @@ final class AppModel {
         audio.vadThresholdDb = settings.vadThresholdDb
         audio.bitrate = Int32(settings.bitrate)
         audio.frameMilliseconds = settings.frameMilliseconds
-        audio.useSpeaker = settings.speakerphone
+        audio.route = settings.audioRoute
         audio.noiseSuppression = settings.noiseSuppression
         audio.autoSensitivity = settings.autoSensitivity
         audio.useVoiceProcessing = settings.voiceProcessing

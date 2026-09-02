@@ -29,6 +29,30 @@ enum TransmitMode: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum AudioRoute: String, Codable, CaseIterable, Identifiable {
+    case earpiece
+    case speaker
+    case bluetooth
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .earpiece: return "Phone"
+        case .speaker: return "Speaker"
+        case .bluetooth: return "Bluetooth"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .earpiece: return "iphone.gen3"
+        case .speaker: return "speaker.wave.3.fill"
+        case .bluetooth: return "headphones"
+        }
+    }
+}
+
 /// Captures the microphone, encodes Opus packets for the client, and plays back remote users.
 @Observable
 final class AudioEngine: VoiceSink {
@@ -58,7 +82,7 @@ final class AudioEngine: VoiceSink {
     var isMuted = false { didSet { updateGate(force: true) } }
     var isDeafened = false
     var outputGain: Float = 1.0
-    var useSpeaker = false { didSet { applyOutputRoute() } }
+    var route: AudioRoute = .speaker { didSet { applyOutputRoute() } }
     /// Voice target for outgoing packets: `.normal` for the channel, 1 for the whisper/shout target.
     var transmitTarget: VoiceTargetID = .normal
 
@@ -114,6 +138,7 @@ final class AudioEngine: VoiceSink {
             lastError = nil
             refreshRoute()
         } catch {
+            DiagnosticsLog.shared.add("audio", "engine start failed: \(error.localizedDescription)")
             lastError = error.localizedDescription
             isRunning = false
         }
@@ -135,11 +160,19 @@ final class AudioEngine: VoiceSink {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
+    /// Bluetooth is only in the category options when the user picked it, so "Earpiece"
+    /// and "Speaker" stay put even while a headset is connected.
+    private var categoryOptions: AVAudioSession.CategoryOptions {
+        switch route {
+        case .bluetooth: return [.allowBluetooth, .allowBluetoothA2DP]
+        case .speaker: return [.defaultToSpeaker]
+        case .earpiece: return []
+        }
+    }
+
     private func configureSession() throws {
         let session = AVAudioSession.sharedInstance()
-        var options: AVAudioSession.CategoryOptions = [.allowBluetooth, .allowBluetoothA2DP]
-        if useSpeaker { options.insert(.defaultToSpeaker) }
-        try session.setCategory(.playAndRecord, mode: .voiceChat, options: options)
+        try session.setCategory(.playAndRecord, mode: .voiceChat, options: categoryOptions)
         try session.setPreferredSampleRate(48_000)
         try session.setPreferredIOBufferDuration(0.01)
         try session.setActive(true)
@@ -148,7 +181,8 @@ final class AudioEngine: VoiceSink {
     private func applyOutputRoute() {
         guard isRunning else { return }
         let session = AVAudioSession.sharedInstance()
-        try? session.overrideOutputAudioPort(useSpeaker ? .speaker : .none)
+        try? session.setCategory(.playAndRecord, mode: .voiceChat, options: categoryOptions)
+        try? session.overrideOutputAudioPort(route == .speaker ? .speaker : .none)
         refreshRoute()
     }
 
@@ -368,10 +402,12 @@ final class AudioEngine: VoiceSink {
               let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
         switch type {
         case .began:
+            DiagnosticsLog.shared.add("audio", "interruption began (another app took the audio session)")
             engine.pause()
         case .ended:
             let optionsRaw = info[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
             let options = AVAudioSession.InterruptionOptions(rawValue: optionsRaw)
+            DiagnosticsLog.shared.add("audio", "interruption ended (shouldResume: \(options.contains(.shouldResume)))")
             if options.contains(.shouldResume) || isRunning {
                 try? AVAudioSession.sharedInstance().setActive(true)
                 try? engine.start()
@@ -399,6 +435,10 @@ final class AudioEngine: VoiceSink {
 
     private func refreshRoute() {
         let outputs = AVAudioSession.sharedInstance().currentRoute.outputs
-        currentRoute = outputs.map { $0.portName }.joined(separator: ", ")
+        let newRoute = outputs.map { $0.portName }.joined(separator: ", ")
+        if newRoute != currentRoute {
+            DiagnosticsLog.shared.add("audio", "output route → \(newRoute.isEmpty ? "none" : newRoute)")
+        }
+        currentRoute = newRoute
     }
 }

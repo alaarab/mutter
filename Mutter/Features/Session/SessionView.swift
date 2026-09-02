@@ -181,13 +181,13 @@ struct SessionView: View {
                                         .foregroundStyle(.white)
                                         .padding(.horizontal, 5)
                                         .padding(.vertical, 1)
-                                        .background(Theme.coral, in: Capsule())
+                                        .background(Theme.accent, in: Capsule())
                                         .offset(x: 12, y: -8)
                                 }
                             }
                             Text(t.title).font(.system(size: 10, weight: .medium))
                         }
-                        .foregroundStyle(tab == t ? Theme.coral : Theme.muted)
+                        .foregroundStyle(tab == t ? Theme.accent : Theme.muted)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
                         .contentShape(Rectangle())
