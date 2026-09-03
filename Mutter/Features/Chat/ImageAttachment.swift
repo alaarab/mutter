@@ -51,7 +51,7 @@ struct AttachImageButton: View {
                     ProgressView().controlSize(.small)
                 } else {
                     Image(systemName: "photo")
-                        .font(.system(size: 18, weight: .medium))
+                        .font(.icon(18, .medium))
                 }
             }
             .frame(width: 34, height: 34)

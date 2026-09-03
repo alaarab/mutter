@@ -163,7 +163,6 @@ final class AppModel {
             if let server = activeServer { servers.markConnected(server.id) }
             applyAudioSettings()
             audio.start()
-            callKit.reportCallStarted(serverName: activeServer?.displayName ?? "Mumble")
             UIApplication.shared.isIdleTimerDisabled = settings.keepScreenAwake
             if let target = whisperTarget { client.setVoiceTarget(VoiceTargetID(1), entries: target.entries) }
             startPresence()
@@ -174,6 +173,19 @@ final class AppModel {
             stopPresence()
         default:
             break
+        }
+    }
+
+    /// CallKit is what keeps us alive once we're not on screen and lets other call apps hold us
+    /// instead of killing us — but an active call also puts the green call pill in the status bar.
+    /// We only need it while backgrounded, so it's claimed on the way out and released on return.
+    func setBackgrounded(_ backgrounded: Bool) {
+        guard session.state.isActive else { return }
+        if backgrounded {
+            callKit.reportCallStarted(serverName: activeServer?.displayName ?? "Mumble")
+        } else {
+            callKit.reportCallEnded()
+            audio.ensureRunning()
         }
     }
 

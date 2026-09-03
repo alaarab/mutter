@@ -134,7 +134,7 @@ struct ChatView: View {
                     HStack(spacing: 4) {
                         Image(systemName: scopeSymbol).font(.caption.weight(.bold))
                         Text(scopeTitle).font(.caption.weight(.semibold)).lineLimit(1)
-                        Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .bold))
+                        Image(systemName: "chevron.up.chevron.down").font(.icon(9, .bold))
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 8)
@@ -153,7 +153,7 @@ struct ChatView: View {
 
                 Button(action: send) {
                     Image(systemName: "arrow.up")
-                        .font(.system(size: 15, weight: .bold))
+                        .font(.icon(15, .bold))
                         .foregroundStyle(.white)
                         .frame(width: 34, height: 34)
                         .background(canSend ? Theme.accent : Theme.muted, in: Circle())

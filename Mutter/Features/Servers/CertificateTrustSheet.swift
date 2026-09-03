@@ -24,7 +24,7 @@ struct CertificateTrustSheet: View {
                         ZStack {
                             Circle().fill((isChange ? Theme.danger : Theme.accent).opacity(0.14))
                             Image(systemName: isChange ? "exclamationmark.shield.fill" : "checkmark.shield")
-                                .font(.system(size: 24, weight: .medium))
+                                .font(.icon(24, .medium))
                                 .foregroundStyle(isChange ? Theme.danger : Theme.accent)
                         }
                         .frame(width: 48, height: 48)

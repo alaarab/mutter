@@ -138,7 +138,7 @@ struct ChannelRow: View {
                 withAnimation(.snappy(duration: 0.2)) { model.toggleCollapsed(channel.id) }
             } label: {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.icon(11, .bold))
                     .foregroundStyle(Theme.muted)
                     .rotationEffect(.degrees(collapsed ? 0 : 90))
                     .frame(width: 20, height: 24)
@@ -147,13 +147,13 @@ struct ChannelRow: View {
             .buttonStyle(.plain)
 
             Image(systemName: channel.isEnterRestricted && !channel.canEnter ? "lock.fill" : (channel.isTemporary ? "clock" : "number"))
-                .font(.system(size: 13, weight: .semibold))
+                .font(.icon(13, .semibold))
                 .foregroundStyle(isMine ? Theme.accent : Theme.muted)
                 .frame(width: 16)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(channel.id == Channel.rootID && channel.name.isEmpty ? "Root" : channel.name)
-                    .font(.system(.body, weight: isMine ? .semibold : .medium))
+                    .font(.ui(16, isMine ? .semibold : .medium))
                     .foregroundStyle(Theme.ink)
                     .lineLimit(1)
                 if showPath {
@@ -184,7 +184,7 @@ struct ChannelRow: View {
                     model.join(channel)
                 } label: {
                     Image(systemName: "arrow.right.circle.fill")
-                        .font(.system(size: 20))
+                        .font(.icon(20))
                         .foregroundStyle(channel.canEnter ? Theme.accent : Theme.muted)
                 }
                 .buttonStyle(.plain)
@@ -227,7 +227,7 @@ struct UserRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 5) {
                     Text(user.name)
-                        .font(.system(.subheadline, weight: isMe ? .semibold : .regular))
+                        .font(.ui(14, isMe ? .semibold : .regular, relativeTo: .subheadline))
                         .foregroundStyle(user.isSilenced ? Theme.muted : Theme.ink)
                         .lineLimit(1)
                         .truncationMode(.tail)

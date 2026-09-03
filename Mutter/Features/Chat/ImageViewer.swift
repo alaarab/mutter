@@ -38,7 +38,7 @@ struct ImageViewerScreen: View {
                 dismiss()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.icon(15, .bold))
                     .foregroundStyle(.white)
                     .frame(width: 36, height: 36)
                     .background(.white.opacity(0.15), in: Circle())

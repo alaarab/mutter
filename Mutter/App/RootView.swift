@@ -28,9 +28,10 @@ struct RootView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             DiagnosticsLog.shared.add("app", "scene → \(phase)")
-            // Coming back to the app: if another app paused our audio, pick it back up.
-            if phase == .active, model.session.isConnected {
-                model.audio.ensureRunning()
+            switch phase {
+            case .background: model.setBackgrounded(true)
+            case .active: model.setBackgrounded(false)
+            default: break
             }
         }
         .onChange(of: model.session.notices.count) { _, _ in

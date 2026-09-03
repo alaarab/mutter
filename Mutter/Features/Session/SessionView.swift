@@ -69,7 +69,7 @@ struct SessionView: View {
         HStack(spacing: 12) {
             Button { model.isSessionMinimized = true } label: {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.icon(17, .semibold))
                     .frame(width: 36, height: 36)
                     .background(Theme.surfaceElevated, in: Circle())
             }
@@ -78,7 +78,8 @@ struct SessionView: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(model.activeServer?.displayName ?? session.endpoint?.displayString ?? "Server")
-                    .font(.display(20, weight: .medium))
+                    .font(.display(21))
+                    .tracking(-0.3)
                     .foregroundStyle(Theme.ink)
                     .lineLimit(1)
                 HStack(spacing: 6) {
@@ -175,10 +176,10 @@ struct SessionView: View {
                         VStack(spacing: 3) {
                             ZStack(alignment: .topTrailing) {
                                 Image(systemName: t.symbol)
-                                    .font(.system(size: 20, weight: tab == t ? .semibold : .regular))
+                                    .font(.icon(20, tab == t ? .semibold : .regular))
                                 if t == .chat && session.unreadCount > 0 {
                                     Text(session.unreadCount > 99 ? "99+" : "\(session.unreadCount)")
-                                        .font(.system(size: 10, weight: .bold))
+                                        .font(.ui(10, .bold))
                                         .foregroundStyle(.white)
                                         .padding(.horizontal, 5)
                                         .padding(.vertical, 1)
@@ -186,7 +187,7 @@ struct SessionView: View {
                                         .offset(x: 12, y: -8)
                                 }
                             }
-                            Text(t.title).font(.system(size: 10, weight: .medium))
+                            Text(t.title).font(.ui(10, .medium))
                         }
                         .foregroundStyle(tab == t ? Theme.accent : Theme.muted)
                         .frame(maxWidth: .infinity)
