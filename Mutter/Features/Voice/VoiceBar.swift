@@ -74,7 +74,7 @@ struct VoiceBar: View {
                     }
                 } label: {
                     Image(systemName: model.settings.audioRoute.symbol)
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.icon(17, .semibold))
                         .frame(width: 42, height: 42)
                         .foregroundStyle(Theme.ink)
                         .background(Theme.surfaceElevated, in: Circle())
@@ -100,7 +100,7 @@ struct VoiceBar: View {
                     Button(role: .destructive) { model.disconnect() } label: { Label("Disconnect", systemImage: "phone.down.fill") }
                 } label: {
                     Image(systemName: "ellipsis")
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.icon(17, .semibold))
                         .frame(width: 42, height: 42)
                         .foregroundStyle(Theme.ink)
                         .background(Theme.surfaceElevated, in: Circle())
@@ -153,8 +153,8 @@ struct WhisperHoldButton: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: "person.wave.2.fill").font(.system(size: 15, weight: .semibold))
-            Text(model.isWhisperHeld ? "Whispering" : "Whisper").font(.system(.subheadline, weight: .semibold))
+            Image(systemName: "person.wave.2.fill").font(.icon(15, .semibold))
+            Text(model.isWhisperHeld ? "Whispering" : "Whisper").font(.ui(14, .semibold, relativeTo: .subheadline))
         }
         .foregroundStyle(model.isWhisperHeld ? .white : Theme.whisper)
         .padding(.horizontal, 14)
@@ -218,9 +218,9 @@ struct PushToTalkButton: View {
     private var label: some View {
         HStack(spacing: 8) {
             Image(systemName: isOn ? "waveform" : "hand.tap.fill")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.icon(16, .semibold))
             Text(isOn ? "Talking" : (model.settings.pushToTalkStyle == .toggle ? "Tap to talk" : "Hold to talk"))
-                .font(.system(.subheadline, weight: .semibold))
+                .font(.ui(14, .semibold, relativeTo: .subheadline))
         }
         .foregroundStyle(isOn ? .white : Theme.ink)
         .frame(maxWidth: .infinity)

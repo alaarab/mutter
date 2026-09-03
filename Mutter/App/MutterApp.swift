@@ -5,14 +5,14 @@ struct MutterApp: App {
     @State private var model = AppModel()
 
     init() {
-        // Serif display type for navigation titles, matching the server and channel names.
+        // Brand display type for navigation titles, matching the server and channel names.
         let large = UINavigationBarAppearance()
         large.configureWithTransparentBackground()
-        if let serif = UIFontDescriptor.preferredFontDescriptor(withTextStyle: .largeTitle).withDesign(.serif) {
-            large.largeTitleTextAttributes = [.font: UIFont(descriptor: serif, size: 34)]
+        if let display = UIFont(name: "BricolageDisplay-ExtraBold", size: 32) {
+            large.largeTitleTextAttributes = [.font: display, .kern: -0.6]
         }
-        if let serifTitle = UIFontDescriptor.preferredFontDescriptor(withTextStyle: .headline).withDesign(.serif) {
-            large.titleTextAttributes = [.font: UIFont(descriptor: serifTitle, size: 18)]
+        if let title = UIFont(name: "BricolageDisplay-Bold", size: 17) {
+            large.titleTextAttributes = [.font: title, .kern: -0.2]
         }
         UINavigationBar.appearance().standardAppearance = large
         UINavigationBar.appearance().scrollEdgeAppearance = large

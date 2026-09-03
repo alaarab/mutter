@@ -16,7 +16,7 @@ struct VoiceLiveActivity: Widget {
                 DynamicIslandExpandedRegion(.leading) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(context.attributes.serverName)
-                            .font(.system(size: 15, weight: .medium, design: .serif))
+                            .font(.custom(BrandFont.display, size: 15).weight(.bold))
                             .lineLimit(1)
                         Text("# \(context.state.channelName)")
                             .font(.caption)
@@ -63,7 +63,7 @@ private struct LockScreenView: View {
             ZStack {
                 Circle().fill(Color(hex: 0xCC785C).opacity(0.18))
                 Image(systemName: context.state.speakers.isEmpty ? "waveform" : "waveform.circle.fill")
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.icon(20, .semibold))
                     .foregroundStyle(context.state.speakers.isEmpty ? Color(hex: 0xCC785C) : Color(hex: 0x5DB872))
                     .symbolEffect(.variableColor.iterative, isActive: !context.state.speakers.isEmpty)
             }
@@ -71,7 +71,7 @@ private struct LockScreenView: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(context.attributes.serverName)
-                    .font(.system(size: 16, weight: .medium, design: .serif))
+                    .font(.custom(BrandFont.display, size: 16).weight(.bold))
                     .foregroundStyle(Color(hex: 0xFAF9F5))
                     .lineLimit(1)
                 Text("# \(context.state.channelName) · \(context.state.onlineCount) online")
@@ -114,7 +114,7 @@ private struct MuteButton: View {
     var body: some View {
         Button(intent: ToggleMuteIntent()) {
             Image(systemName: state.isMuted ? "mic.slash.fill" : "mic.fill")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.icon(16, .semibold))
                 .frame(width: 40, height: 40)
                 .foregroundStyle(state.isMuted ? Color.white : Color(hex: 0xFAF9F5))
                 .background(state.isMuted ? Color(hex: 0xC64545) : Color(hex: 0x2E2B27), in: Circle())
@@ -129,7 +129,7 @@ private struct TalkButton: View {
     var body: some View {
         Button(intent: ToggleTalkIntent()) {
             Image(systemName: state.isPushToTalk ? "hand.tap.fill" : "waveform")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.icon(16, .semibold))
                 .frame(width: 40, height: 40)
                 .foregroundStyle(state.isTransmitting ? Color.white : Color(hex: 0xFAF9F5))
                 .background(state.isTransmitting ? Color(hex: 0x5DB872) : Color(hex: 0x2E2B27), in: Circle())

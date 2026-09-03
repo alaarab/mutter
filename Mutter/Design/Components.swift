@@ -25,7 +25,7 @@ struct Avatar: View {
             } else {
                 (color ?? Theme.color(for: name))
                 Text(initials)
-                    .font(.system(size: size * 0.38, weight: .semibold, design: .rounded))
+                    .font(.ui(size * 0.4, .bold))
                     .foregroundStyle(.white)
             }
         }
@@ -50,7 +50,7 @@ struct UserAvatar: View {
                 .animation(.easeOut(duration: 0.12), value: user.isTalking)
             if let badge = badgeSymbol {
                 Image(systemName: badge.0)
-                    .font(.system(size: size * 0.3, weight: .bold))
+                    .font(.icon(size * 0.3, .bold))
                     .foregroundStyle(.white)
                     .padding(3)
                     .background(badge.1, in: Circle())
@@ -100,7 +100,7 @@ struct Pill: View {
     var color: Color = Theme.muted
     var body: some View {
         HStack(spacing: 4) {
-            if let symbol { Image(systemName: symbol).font(.system(size: 10, weight: .bold)) }
+            if let symbol { Image(systemName: symbol).font(.icon(10, .bold)) }
             Text(text).font(.caption.weight(.semibold))
         }
         .padding(.horizontal, 8)
@@ -113,9 +113,10 @@ struct Pill: View {
 struct SectionLabel: View {
     var text: String
     var body: some View {
+        // All-caps needs more air between letters than lowercase to stay readable.
         Text(text.uppercased())
-            .font(.caption.weight(.bold))
-            .tracking(0.8)
+            .font(.ui(11, .bold, relativeTo: .caption))
+            .tracking(1.4)
             .foregroundStyle(Theme.muted)
     }
 }
@@ -127,7 +128,7 @@ struct EmptyState: View {
     var body: some View {
         VStack(spacing: 10) {
             Image(systemName: symbol)
-                .font(.system(size: 36, weight: .light))
+                .font(.icon(36, .light))
                 .foregroundStyle(Theme.muted)
             Text(title).font(.displayHeadline).foregroundStyle(Theme.ink)
             Text(message)
@@ -222,7 +223,7 @@ struct RoundIconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: size * 0.4, weight: .semibold))
+                .font(.icon(size * 0.4, .semibold))
                 .frame(width: size, height: size)
                 .foregroundStyle(active ? .white : Theme.ink)
                 .background(active ? activeColor : Theme.surfaceElevated, in: Circle())

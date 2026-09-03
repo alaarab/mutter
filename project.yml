@@ -70,6 +70,15 @@ targets:
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: false
         ITSAppUsesNonExemptEncryption: false
+        UIAppFonts:
+          - BricolageDisplay-SemiBold.ttf
+          - BricolageDisplay-Bold.ttf
+          - BricolageDisplay-ExtraBold.ttf
+          - PlusJakartaSans-Regular.ttf
+          - PlusJakartaSans-Medium.ttf
+          - PlusJakartaSans-SemiBold.ttf
+          - PlusJakartaSans-Bold.ttf
+          - PlusJakartaSans-ExtraBold.ttf
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         NSSupportsLiveActivities: true
@@ -96,12 +105,23 @@ targets:
       - path: MutterWidgets
       - path: Mutter/Shared
       - path: Mutter/Design/Theme.swift
+      - path: Mutter/Resources/Fonts
+        buildPhase: resources
     info:
       path: MutterWidgets/Info.plist
       properties:
         CFBundleDisplayName: Mutter
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
+        UIAppFonts:
+          - BricolageDisplay-SemiBold.ttf
+          - BricolageDisplay-Bold.ttf
+          - BricolageDisplay-ExtraBold.ttf
+          - PlusJakartaSans-Regular.ttf
+          - PlusJakartaSans-Medium.ttf
+          - PlusJakartaSans-SemiBold.ttf
+          - PlusJakartaSans-Bold.ttf
+          - PlusJakartaSans-ExtraBold.ttf
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.alaarab.mutter.widgets
