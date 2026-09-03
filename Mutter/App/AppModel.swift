@@ -35,7 +35,6 @@ final class AppModel {
     private(set) var isWhisperHeld = false
 
     @ObservationIgnored private let liveActivity = VoiceActivityController()
-    @ObservationIgnored private let callKit = CallManager()
     @ObservationIgnored private let remote = RemoteCommands()
     @ObservationIgnored private var presenceTimer: Timer?
     var trustPrompt: TrustPrompt?
@@ -102,18 +101,6 @@ final class AppModel {
             case .nothing: break
             }
         }
-        callKit.onEndFromSystem = { [weak self] in self?.disconnect() }
-        callKit.onMuteFromSystem = { [weak self] muted in
-            guard let self, self.isMuted != muted else { return }
-            self.toggleMute()
-        }
-        callKit.onHold = { [weak self] held in
-            // Another call (e.g. Teams) took the audio. Stop sending while held; the engine
-            // and connection stay up, and we resume when the other call releases us.
-            guard let self else { return }
-            self.audio.isMuted = held || self.isMuted
-        }
-        callKit.onAudioSessionActivated = { [weak self] in self?.audio.ensureRunning() }
         applyAudioSettings()
     }
 
@@ -168,7 +155,6 @@ final class AppModel {
             startPresence()
         case .disconnected:
             audio.stop()
-            callKit.reportCallEnded()
             UIApplication.shared.isIdleTimerDisabled = false
             stopPresence()
         default:
@@ -176,17 +162,11 @@ final class AppModel {
         }
     }
 
-    /// CallKit is what keeps us alive once we're not on screen and lets other call apps hold us
-    /// instead of killing us — but an active call also puts the green call pill in the status bar.
-    /// We only need it while backgrounded, so it's claimed on the way out and released on return.
+    /// Coming back on screen, make sure playback survived whatever else was using the audio
+    /// hardware while we were away.
     func setBackgrounded(_ backgrounded: Bool) {
-        guard session.state.isActive else { return }
-        if backgrounded {
-            callKit.reportCallStarted(serverName: activeServer?.displayName ?? "Mumble")
-        } else {
-            callKit.reportCallEnded()
-            audio.ensureRunning()
-        }
+        guard session.state.isActive, !backgrounded else { return }
+        audio.ensureRunning()
     }
 
     func applyAudioSettings() {
@@ -211,7 +191,6 @@ final class AppModel {
         client.setSelfMute(next)
         audio.isMuted = next
         if !next { audio.isDeafened = false }
-        callKit.setMuted(next)
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
 

@@ -122,6 +122,14 @@ final class AudioEngine: VoiceSink {
         observers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] note in
             self?.handleRouteChange(note)
         })
+        // When another app starts or stops playing, the engine's hardware configuration changes
+        // and AVAudioEngine silently tears down its connections. Without rebuilding here, we come
+        // back from a video with a running engine that produces no sound.
+        observers.append(center.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+            guard let self, self.isRunning else { return }
+            DiagnosticsLog.shared.add("audio", "engine configuration changed — rebuilding")
+            self.rebuildGraph()
+        })
     }
 
     deinit {
@@ -176,13 +184,40 @@ final class AudioEngine: VoiceSink {
         return options
     }
 
-    /// Restarts a paused engine after an interruption or on returning to the foreground.
+    /// Brings audio back after an interruption, a route change, or time spent in the background.
+    /// `engine.isRunning` can be true while the graph is dead, so the session is reactivated and
+    /// the graph rebuilt rather than trusting that flag.
     func ensureRunning() {
         guard isRunning else { return }
-        if !engine.isRunning {
-            DiagnosticsLog.shared.add("audio", "resuming engine")
-            try? AVAudioSession.sharedInstance().setActive(true)
-            try? engine.start()
+        let session = AVAudioSession.sharedInstance()
+        if !session.isOtherAudioPlaying || !engine.isRunning {
+            try? session.setActive(true)
+        }
+        if !engine.isRunning || engine.outputNode.outputFormat(forBus: 0).sampleRate == 0 {
+            DiagnosticsLog.shared.add("audio", "playback was dead — rebuilding")
+            rebuildGraph()
+        }
+    }
+
+    /// Tears the graph down and builds it again against the current hardware format, keeping the
+    /// connection and decoder state intact.
+    private func rebuildGraph() {
+        engine.stop()
+        engine.inputNode.removeTap(onBus: 0)
+        if let sourceNode {
+            engine.disconnectNodeOutput(sourceNode)
+            engine.detach(sourceNode)
+            self.sourceNode = nil
+        }
+        do {
+            try configureSession()
+            try buildGraph()
+            try engine.start()
+            lastError = nil
+            refreshRoute()
+        } catch {
+            DiagnosticsLog.shared.add("audio", "rebuild failed: \(error.localizedDescription)")
+            lastError = error.localizedDescription
         }
     }
 
@@ -424,10 +459,9 @@ final class AudioEngine: VoiceSink {
             let optionsRaw = info[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
             let options = AVAudioSession.InterruptionOptions(rawValue: optionsRaw)
             DiagnosticsLog.shared.add("audio", "interruption ended (shouldResume: \(options.contains(.shouldResume)))")
-            if options.contains(.shouldResume) || isRunning {
-                try? AVAudioSession.sharedInstance().setActive(true)
-                try? engine.start()
-            }
+            // Always come back: whoever interrupted us may have left the graph in pieces, and
+            // a Mumble session with no audio is worse than a brief rebuild.
+            if isRunning { rebuildGraph() }
         @unknown default:
             break
         }
@@ -436,16 +470,8 @@ final class AudioEngine: VoiceSink {
     private func handleRouteChange(_ note: Notification) {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.isRunning else { return }
-            // Input format may change with the route; rebuild the tap/converter.
-            self.engine.inputNode.removeTap(onBus: 0)
-            if let sourceNode = self.sourceNode {
-                self.engine.disconnectNodeOutput(sourceNode)
-                self.engine.detach(sourceNode)
-                self.sourceNode = nil
-            }
-            try? self.buildGraph()
-            if !self.engine.isRunning { try? self.engine.start() }
-            self.refreshRoute()
+            // The input format can change with the route, so the tap and converter are rebuilt.
+            self.rebuildGraph()
         }
     }
 
