@@ -109,6 +109,12 @@ final class AudioEngine: VoiceSink {
     @ObservationIgnored private var suppressor: NoiseSuppressor? = NoiseSuppressor()
     @ObservationIgnored private var floorDb: Float = -60
     @ObservationIgnored private var openFrames = 0
+    /// Guards graph recovery against itself. Reconfiguring the engine emits its own
+    /// AVAudioEngineConfigurationChange and route-change notifications; without these two flags a
+    /// rebuild re-triggers a rebuild forever, which pins the main thread, breaks the mic, and
+    /// storms SwiftUI into a layout crash.
+    @ObservationIgnored private var isRebuilding = false
+    @ObservationIgnored private var rebuildScheduled = false
 
     private static let format48kMono = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000, channels: 1, interleaved: false)!
 
@@ -126,9 +132,7 @@ final class AudioEngine: VoiceSink {
         // and AVAudioEngine silently tears down its connections. Without rebuilding here, we come
         // back from a video with a running engine that produces no sound.
         observers.append(center.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
-            guard let self, self.isRunning else { return }
-            DiagnosticsLog.shared.add("audio", "engine configuration changed — rebuilding")
-            self.rebuildGraph()
+            self?.scheduleRebuild(reason: "engine configuration changed")
         })
     }
 
@@ -188,20 +192,36 @@ final class AudioEngine: VoiceSink {
     /// `engine.isRunning` can be true while the graph is dead, so the session is reactivated and
     /// the graph rebuilt rather than trusting that flag.
     func ensureRunning() {
-        guard isRunning else { return }
+        guard isRunning, !isRebuilding else { return }
         let session = AVAudioSession.sharedInstance()
         if !session.isOtherAudioPlaying || !engine.isRunning {
             try? session.setActive(true)
         }
         if !engine.isRunning || engine.outputNode.outputFormat(forBus: 0).sampleRate == 0 {
-            DiagnosticsLog.shared.add("audio", "playback was dead — rebuilding")
-            rebuildGraph()
+            rebuildGraph(reason: "playback was dead")
         }
     }
 
-    /// Tears the graph down and builds it again against the current hardware format, keeping the
-    /// connection and decoder state intact.
-    private func rebuildGraph() {
+    /// Coalesces a burst of route/configuration notifications into a single trailing rebuild, and
+    /// never queues one while a rebuild is already in flight (the rebuild emits those same
+    /// notifications itself).
+    private func scheduleRebuild(reason: String) {
+        guard isRunning, !isRebuilding, !rebuildScheduled else { return }
+        rebuildScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self else { return }
+            self.rebuildScheduled = false
+            self.rebuildGraph(reason: reason)
+        }
+    }
+
+    /// Rebuilds the node graph against the current hardware format, keeping the connection and
+    /// decoder state intact. Deliberately does NOT reconfigure the audio session — that emits route
+    /// changes and is the session's job, not the graph's.
+    private func rebuildGraph(reason: String = "recovery") {
+        guard isRunning, !isRebuilding else { return }
+        isRebuilding = true
+        DiagnosticsLog.shared.add("audio", "rebuilding graph (\(reason))")
         engine.stop()
         engine.inputNode.removeTap(onBus: 0)
         if let sourceNode {
@@ -210,7 +230,6 @@ final class AudioEngine: VoiceSink {
             self.sourceNode = nil
         }
         do {
-            try configureSession()
             try buildGraph()
             try engine.start()
             lastError = nil
@@ -218,6 +237,11 @@ final class AudioEngine: VoiceSink {
         } catch {
             DiagnosticsLog.shared.add("audio", "rebuild failed: \(error.localizedDescription)")
             lastError = error.localizedDescription
+        }
+        // Ignore the configuration/route notifications this rebuild just emitted; clear the guard
+        // once they've settled.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            self?.isRebuilding = false
         }
     }
 
@@ -245,11 +269,15 @@ final class AudioEngine: VoiceSink {
 
     private func buildGraph() throws {
         let input = engine.inputNode
-        // Must happen before the tap is installed and before the engine starts.
-        do {
-            try input.setVoiceProcessingEnabled(useVoiceProcessing)
-        } catch {
-            // Some simulators and devices refuse; carry on without it.
+        // Must happen before the tap is installed and before the engine starts. Only toggle when it
+        // actually differs: flipping voice processing rebuilds the input unit and emits its own
+        // configuration-change notification, which would feed the rebuild loop.
+        if input.isVoiceProcessingEnabled != useVoiceProcessing {
+            do {
+                try input.setVoiceProcessingEnabled(useVoiceProcessing)
+            } catch {
+                // Some simulators and devices refuse; carry on without it.
+            }
         }
         if useVoiceProcessing {
             input.isVoiceProcessingBypassed = false
@@ -459,20 +487,19 @@ final class AudioEngine: VoiceSink {
             let optionsRaw = info[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
             let options = AVAudioSession.InterruptionOptions(rawValue: optionsRaw)
             DiagnosticsLog.shared.add("audio", "interruption ended (shouldResume: \(options.contains(.shouldResume)))")
-            // Always come back: whoever interrupted us may have left the graph in pieces, and
-            // a Mumble session with no audio is worse than a brief rebuild.
-            if isRunning { rebuildGraph() }
+            // Whoever interrupted us may have left the graph in pieces; reactivate and rebuild.
+            try? AVAudioSession.sharedInstance().setActive(true)
+            scheduleRebuild(reason: "interruption ended")
         @unknown default:
             break
         }
     }
 
     private func handleRouteChange(_ note: Notification) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self, self.isRunning else { return }
-            // The input format can change with the route, so the tap and converter are rebuilt.
-            self.rebuildGraph()
-        }
+        // The input format can change with the route, so the tap and converter are rebuilt — but
+        // only for a real route change, and never for one our own rebuild just caused.
+        guard !isRebuilding else { return }
+        scheduleRebuild(reason: "route changed")
     }
 
     private func refreshRoute() {
