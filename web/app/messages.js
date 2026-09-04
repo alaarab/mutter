@@ -120,12 +120,3 @@ function longTime(d) {
   if (dayKey(d) === dayKey(yesterday)) return `Yesterday at ${t}`;
   return `${d.toLocaleDateString()} ${t}`;
 }
-
-/// "Alpha is typing…" / "Alpha and Bravo are typing…" / "Several people are typing…"
-export function typingText(names) {
-  if (!names.length) return '';
-  if (names.length === 1) return `${names[0]} is typing…`;
-  if (names.length === 2) return `${names[0]} and ${names[1]} are typing…`;
-  if (names.length === 3) return `${names[0]}, ${names[1]} and ${names[2]} are typing…`;
-  return 'Several people are typing…';
-}

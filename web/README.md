@@ -74,8 +74,7 @@ right. Under 880px it becomes the phone layout — one pane at a time behind a t
   deafen, local per-user mute and volume.
 - Chat the Discord way: grouped by author within seven minutes, day dividers, a "New messages"
   line, hover toolbar (quote, copy, message them, mute for me), Enter sends and Shift+Enter
-  breaks. Send to the channel, a channel and its subtree, or one person. Typing indicators
-  ride our plugin channel (`docs/extensions.md`). Inbound HTML goes through a whitelist.
+  breaks. Send to the channel, a channel and its subtree, or one person. Inbound HTML goes through a whitelist.
   Images: paste, drop or pick; they're shrunk to the server's limit and sent as the well-formed
   XHTML murmur insists on for long messages. A refused message is marked "Not delivered".
 - Five palettes from the iOS app, the same typefaces, settings and diagnostics log in the sheet.
@@ -100,7 +99,6 @@ right. Under 880px it becomes the phone layout — one pane at a time behind a t
 | `app/client.js` | The session: handshake, roster, chat, reconnect, talking detection |
 | `app/audio.js`, `app/worklets.js`, `app/dsp.js` | Capture → noise suppressor → gate → Opus → tunnel; tunnel → Opus → mixer |
 | `app/share.js`, `app/stage.js` | WebRTC screen share (one connection per viewer) and its UI |
-| `app/typing.js` | Typing indicator over the plugin channel |
 | `app/app.js`, `tree.js`, `messages.js`, `members.js`, `popovers.js`, `chat.js`, `store.js`, `themes.js`, `icons.js`, `ui.js` | The UI |
 | `probe.mjs` | CLI handshake test — connects and dumps the roster, no browser involved |
 | `test/` | Fake Mumble server, headless-Chromium driver, end-to-end and codec tests |
@@ -123,7 +121,6 @@ node web/test/share.test.mjs                        # screen share between two t
 node web/test/signal.test.mjs                       # the plugin-message fragment codec, in Node
 node web/test/dsp.test.mjs                          # the spectral suppressor: FFT, SNR gain, click ducking, block-size independence
 node web/test/rnnoise.test.mjs                      # the RNNoise wasm: loads without imports, −22 dB on noise, voice kept, speed
-node web/test/typing.test.mjs                       # typing indicator between three tabs
 node web/test/fake-server.mjs                       # keep one running to click around against
 node web/probe.mjs <host> [port] [username]         # handshake against any server, read-only
 ```
