@@ -1,0 +1,40 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mutter Web</title>
+<link rel="stylesheet" href="/app/style.css">
+<body>
+  <header>
+    <div class="brand"><span class="cap">M</span><h1>Mutter <span>Web</span></h1></div>
+    <div class="state"><span id="dot" class="dot"></span><span id="stateText">Not connected</span></div>
+  </header>
+
+  <form id="connectForm" class="panel">
+    <div class="row">
+      <label>Server<input id="host" value="minowick.com" spellcheck="false"></label>
+      <label class="narrow">Port<input id="port" value="64738" inputmode="numeric"></label>
+    </div>
+    <div class="row">
+      <label>Name<input id="username" value="Ala-PC" spellcheck="false"></label>
+      <label class="narrow">Password<input id="password" type="password" placeholder="optional"></label>
+    </div>
+    <button id="connectBtn" type="submit">Connect</button>
+    <p id="error" class="error" hidden></p>
+  </form>
+
+  <main hidden id="session">
+    <section class="panel roster">
+      <h2>In this server</h2>
+      <ul id="users"></ul>
+    </section>
+    <section class="panel chat">
+      <h2>Chat</h2>
+      <div id="messages"></div>
+      <form id="chatForm">
+        <input id="chatInput" placeholder="Message" autocomplete="off">
+        <button type="submit" aria-label="Send">↑</button>
+      </form>
+    </section>
+  </main>
+  <script type="module" src="/app/app.js"></script>
+</body>
