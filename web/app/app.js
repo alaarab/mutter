@@ -27,6 +27,7 @@ const wide = matchMedia('(min-width: 880px)');
 window.mutter = { client, audio, share, typing, settings };   // console + tests
 
 settings.pttKey ??= 'Space';
+if (!settings.noiseV2) { settings.noiseSuppression = 'neural'; settings.noiseV2 = true; saveSettings(); }   // Neural became the default
 settings.showMembers ??= false;
 settings.textSize ??= 14;
 applyTheme(settings.theme);
@@ -460,6 +461,7 @@ async function renderSettings() {
   if (!ui.recordingKey) $('pttKeyBtn').textContent = keyLabel(settings.pttKey);
   segmented('bitrate', settings.bitrate, v => audio.setBitrate(Number(v)));
   segmented('noiseSuppression', settings.noiseSuppression, v => audio.setNoiseSuppression(v));
+  $('noiseHint').textContent = { off: 'Only the browser’s own echo cancellation.', light: 'Spectral suppressor, −10 dB on steady hiss, fans and hum.', strong: 'Spectral suppressor at −22 dB plus a keyboard-click ducker.', neural: `RNNoise, the neural denoiser Mumble desktop uses: removes hiss, fans, keyboards and babble and tells the voice gate what is speech.${audio.neural === false ? ' Not available here — falling back to Strong.' : ''}` }[settings.noiseSuppression] ?? '';
   segmented('textSize', settings.textSize, v => { settings.textSize = Number(v); document.documentElement.style.setProperty('--text-size', `${v}px`); });
   $('autoSens').checked = settings.autoSensitivity;
   $('threshold').value = settings.autoSensitivity ? Math.round(audio.thresholdDb) : settings.vadThresholdDb;
