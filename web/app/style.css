@@ -1,0 +1,69 @@
+/* Mutter's Midnight palette and brand faces, so the web client is the same product. */
+@font-face { font-family: 'Bricolage Display'; src: url('/fonts/BricolageDisplay-ExtraBold.ttf'); font-weight: 800; }
+@font-face { font-family: 'Bricolage Display'; src: url('/fonts/BricolageDisplay-Bold.ttf'); font-weight: 700; }
+@font-face { font-family: 'Plus Jakarta Sans'; src: url('/fonts/PlusJakartaSans-Regular.ttf'); font-weight: 400; }
+@font-face { font-family: 'Plus Jakarta Sans'; src: url('/fonts/PlusJakartaSans-Medium.ttf'); font-weight: 500; }
+@font-face { font-family: 'Plus Jakarta Sans'; src: url('/fonts/PlusJakartaSans-SemiBold.ttf'); font-weight: 600; }
+
+:root {
+  --accent: #3D9BFF; --accent-active: #1C77DB;
+  --bg: #0B0F17; --surface: #151B26; --elevated: #1E2633; --sunken: #070A10;
+  --separator: #232C3A; --ink: #EAF1FA; --body: #C3CFDE; --muted: #7C8B9E;
+  --speaking: #3DDC84; --danger: #FF5A5A;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 20px; min-height: 100vh; background: var(--bg); color: var(--ink);
+  font: 400 15px/1.5 'Plus Jakarta Sans', system-ui, sans-serif;
+  display: flex; flex-direction: column; gap: 16px; max-width: 1000px; margin-inline: auto;
+}
+header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.brand { display: flex; align-items: center; gap: 12px; }
+.cap {
+  display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px;
+  background: linear-gradient(160deg, #63B6FF, #2361C4); color: #F7FBFF;
+  font: 800 22px 'Bricolage Display', sans-serif; box-shadow: 0 4px 14px rgba(4,16,46,.5);
+}
+h1 { font: 700 22px 'Bricolage Display', sans-serif; margin: 0; letter-spacing: -.3px; }
+h1 span { color: var(--muted); }
+h2 { font: 600 11px 'Plus Jakarta Sans', sans-serif; letter-spacing: 1.4px; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
+.state { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+.dot.on { background: var(--speaking); } .dot.bad { background: var(--danger); }
+
+.panel { background: var(--surface); border: 1px solid var(--separator); border-radius: 16px; padding: 16px; }
+.row { display: flex; gap: 12px; margin-bottom: 12px; }
+label { flex: 1; display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); font-weight: 500; }
+label.narrow { max-width: 150px; }
+input {
+  background: var(--sunken); border: 1px solid var(--separator); border-radius: 10px;
+  padding: 10px 12px; color: var(--ink); font: 400 15px 'Plus Jakarta Sans', sans-serif;
+}
+input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+button {
+  background: var(--accent); color: #fff; border: 0; border-radius: 12px; padding: 11px 18px;
+  font: 600 15px 'Plus Jakarta Sans', sans-serif; cursor: pointer;
+}
+button:hover { background: var(--accent-active); }
+button:disabled { background: var(--muted); cursor: default; }
+.error { color: var(--danger); font-size: 13px; margin: 12px 0 0; }
+
+main { display: grid; grid-template-columns: 260px 1fr; gap: 16px; align-items: start; }
+.roster ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.roster li { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 10px; font-size: 14px; }
+.roster li.me { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.avatar { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font: 600 12px 'Plus Jakarta Sans'; color: #08111d; }
+.chat { display: flex; flex-direction: column; min-height: 360px; }
+#messages { flex: 1; overflow-y: auto; max-height: 46vh; display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.msg { max-width: 78%; padding: 9px 13px; border-radius: 14px; background: var(--elevated); font-size: 14px; line-height: 1.45; }
+.msg .who { display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 2px; }
+.msg.own { align-self: flex-end; background: var(--accent); }
+.msg.own .who { color: rgba(255,255,255,.75); }
+.msg.system { align-self: center; background: none; color: var(--muted); font-size: 12.5px; text-align: center; }
+#chatForm { display: flex; gap: 8px; }
+#chatForm input { flex: 1; }
+#chatForm button { padding: 0 16px; }
+@media (max-width: 720px) { main { grid-template-columns: 1fr; } }
+
+/* display:grid would otherwise beat the hidden attribute. */
+[hidden] { display: none !important; }
