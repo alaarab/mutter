@@ -22,6 +22,7 @@ final class AppModel {
     let servers = ServerStore()
     let client: MumbleClient
     let audio = AudioEngine()
+    let screenShare: ScreenShareModel
 
     private(set) var identities: [ClientIdentity] = IdentityStore.shared.identities
     private(set) var activeServer: SavedServer?
@@ -51,8 +52,10 @@ final class AppModel {
 
     init() {
         client = MumbleClient()
+        screenShare = ScreenShareModel(client: client)
         client.voiceSink = audio
         AppModel.shared = self
+        client.onPluginData = { [weak self] p in self?.screenShare.handle(p) }
 
         client.certificateTrust = { [weak self] question in
             await withCheckedContinuation { continuation in
@@ -149,12 +152,14 @@ final class AppModel {
         case .connected:
             if let server = activeServer { servers.markConnected(server.id) }
             applyAudioSettings()
+            applyShareSettings()
             audio.start()
             UIApplication.shared.isIdleTimerDisabled = settings.keepScreenAwake
             if let target = whisperTarget { client.setVoiceTarget(VoiceTargetID(1), entries: target.entries) }
             startPresence()
         case .disconnected:
             audio.stop()
+            screenShare.reset()
             UIApplication.shared.isIdleTimerDisabled = false
             stopPresence()
         default:
@@ -167,6 +172,11 @@ final class AppModel {
     func setBackgrounded(_ backgrounded: Bool) {
         guard session.state.isActive, !backgrounded else { return }
         audio.ensureRunning()
+    }
+
+    func applyShareSettings() {
+        let url = settings.turnURL.trimmingCharacters(in: .whitespaces)
+        screenShare.turnServer = url.isEmpty ? nil : (url: url, username: settings.turnUsername, password: settings.turnPassword)
     }
 
     func applyAudioSettings() {

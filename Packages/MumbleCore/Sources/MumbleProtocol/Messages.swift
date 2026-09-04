@@ -978,6 +978,55 @@ public struct SuggestConfigMessage: DecodableControlMessage, Sendable {
 // MARK: - Incoming dispatch
 
 /// A decoded control-channel message. Types the client does not model are surfaced as `.unhandled`.
+/// Arbitrary client-to-client data relayed by the server (Mumble 1.4+). Mutter uses it for
+/// screen-share signaling under dataId "mutter/rtc". The server caps `data` at 1000 bytes and
+/// `dataId` at 100 characters, rate-limits per client (burst 15, then 4/s, silently dropping),
+/// and delivers to nobody if `receiverSessions` is empty.
+public struct PluginDataTransmissionMessage: DecodableControlMessage, Sendable {
+    public static let messageType = MessageType.pluginDataTransmission
+    public static let maxDataLength = 1000
+    public var senderSession: UInt32?
+    public var receiverSessions: [UInt32] = []
+    public var data: Data = Data()
+    public var dataId: String = ""
+
+    public init(receiverSessions: [UInt32], dataId: String, data: Data) {
+        self.receiverSessions = receiverSessions
+        self.dataId = dataId
+        self.data = data
+    }
+
+    public init(payload: Data) throws {
+        var r = ProtobufReader(payload)
+        try r.forEachField { f in
+            switch f.number {
+            case 1: senderSession = f.uint32Value
+            case 2: receiverSessions.append(contentsOf: Self.sessions(f))
+            case 3: data = f.payload
+            case 4: dataId = f.stringValue ?? ""
+            default: break
+            }
+        }
+    }
+
+    /// Repeated uint32 arrives either packed or one field per value.
+    private static func sessions(_ f: ProtobufField) -> [UInt32] {
+        if f.wireType == .varint { return [f.uint32Value] }
+        var out: [UInt32] = []
+        var r = ProtobufReader(f.payload)
+        while !r.isAtEnd, let v = try? r.readRawVarint() { out.append(UInt32(truncatingIfNeeded: v)) }
+        return out
+    }
+
+    public func encodePayload() -> Data {
+        var w = ProtobufWriter()
+        for r in receiverSessions { w.uint32(2, r) }
+        w.bytes(3, data)
+        w.string(4, dataId)
+        return w.data
+    }
+}
+
 public enum IncomingMessage: Sendable {
     case version(VersionMessage)
     case udpTunnel(UDPTunnelMessage)
@@ -997,6 +1046,7 @@ public enum IncomingMessage: Sendable {
     case userStats(UserStatsMessage)
     case serverConfig(ServerConfigMessage)
     case suggestConfig(SuggestConfigMessage)
+    case pluginDataTransmission(PluginDataTransmissionMessage)
     case unhandled(type: UInt16, payload: Data)
 
     public static func decode(type rawType: UInt16, payload: Data) throws -> IncomingMessage {
@@ -1022,6 +1072,7 @@ public enum IncomingMessage: Sendable {
         case .userStats: return .userStats(try UserStatsMessage(payload: payload))
         case .serverConfig: return .serverConfig(try ServerConfigMessage(payload: payload))
         case .suggestConfig: return .suggestConfig(try SuggestConfigMessage(payload: payload))
+        case .pluginDataTransmission: return .pluginDataTransmission(try PluginDataTransmissionMessage(payload: payload))
         default: return .unhandled(type: rawType, payload: payload)
         }
     }

@@ -236,6 +236,9 @@ struct UserRow: View {
                     if user.isPrioritySpeaker { Image(systemName: "star.fill").font(.caption2).foregroundStyle(Theme.warning) }
                     if user.isRecording { Image(systemName: "record.circle").font(.caption2).foregroundStyle(Theme.danger) }
                     if user.isRegistered { Image(systemName: "checkmark.seal.fill").font(.caption2).foregroundStyle(Theme.muted) }
+                    if model.screenShare.sharingSessions.contains(user.session) {
+                        Image(systemName: "rectangle.on.rectangle.fill").font(.caption2).foregroundStyle(Theme.speaking)
+                    }
                 }
                 if showChannel, let ch = model.session.channels[user.channelID] {
                     Text(ch.name).font(.caption2).foregroundStyle(Theme.muted)

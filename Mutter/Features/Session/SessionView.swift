@@ -39,6 +39,7 @@ struct SessionView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            ShareBanner()
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .overlay(alignment: .bottom) {
@@ -54,6 +55,10 @@ struct SessionView: View {
         .animation(.snappy, value: model.toast)
         .sheet(item: $userSheet) { id in UserSheet(sessionID: id.id) }
         .sheet(item: $channelSheet) { id in ChannelSheet(channelID: id.id) }
+        .fullScreenCover(isPresented: Binding(
+            get: { model.screenShare.watching != nil },
+            set: { if !$0 { model.screenShare.stopWatching() } }
+        )) { ScreenShareViewer() }
         .onChange(of: tab, initial: true) { _, new in
             session.isChatVisible = (new == .chat)
         }

@@ -43,6 +43,8 @@ public final class MumbleClient {
     public var certificateTrust: ((CertificateTrustQuestion) async -> Bool)?
     /// Called when a connection succeeds so the app can remember the fingerprint.
     public var didAcceptCertificate: ((ServerEndpoint, ServerCertificateInfo) -> Void)?
+    /// Plugin data addressed to us (e.g. screen-share signaling). Called on the main actor.
+    public var onPluginData: (@MainActor (PluginDataTransmissionMessage) -> Void)?
 
     private let queue = DispatchQueue(label: "mutter.mumble.client", qos: .userInteractive)
     private var control: ControlConnection?
@@ -389,6 +391,11 @@ public final class MumbleClient {
             let text = p.userMessage
             ui { $0.appendNotice(.permissionDenied(text)) }
 
+        case .pluginDataTransmission(let p):
+            if let handler = onPluginData {
+                Task { @MainActor in handler(p) }
+            }
+
         case .textMessage(let t):
             handleTextMessage(t)
 
@@ -633,6 +640,16 @@ public final class MumbleClient {
             } else {
                 self.send(UDPTunnelMessage(packet: encoded))
             }
+        }
+    }
+
+    /// Sends plugin data to the listed sessions. Silently drops anything over the server's
+    /// 1000-byte cap rather than let the server drop it for us without telling anyone.
+    public func sendPluginData(to receivers: [UInt32], dataId: String, data: Data) {
+        guard !receivers.isEmpty, data.count <= PluginDataTransmissionMessage.maxDataLength else { return }
+        queue.async {
+            guard self.isSynced else { return }
+            self.send(PluginDataTransmissionMessage(receiverSessions: receivers, dataId: dataId, data: data))
         }
     }
 
