@@ -71,11 +71,13 @@ function handleClient(ws) {
   conn.onClose = () => { upstream?.destroy(); upstream = null; };
 }
 
-/// The slice of RFC 6455 this bridge needs: binary/text frames, close, ping.
+/// The slice of RFC 6455 this bridge needs: binary/text frames (including fragmented ones —
+/// Chrome splits large messages such as inline images), close, ping.
 class WSConnection {
   constructor(socket) {
     this.socket = socket;
     this.buf = Buffer.alloc(0);
+    this.fragments = null;      // { opcode, parts } while a fragmented message is in flight
     this.onMessage = () => {};
     this.onClose = () => {};
     socket.on('data', c => this._read(c));
@@ -87,7 +89,7 @@ class WSConnection {
     this.buf = Buffer.concat([this.buf, chunk]);
     while (this.buf.length >= 2) {
       const first = this.buf[0], second = this.buf[1];
-      const opcode = first & 0x0f, masked = (second & 0x80) !== 0;
+      const fin = (first & 0x80) !== 0, opcode = first & 0x0f, masked = (second & 0x80) !== 0;
       let len = second & 0x7f, offset = 2;
       if (len === 126) { if (this.buf.length < 4) return; len = this.buf.readUInt16BE(2); offset = 4; }
       else if (len === 127) { if (this.buf.length < 10) return; len = Number(this.buf.readBigUInt64BE(2)); offset = 10; }
@@ -100,7 +102,14 @@ class WSConnection {
 
       if (opcode === 0x8) { this.close(); return; }
       if (opcode === 0x9) { this._frame(payload, 0xA); continue; }
-      if (opcode === 0x1 || opcode === 0x2) this.onMessage(payload, opcode === 0x1);
+      if (opcode === 0xA) continue;
+      if (opcode === 0x1 || opcode === 0x2) {
+        if (fin) { this.onMessage(payload, opcode === 0x1); continue; }
+        this.fragments = { opcode, parts: [payload] };
+      } else if (opcode === 0x0 && this.fragments) {
+        this.fragments.parts.push(payload);
+        if (fin) { const { opcode: op, parts } = this.fragments; this.fragments = null; this.onMessage(Buffer.concat(parts), op === 0x1); }
+      }
     }
   }
 
