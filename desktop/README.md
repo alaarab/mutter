@@ -14,17 +14,26 @@ admin.
 
 ## Run it
 
-Nothing to install on the machine you run it on. Grab a file from the
-[releases](https://github.com/alaarab/mutter/releases):
+Same three shapes as VS Code. Grab one from the [releases](https://github.com/alaarab/mutter/releases):
 
-| File | What it is |
-|---|---|
-| `Mutter-x.y.z-portable.exe` | Runs from wherever you put it. No install, no admin, leaves nothing behind. |
-| `Mutter-x.y.z-setup.exe` | Per-user install to `%LOCALAPPDATA%\Programs`, Start menu entry, no admin prompt. |
-| `Mutter-x.y.z-mac-*.dmg` / `.AppImage` | macOS and Linux. |
+| File | Like VS Code's… | What happens |
+|---|---|---|
+| `Mutter-x.y.z-win-setup.exe` | User Setup | Installs to `%LOCALAPPDATA%\Programs\Mutter`, Start menu and desktop shortcut, no admin prompt. Settings in `%APPDATA%\Mutter`. |
+| `Mutter-x.y.z-win.zip` | .zip download | Unzip anywhere and run `Mutter.exe`. Create a `data` folder beside it and *everything* the app remembers lives there — move the folder, move your setup. |
+| `Mutter-x.y.z-win-portable.exe` | Portable Mode | One file. Keeps a `data` folder beside itself, so a USB stick carries the app and its servers together. |
+| `.dmg` / `.AppImage` | — | macOS and Linux. The `data`-folder rule works for the AppImage too. |
 
 They are unsigned, so Windows SmartScreen will say "unrecognised app" the first time: *More info →
-Run anyway*. Signing needs a certificate we don't have; see below if that becomes worth doing.
+Run anyway*.
+
+### On a managed work laptop, don't
+
+If the machine runs an EDR such as CrowdStrike, or AppLocker/WDAC, an unsigned executable it has
+never seen is likely to be blocked — and may raise a detection with your name on it. Nothing here
+is worth that. The browser-and-bridge setup in [`web/`](../web/README.md#running-it) already
+gives you "install and it works" on such a machine without introducing a single new Windows
+binary: install Mutter as an app from the browser's address bar, and have the bridge start with
+Windows. Use these builds on machines you own, and hand them to friends.
 
 ## Build it
 

@@ -55,6 +55,31 @@ install it from Chrome's address bar ("Install Mutter") for a permanent icon.
 Set `PORT` to use a different port. Open it as `localhost`, not a LAN address: the microphone
 and the Opus codec are only available to secure origins, and `localhost` counts as one.
 
+### Make it feel installed — without installing anything
+
+On a managed laptop that runs Node in WSL but treats new Windows executables with suspicion, this
+gets you a Start-menu app that just works, using only the browser IT already approved:
+
+1. **Install it as an app.** With the bridge running, open `http://localhost:8788` in Edge or
+   Chrome and use *Install Mutter* in the address bar (Edge: … → Apps → Install). It gets its own
+   window, taskbar icon and Start-menu entry, stored in your browser profile — nothing new is
+   written outside your user folder.
+2. **Start the bridge with Windows.** Press `Win+R`, run `shell:startup`, and create a shortcut
+   there whose target is
+
+   ```
+   wsl.exe -d Ubuntu -- bash -lc "cd ~/mutter && exec node web/bridge/server.mjs --no-open"
+   ```
+
+   (your distro name in place of `Ubuntu`, your clone's path in place of `~/mutter`). Set the
+   shortcut to run minimised. From then on the bridge is up by the time you sit down, and the app
+   icon opens straight into Mutter. No admin, no installer, no new binary — the only executables
+   involved are `wsl.exe` and the browser.
+
+The one thing this cannot fix is a browser policy that blocks WebRTC; see
+*Settings → Screen share → Test my connection*. Everything else — voice, chat, images — is
+unaffected.
+
 Voice needs Chrome or Edge (WebCodecs + AudioWorklet). Other browsers get chat only.
 
 ## What works
