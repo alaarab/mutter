@@ -43,7 +43,8 @@ function channelRow(c, depth, ctx, { flat = false, collapsed = false, hasChildre
   const n = subtreeCount(client, c);
   row.append(disc, el('span', { className: 'hash', textContent: '#' }), el('span', { className: 'name', textContent: c.name ?? '…' }));
   if (c.temporary) row.append(el('span', { className: 'flag', textContent: 'temp', title: 'Temporary channel' }));
-  if (n) row.append(el('span', { className: 'count', textContent: c.maxUsers ? `${n}/${c.maxUsers}` : String(n) }));
+  if (current && ctx.unread) row.append(el('span', { className: 'count unread', textContent: ctx.unread > 99 ? '99+' : String(ctx.unread) }));
+  else if (n) row.append(el('span', { className: 'count', textContent: c.maxUsers ? `${n}/${c.maxUsers}` : String(n) }));
   if (!current) {
     const join = el('button', { type: 'button', className: 'join', 'data-tip': 'Join', innerHTML: ICON.join });
     join.dataset.tip = 'Join';

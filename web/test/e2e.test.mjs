@@ -65,9 +65,9 @@ try {
     await a.waitFor(`document.getElementById('chatTitle').textContent === 'Lounge'`);
     if (shots) {
       await b.send('Emulation.setDeviceMetricsOverride', { width: 420, height: 760, deviceScaleFactor: 1, mobile: false });
-      await b.eval(`document.querySelector('#tabs [data-tab="channels"]').click()`);
+      await b.eval(`document.getElementById('backBtn').click()`);
       await b.screenshot(`${shots}/06-narrow-channels.png`);
-      await b.eval(`document.querySelector('#tabs [data-tab="chat"]').click()`);
+      await b.eval(`mutter.showTab('chat')`);
       await b.screenshot(`${shots}/07-narrow-chat.png`);
       await b.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
     }

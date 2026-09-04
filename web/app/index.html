@@ -48,9 +48,12 @@
 
   <main id="main">
     <header id="chanHead" class="chan-head">
-      <button id="backBtn" class="icon" type="button" aria-label="Channels" hidden></button>
-      <span class="hash">#</span><h2 id="chatTitle">Chat</h2>
-      <span class="sep"></span><span id="chanDesc" class="desc"></span>
+      <button id="backBtn" class="icon back" type="button" aria-label="Channels" hidden><span id="backBadge" class="badge" hidden></span></button>
+      <button id="titleBtn" class="chan-title" type="button">
+        <span class="line"><span class="hash">#</span><h2 id="chatTitle">Chat</h2><span class="chev"></span></span>
+        <span id="chanSub" class="sub"></span>
+      </button>
+      <span id="chanDesc" class="desc"></span>
       <div class="actions">
         <button id="screenBtn" class="icon" type="button" data-tip="Screen" hidden></button>
         <button id="serverBtn" class="icon" type="button" data-tip="Server"></button>
@@ -60,10 +63,15 @@
 
     <section id="paneChat" class="pane">
       <div id="messages" class="messages"></div>
+      <div id="voiceStrip" class="voice-strip" hidden>
+        <button id="vsGo" class="vs-go" type="button"><span class="dot on"></span><span class="hash">#</span><span id="vsChan"></span><span id="vsTalkers" class="talkers"></span></button>
+        <button id="vsMute" class="icon" type="button" aria-label="Mute"></button>
+        <button id="vsLeave" class="icon" type="button" aria-label="Disconnect"></button>
+      </div>
       <form id="chatForm" class="composer">
         <button id="imageBtn" class="icon" type="button" data-tip="Attach an image" aria-label="Attach an image"></button>
         <input id="imageInput" type="file" accept="image/*" hidden>
-        <button id="scopePill" class="scope" type="button" data-tip="Where this goes"><span class="hash">#</span><span id="scopeName">Chat</span><span class="chev"></span></button>
+        <button id="scopePill" class="scope" type="button" data-tip="Where this goes" hidden><span class="hash">#</span><span id="scopeName">Chat</span><span class="chev"></span></button>
         <textarea id="chatInput" placeholder="Message" rows="1" autocomplete="off" maxlength="5000"></textarea>
         <button id="sendBtn" class="icon primary" type="submit" data-tip="Send" aria-label="Send"></button>
       </form>
@@ -76,15 +84,6 @@
     <header class="side-head"><h2>Members <span id="memberCount" class="count"></span></h2></header>
     <div id="memberList" class="member-list"></div>
   </aside>
-
-  <footer id="dock">
-    <nav id="tabs" class="tabs">
-      <button type="button" data-tab="channels"><i></i>Channels</button>
-      <button type="button" data-tab="chat"><i></i>Chat<span id="unread" class="count" hidden></span></button>
-      <button type="button" data-tab="screen" id="tabScreen" hidden><i></i>Screen</button>
-      <button type="button" data-tab="server"><i></i>Server</button>
-    </nav>
-  </footer>
 </div>
 
   <section id="connect" class="connect">

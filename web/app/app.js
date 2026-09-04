@@ -22,7 +22,7 @@ const audio = new AudioEngine(client, settings);
 const share = new ScreenShare(client, settings);
 const ui = { scope: null, collapsed: null, target: null, statsFor: null, renderQueued: false, inSession: false, filter: '', unread: 0, recordingKey: false };
 const wide = matchMedia('(min-width: 880px)');
-window.mutter = { client, audio, share, settings };   // console + tests
+window.mutter = { client, audio, share, settings, showTab };   // console + tests
 
 settings.pttKey ??= 'Space';
 if (!settings.noiseV2) { settings.noiseSuppression = 'neural'; settings.noiseV2 = true; saveSettings(); }   // Neural became the default
@@ -30,12 +30,12 @@ settings.showMembers ??= false;
 settings.textSize ??= 14;
 applyTheme(settings.theme);
 document.documentElement.style.setProperty('--text-size', `${settings.textSize}px`);
-for (const [id, icon] of Object.entries({ railAdd: 'plus', railSettings: 'settings', newChannelBtn: 'plus', backBtn: 'back', screenBtn: 'screen', serverBtn: 'info', membersBtn: 'users', imageBtn: 'plus', sendBtn: 'send', leaveBtn: 'leave', shareBtn: 'screen', muteBtn: 'mic', deafBtn: 'headphones', settingsBtn: 'settings', settingsClose: 'close', connectClose: 'close' })) $(id).innerHTML = ICON[icon];
+for (const [id, icon] of Object.entries({ railAdd: 'plus', railSettings: 'settings', newChannelBtn: 'plus', screenBtn: 'screen', serverBtn: 'info', membersBtn: 'users', imageBtn: 'plus', sendBtn: 'send', leaveBtn: 'leave', shareBtn: 'screen', muteBtn: 'mic', deafBtn: 'headphones', settingsBtn: 'settings', settingsClose: 'close', connectClose: 'close', vsLeave: 'leave' })) $(id).innerHTML = ICON[icon];
+$('backBtn').prepend(el('span', { innerHTML: ICON.back }));         // the badge is already inside
 $('leaveBtn').append(el('span', { textContent: 'Disconnect' }));
 $('shareBtn').append(el('span', { textContent: 'Share screen' }));
 document.querySelector('.search-icon').innerHTML = ICON.search;
 for (const c of document.querySelectorAll('.chev')) c.innerHTML = ICON.chevron;
-for (const [tab, icon] of [['channels', 'channels'], ['chat', 'message'], ['screen', 'screen'], ['server', 'server']]) $('tabs').querySelector(`[data-tab="${tab}"] i`).innerHTML = ICON[icon];
 if (!AudioEngine.supported) $('unsupported').hidden = false;
 
 const messages = new MessageList($('messages'), {
@@ -50,11 +50,9 @@ const messages = new MessageList($('messages'), {
 function applyLayout() {
   const desktop = wide.matches;
   document.body.dataset.layout = desktop ? 'desktop' : 'phone';
-  // The voice and user panels live at the bottom of the sidebar on desktop and in the dock on phones.
-  const home = desktop ? $('sidebar') : $('dock');
-  if ($('voicePanel').parentElement !== home) { if (desktop) home.append($('voicePanel'), $('userPanel')); else home.prepend($('voicePanel'), $('userPanel')); }
   document.body.dataset.members = desktop && settings.showMembers ? 'on' : 'off';
   $('membersBtn').classList.toggle('on', !!settings.showMembers);
+  $('backBtn').hidden = desktop;
   if (desktop && document.body.dataset.tab === 'channels') showTab('chat');
   positionToasts();
 }
@@ -64,20 +62,19 @@ wide.addEventListener('change', applyLayout);
 function showTab(name) {
   if (name === 'channels' && wide.matches) name = 'chat';
   document.body.dataset.tab = name;
-  for (const b of $('tabs').querySelectorAll('button')) b.classList.toggle('on', b.dataset.tab === name);
   $('serverBtn').classList.toggle('on', name === 'server');
   $('screenBtn').classList.toggle('on', name === 'screen');
-  if (chatVisible()) { ui.unread = 0; $('unread').hidden = true; messages.clearUnread(); $('messages').scrollTop = $('messages').scrollHeight; }
+  if (chatVisible()) { ui.unread = 0; clearUnread(); messages.clearUnread(); $('messages').scrollTop = $('messages').scrollHeight; }
   renderChanHead();
 }
-$('tabs').addEventListener('click', e => { const b = e.target.closest('button[data-tab]'); if (b) showTab(b.dataset.tab); });
+function clearUnread() { $('backBadge').hidden = true; scheduleRender(); }
 $('backBtn').onclick = () => showTab('channels');
 $('serverBtn').onclick = () => showTab(document.body.dataset.tab === 'server' ? 'chat' : 'server');
 $('screenBtn').onclick = () => showTab(document.body.dataset.tab === 'screen' ? 'chat' : 'screen');
 $('railHome').onclick = () => showTab('chat');
 $('membersBtn').onclick = () => { settings.showMembers = !settings.showMembers; saveSettings(); applyLayout(); };
 const chatVisible = () => ui.inSession && (document.body.dataset.tab === 'chat' || (wide.matches && document.body.dataset.tab === 'channels')) && !document.hidden;
-document.addEventListener('visibilitychange', () => { if (chatVisible()) { ui.unread = 0; $('unread').hidden = true; } });
+document.addEventListener('visibilitychange', () => { if (chatVisible()) { ui.unread = 0; clearUnread(); } });
 
 // ---- connect: card + server rail ----
 
@@ -196,7 +193,7 @@ function renderAll() {
 }
 
 const treeCtx = () => ({
-  client, audio, share, collapsed: ui.collapsed?.set ?? new Set(), filter: ui.filter,
+  client, audio, share, collapsed: ui.collapsed?.set ?? new Set(), filter: ui.filter, unread: ui.unread,
   isCurrent: c => c.channelId === client.myChannel?.channelId,
   onToggle: c => { if (ui.collapsed.set.has(c.channelId)) ui.collapsed.set.delete(c.channelId); else ui.collapsed.set.add(c.channelId); ui.collapsed.save(); renderTreeNow(); },
   onJoin: c => client.joinChannel(c.channelId),
@@ -230,7 +227,7 @@ client.addEventListener('user-stats', e => {
 });
 const fmtDuration = s => s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s / 60)}m` : `${(s / 3600).toFixed(1)}h`;
 
-client.addEventListener('talking', e => { const u = client.users.get(e.detail.session); if (u) refreshUser(u, treeCtx()); renderTalkers(); });
+client.addEventListener('talking', e => { const u = client.users.get(e.detail.session); if (u) refreshUser(u, treeCtx()); renderTalkers(); renderTalkers($('vsTalkers')); });
 
 function newChannel(parent = client.myChannel?.channelId ?? 0) {
   const name = prompt('Channel name');
@@ -242,11 +239,25 @@ $('serverHead').onclick = () => { if (ui.inSession) serverMenu($('serverHead'), 
 function renderChanHead() {
   const tab = document.body.dataset.tab;
   const c = client.myChannel;
-  if (tab === 'server') { $('chatTitle').textContent = 'Server'; $('chanDesc').textContent = ui.target ? label(ui.target) : ''; }
-  else if (tab === 'screen') { $('chatTitle').textContent = 'Screen'; $('chanDesc').textContent = share.watching ? `${client.users.get(share.watching.sender)?.name ?? ''}’s screen` : share.sharing ? 'You are sharing' : ''; }
-  else { $('chatTitle').textContent = c?.name ?? 'Chat'; $('chanDesc').textContent = c?.description ? plainText(c.description) : ''; }
-  document.querySelector('.chan-head .hash').style.visibility = tab === 'chat' || tab === 'channels' ? 'visible' : 'hidden';
+  const chat = tab === 'chat' || tab === 'channels';
+  if (tab === 'server') { $('chatTitle').textContent = 'Server'; $('chanDesc').textContent = ui.target ? label(ui.target) : ''; $('chanSub').textContent = ui.target ? label(ui.target) : ''; }
+  else if (tab === 'screen') {
+    const who = share.watching ? `${client.users.get(share.watching.sender)?.name ?? ''}’s screen` : share.sharing ? 'You are sharing' : '';
+    $('chatTitle').textContent = 'Screen'; $('chanDesc').textContent = who; $('chanSub').textContent = who;
+  } else {
+    $('chatTitle').textContent = c?.name ?? 'Chat';
+    $('chanDesc').textContent = c?.description ? plainText(c.description) : '';
+    $('chanSub').textContent = client.isConnected ? `${client.users.size} online` : 'Not connected';
+  }
+  document.querySelector('.chan-title .hash').style.display = chat ? '' : 'none';
+  document.querySelector('.chan-title .chev').style.display = chat && client.isConnected ? '' : 'none';
 }
+$('titleBtn').onclick = () => {
+  if (!client.isConnected) return;
+  if (document.body.dataset.tab !== 'chat' && document.body.dataset.tab !== 'channels') return showTab('chat');
+  const c = client.myChannel;
+  if (c) channelMenu($('titleBtn'), c, { client, isCurrent: x => x.channelId === client.myChannel?.channelId, setScope: s => { setScope(s); showTab('chat'); }, newChannel });
+};
 
 // ---- chat ----
 
@@ -259,6 +270,9 @@ function renderScope() {
   else if (scope.treeId !== undefined) { title = `${client.channels.get(scope.treeId)?.name ?? 'Chat'} +`; kind = 'tree'; }
   $('scopeName').textContent = title;
   pill.className = `scope ${kind}`;
+  // The placeholder already names the current channel; the pill only earns its width when the
+  // message is going somewhere else.
+  pill.hidden = !kind && scope.channelId === client.myChannel?.channelId;
   $('chatInput').placeholder = kind === 'dm' ? `Message ${title}` : `Message #${title}`;
 }
 $('scopePill').onclick = () => openPopover($('scopePill'), pop => {
@@ -274,7 +288,13 @@ $('scopePill').onclick = () => openPopover($('scopePill'), pop => {
 client.addEventListener('text', e => {
   if (!ui.inSession) return;
   const m = e.detail;
-  if (!m.own && !m.scope?.system && !chatVisible()) { messages.markUnreadFromHere(); ui.unread++; $('unread').hidden = false; $('unread').textContent = ui.unread > 99 ? '99+' : String(ui.unread); }
+  if (!m.own && !m.scope?.system && !chatVisible()) {
+    messages.markUnreadFromHere();
+    ui.unread++;
+    $('backBadge').hidden = false;
+    $('backBadge').textContent = ui.unread > 99 ? '99+' : String(ui.unread);
+    scheduleRender();                                   // the channel row carries the count too
+  }
   messages.append(m);
 });
 client.addEventListener('text-failed', e => messages.markFailed(e.detail));
@@ -345,9 +365,15 @@ function renderPanels() {
   else if (audio.deafened) sub.textContent = 'Deafened';
   else if (audio.muted) sub.textContent = 'Muted';
   else { sub.textContent = { vad: 'Voice activity', ptt: `Push to talk · ${keyLabel(settings.pttKey)}`, continuous: 'Always on' }[settings.transmitMode] ?? ''; }
-  $('muteBtn').innerHTML = ICON[audio.muted ? 'micOff' : 'mic'];
-  $('muteBtn').classList.toggle('active', audio.muted);
-  $('muteBtn').dataset.tip = audio.muted ? 'Unmute' : 'Mute';
+  for (const b of [$('muteBtn'), $('vsMute')]) {
+    b.innerHTML = ICON[audio.muted ? 'micOff' : 'mic'];
+    b.classList.toggle('active', audio.muted);
+    b.dataset.tip = audio.muted ? 'Unmute' : 'Mute';
+  }
+  // The strip is the phone's whole voice UI while you're reading the chat.
+  $('voiceStrip').hidden = !client.isConnected;
+  $('vsChan').textContent = client.myChannel?.name ?? '';
+  renderTalkers($('vsTalkers'));
   $('deafBtn').innerHTML = ICON[audio.deafened ? 'headphonesOff' : 'headphones'];
   $('deafBtn').classList.toggle('active', audio.deafened);
   $('deafBtn').dataset.tip = audio.deafened ? 'Undeafen' : 'Deafen';
@@ -363,8 +389,7 @@ function renderPanels() {
   $('screenBtn').hidden = !live; $('screenBtn').classList.toggle('live', !!(share.available.size && !share.watching));
   renderTalkers();
 }
-function renderTalkers() {
-  const box = $('talkers');
+function renderTalkers(box = $('talkers')) {
   box.replaceChildren();
   const talking = [...client.users.values()].filter(u => u.talking || (u.session === client.me && audio.isTransmitting && !audio.muted));
   if (!talking.length) return;
@@ -387,8 +412,10 @@ audio.addEventListener('level', () => {
     $('floorHint').textContent = settings.autoSensitivity ? `Room noise is about ${Math.round(audio.noiseFloorDb)} dB; the gate opens 12 dB above it and follows the room.` : 'Fixed threshold. Turn on automatic sensitivity to follow the room.';
   }
 });
-$('muteBtn').onclick = () => audio.setMuted(!audio.muted);
+$('muteBtn').onclick = $('vsMute').onclick = () => audio.setMuted(!audio.muted);
 $('deafBtn').onclick = () => audio.setDeafened(!audio.deafened);
+$('vsLeave').onclick = leave;
+$('vsGo').onclick = () => showTab('channels');
 $('pttBtn').addEventListener('pointerdown', e => { e.preventDefault(); audio.setPTT(true); });
 for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) $('pttBtn').addEventListener(ev, () => audio.setPTT(false));
 
@@ -423,7 +450,7 @@ $('shareBtn').onclick = async () => {
   try { await share.start(); showTab('screen'); }
   catch (e) { if (e.name !== 'NotAllowedError') toast(`Can't share: ${e.message}`, 'warn'); }
 };
-mountStage({ share, client, stage: $('stage'), tabs: [$('tabScreen'), $('screenBtn')], showTab, toast });
+mountStage({ share, client, stage: $('stage'), tabs: [$('screenBtn')], showTab, toast });
 
 // ---- settings ----
 
