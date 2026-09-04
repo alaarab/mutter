@@ -69,6 +69,7 @@ function showTab(name) {
   $('screenBtn').classList.toggle('on', name === 'screen');
   if (chatVisible()) { ui.unread = 0; clearUnread(); messages.clearUnread(); $('messages').scrollTop = $('messages').scrollHeight; }
   renderChanHead();
+  if (name === 'server') renderServerPane();          // it only draws while it is the visible pane
 }
 function clearUnread() { $('backBadge').hidden = true; scheduleRender(); }
 $('backBtn').onclick = () => showTab('channels');
