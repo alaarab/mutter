@@ -18,6 +18,13 @@ export const THEMES = {
     ink: '#F4F4F6', body: '#B5B5BE', muted: '#7B7B85',
     glow: '14%',
   },
+  midnight: {
+    title: 'Midnight',
+    accent: '#3D9BFF', accentActive: '#1C77DB', onAccent: '#FFFFFF',
+    bg: '#0B0F17', surface: '#151B26', elevated: '#1E2633', sunken: '#070A10', separator: '#232C3A',
+    ink: '#EAF1FA', body: '#C3CFDE', muted: '#7C8B9E',
+    glow: '18%',
+  },
   slate: {
     title: 'Slate',
     accent: '#7AA2F7', accentActive: '#5A82D8', onAccent: '#0A0E16',
