@@ -48,9 +48,13 @@ Voice needs Chrome or Edge (WebCodecs + AudioWorklet). Other browsers get chat o
 - Chat to the channel, a channel and its subtree, or one person. Inbound HTML goes through a
   whitelist. Images: paste, drop or pick; they're shrunk to the server's limit.
 - Five palettes from the iOS app, the same typefaces, settings and diagnostics log in the sheet.
-
-Next: screen share over `PluginDataTransmission` + WebRTC (see `docs/screen-share.md` once it
-lands).
+- **Screen share**, which stock Mumble clients don't have: the share button in the dock opens
+  the browser's picker (screen, window or tab, with audio where the browser offers it). People
+  in your channel see a card and a green badge on your name; Watch opens the video in a third
+  column with live resolution / fps / bitrate / codec, full screen and picture-in-picture.
+  Video goes peer to peer over WebRTC (AV1 › VP9 › H.264 › VP8, up to 1080p); only the
+  signaling crosses the Mumble server, in `PluginDataTransmission`. A TURN server can be set in
+  Settings for networks that block direct connections. Protocol: `docs/screen-share.md`.
 
 ## Layout
 
@@ -59,9 +63,11 @@ lands).
 | `src/protobuf.js` | Minimal protobuf reader/writer, the same subset the iOS app hand-rolls |
 | `src/mumble.js` | Framing, message types, encode/decode. Shared by browser, bridge and tests |
 | `src/voice.js` | Voice packet codec, both UDP wire formats (chosen by the server's version) |
+| `src/rtcsignal.js` | Screen-share signaling: fragmenting/compressing JSON into ≤1000-byte plugin messages |
 | `bridge/server.mjs` | Static file server + WebSocket↔TLS relay |
 | `app/client.js` | The session: handshake, roster, chat, reconnect, talking detection |
 | `app/audio.js`, `app/worklets.js` | Capture → Opus → tunnel; tunnel → Opus → mixer |
+| `app/share.js`, `app/stage.js` | WebRTC screen share (one connection per viewer) and its UI |
 | `app/app.js`, `chat.js`, `store.js`, `themes.js`, `icons.js` | The UI |
 | `probe.mjs` | CLI handshake test — connects and dumps the roster, no browser involved |
 | `test/` | Fake Mumble server, headless-Chromium driver, end-to-end and codec tests |
@@ -78,6 +84,8 @@ drives headless Chromium over the DevTools protocol — both with Node's built-i
 node web/test/webcodecs.test.mjs                    # does this Chromium do Opus the way we assume?
 node web/test/e2e.test.mjs                          # two tabs, voice both ways, chat, images, reconnect
 FAKE_VERSION=1.4.287 node web/test/e2e.test.mjs     # same, legacy voice format
+node web/test/share.test.mjs                        # screen share between two tabs, WebRTC + signaling
+node web/test/signal.test.mjs                       # the plugin-message fragment codec, in Node
 node web/test/fake-server.mjs                       # keep one running to click around against
 node web/probe.mjs <host> [port] [username]         # handshake against any server, read-only
 ```

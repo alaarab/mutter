@@ -6,7 +6,9 @@ import { MumbleClient } from './client.js';
 import { AudioEngine } from './audio.js';
 import { THEMES, applyTheme } from './themes.js';
 import { settings, saveSettings, servers, rememberServer, forgetServer, collapsedFor } from './store.js';
-import { sanitize, renderMessage, imageToHtml, plainText, escapeHtml, openViewer } from './chat.js';
+import { sanitize, renderMessage, imageToHtml, escapeHtml, openViewer } from './chat.js';
+import { ScreenShare } from './share.js';
+import { mountStage } from './stage.js';
 import { ICON } from './icons.js';
 
 const $ = id => document.getElementById(id);
@@ -16,8 +18,9 @@ const colorFor = name => { let h = 5381; for (const ch of name ?? '') h = ((h * 
 
 const client = new MumbleClient();
 const audio = new AudioEngine(client, settings);
+const share = new ScreenShare(client, settings);
 const ui = { scope: null, collapsed: null, target: null, popover: null, statsFor: null, renderQueued: false, inSession: false };
-window.mutter = { client, audio, settings };          // console + tests
+window.mutter = { client, audio, share, settings };   // console + tests
 
 applyTheme(settings.theme);
 for (const [id, icon] of Object.entries({ settingsBtn: 'settings', leaveBtn: 'leave', newChannelBtn: 'plus', imageBtn: 'image', sendBtn: 'send', muteBtn: 'mic', deafBtn: 'headphones', shareBtn: 'screen', settingsClose: 'close' })) $(id).innerHTML = ICON[icon];
@@ -161,6 +164,12 @@ function userRow(u, depth) {
   if (u.selfDeaf || u.deaf) badges.append(badge('headphonesOff', u.deaf ? 'Deafened by server' : 'Deafened'));
   else if (u.selfMute || u.mute || u.suppress) badges.append(badge('micOff', u.mute ? 'Muted by server' : u.suppress ? 'Suppressed' : 'Muted'));
   if (u.localMute) badges.append(badge('volumeOff', 'Muted for you'));
+  if (share.available.has(u.session) || (me && share.sharing)) {
+    const b = badge('screen', me ? 'You are sharing your screen' : 'Sharing screen — click to watch');
+    b.classList.add('live');
+    if (!me) b.onclick = e => { e.stopPropagation(); share.watch(u.session); };
+    badges.append(b);
+  }
   row.append(badges);
   row.onclick = () => userPopover(row, u);
   return row;
@@ -338,6 +347,23 @@ audio.addEventListener('level', () => {
 
 $('muteBtn').onclick = () => audio.setMuted(!audio.muted);
 $('deafBtn').onclick = () => audio.setDeafened(!audio.deafened);
+
+// ---- screen share ----
+
+$('shareBtn').hidden = !ScreenShare.supported;
+$('shareBtn').onclick = async () => {
+  if (share.sharing) return share.stop();
+  try { await share.start(); }
+  catch (e) { if (e.name !== 'NotAllowedError') toast(`Can't share: ${e.message}`, 'warn'); }
+};
+share.addEventListener('state', () => {
+  $('shareBtn').classList.toggle('active', !!share.sharing);
+  $('shareBtn').innerHTML = ICON[share.sharing ? 'screenOff' : 'screen'];
+  $('shareBtn').title = share.sharing ? 'Stop sharing' : 'Share screen';
+  scheduleRender();
+});
+share.addEventListener('available', scheduleRender);
+mountStage({ share, client, stage: $('stage'), session: $('session'), toast });
 for (const ev of ['pointerdown']) $('pttBtn').addEventListener(ev, e => { e.preventDefault(); audio.setPTT(true); });
 for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) $('pttBtn').addEventListener(ev, () => audio.setPTT(false));
 

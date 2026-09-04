@@ -126,6 +126,19 @@ try {
     if (shots) await b.screenshot(`${shots}/03-image.png`);
   });
 
+  await step('desktop Mumble’s percent-encoded data URI image decodes', async () => {
+    // Log::imageToImg splits the base64 into 72-char lines, percent-encodes each (+ / =), and
+    // joins them with newlines; the subtype comes out uppercase.
+    await b.eval(`(async () => {
+      const c = new OffscreenCanvas(48, 32); const x = c.getContext('2d'); x.fillStyle = '#0f0'; x.fillRect(0, 0, 48, 32);
+      const blob = await c.convertToBlob({ type: 'image/png' });
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(await blob.arrayBuffer())));
+      const enc = b64.match(/.{1,72}/g).map(encodeURIComponent).join('\\n');
+      mutter.client.sendText('<img src="data:image/PNG;base64,' + enc + '" />', { channelId: 1 });
+    })()`);
+    await a.waitFor(`(() => { const img = [...document.querySelectorAll('.msg .text img')].find(i => i.src.startsWith('data:image/PNG')); return img && img.complete && img.naturalWidth === 48; })()`, { timeout: 5000 });
+  });
+
   await step('hostile HTML is neutralised', async () => {
     await b.eval(`mutter.client.sendText('<b>bold</b><script>window.pwned=1</script><img src="x" onerror="window.pwned=2"><a href="javascript:alert(1)">j</a> see https://example.com/x', { channelId: 1 })`);
     await a.waitFor(`[...document.querySelectorAll('.msg .text b')].some(e => e.textContent === 'bold')`);

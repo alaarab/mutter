@@ -31,10 +31,21 @@ function copy(from, to, inLink) {
       if (!el.getAttribute('href')) { copy(node, to, inLink); continue; }
       el.target = '_blank'; el.rel = 'noopener noreferrer';
     }
-    if (tag === 'img') { if (!el.getAttribute('src')) continue; el.loading = 'lazy'; el.alt ||= 'image'; }
+    if (tag === 'img') {
+      const src = el.getAttribute('src');
+      if (!src) continue;
+      if (/^data:/i.test(src)) el.setAttribute('src', normaliseDataUri(src));
+      el.alt ||= 'image';
+    }
     copy(node, el, inLink || tag === 'a');
     to.append(el);
   }
+}
+
+// Desktop Mumble percent-encodes the base64 and breaks it into lines; make it plain again.
+function normaliseDataUri(src) {
+  const compact = src.replace(/\s+/g, '');
+  try { return decodeURIComponent(compact); } catch { return compact; }
 }
 
 function linkify(text, to) {
