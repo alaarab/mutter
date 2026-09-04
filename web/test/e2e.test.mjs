@@ -48,6 +48,12 @@ try {
   check(await a.eval(`[...document.querySelectorAll('.user .name > span:first-child')].map(e => e.textContent).sort().join(',')`) === 'Alpha,Bravo', 'both users in the tree');
   check(await a.eval(`document.querySelectorAll('.ch').length`) === 5, 'five channels rendered');
   check(await a.eval(`document.querySelector('.row.system')?.textContent.includes('Welcome')`), 'welcome text shown as a system message');
+  // Every button that is meant to be an icon must actually have one. A mis-keyed icon name or a
+  // selector that misses its slot leaves an empty box that is easy to ship and hard to notice.
+  const bare = await a.eval(`[...document.querySelectorAll('.icon, .rail-btn, .pill-btn, .tools button, .live-badge')]
+    .filter(e => e.offsetParent && !e.querySelector('svg') && !e.textContent.trim())
+    .map(e => e.id || e.className).join(', ')`);
+  check(bare === '', `every visible icon button has a glyph${bare ? ` — empty: ${bare}` : ''}`);
   if (shots) await a.screenshot(`${shots}/01-session.png`);
 
   await step('channel chat delivered and own bubble shown', async () => {
