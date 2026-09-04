@@ -23,7 +23,7 @@
   "build": {
     "appId": "com.alaarab.mutter",
     "productName": "Mutter",
-    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "artifactName": "${productName}-${version}-${os}.${ext}",
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -55,13 +55,19 @@
       "icon": "build/icon.png",
       "target": [
         {
-          "target": "portable",
+          "target": "nsis",
           "arch": [
             "x64"
           ]
         },
         {
-          "target": "nsis",
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
           "arch": [
             "x64"
           ]
@@ -69,13 +75,16 @@
       ]
     },
     "portable": {
-      "artifactName": "${productName}-${version}-portable.exe"
+      "artifactName": "${productName}-${version}-win-portable.exe"
     },
     "nsis": {
       "oneClick": true,
       "perMachine": false,
       "allowElevation": false,
-      "artifactName": "${productName}-${version}-setup.exe"
+      "artifactName": "${productName}-${version}-win-setup.exe",
+      "createDesktopShortcut": true,
+      "shortcutName": "Mutter",
+      "deleteAppDataOnUninstall": false
     },
     "mac": {
       "icon": "build/icon.png",

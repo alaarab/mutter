@@ -5,12 +5,27 @@
 // system audio on Windows; one taskbar entry with our icon; and an install that needs no admin.
 
 import { app, BrowserWindow, session, desktopCapturer, shell, ipcMain, nativeImage } from 'electron';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const webRoot = app.isPackaged ? path.join(process.resourcesPath, 'web') : path.join(here, '..', 'web');
 const SMOKE = process.argv.includes('--smoke');
+
+// Portable, the VS Code way. Everything the app remembers — servers, settings, the remembered
+// password — lives in Chromium's userData. Installed normally that is %APPDATA%\Mutter. But if a
+// `data` folder sits beside the executable, it lives there instead, so the folder can be moved,
+// zipped or carried on a stick and nothing is left on the machine. The single-file portable build
+// always does this (its launcher tells us where it is); the unzipped folder does it if you create
+// the `data` folder, exactly VS Code's rule. Must run before ready(), before any storage opens.
+const besideExe = process.env.PORTABLE_EXECUTABLE_DIR ?? (app.isPackaged ? path.dirname(process.execPath) : null);
+const dataDir = besideExe && path.join(besideExe, 'data');
+if (dataDir && (process.env.PORTABLE_EXECUTABLE_DIR || fs.existsSync(dataDir))) {
+  fs.mkdirSync(dataDir, { recursive: true });
+  app.setPath('userData', dataDir);
+  app.setPath('sessionData', dataDir);
+}
 
 // The bridge reads its configuration from the environment, same as on the command line.
 process.env.NO_OPEN = '1';                       // we are the window
@@ -24,7 +39,7 @@ let win = null;
 app.whenReady().then(async () => {
   const { ready } = await import(pathToFileURL(path.join(webRoot, 'bridge', 'server.mjs')).href);
   const url = await ready;
-  if (SMOKE) { console.log(`smoke: bridge up at ${url}`); }
+  if (SMOKE) { console.log(`smoke: bridge up at ${url}`); console.log(`smoke: userData ${app.getPath('userData')}`); }
 
   // getDisplayMedia() in Electron needs us to say which screen or window. We show a picker; on
   // Windows we also hand over system audio via loopback, which the browser build never could.
