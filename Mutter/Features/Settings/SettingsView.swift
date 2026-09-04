@@ -66,6 +66,15 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    TextField("TURN server", text: $settings.turnURL, prompt: Text("turn:host:3478"))
+                        .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                    TextField("Username", text: $settings.turnUsername).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    SecureField("Password", text: $settings.turnPassword)
+                } header: { SectionLabel(text: "Screen share") } footer: {
+                    Text("Only needed if watching a share fails on a strict network.")
+                }
+
+                Section {
                     NavigationLink { DiagnosticsView() } label: {
                         Label("Diagnostics", systemImage: "stethoscope")
                     }
@@ -88,6 +97,9 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .onChange(of: settings.turnURL) { _, _ in model.applyShareSettings() }
+            .onChange(of: settings.turnUsername) { _, _ in model.applyShareSettings() }
+            .onChange(of: settings.turnPassword) { _, _ in model.applyShareSettings() }
         }
     }
 }

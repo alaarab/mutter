@@ -51,6 +51,9 @@ final class AppSettings {
     var pushToTalkStyle: PushToTalkStyle { didSet { defaults.set(pushToTalkStyle.rawValue, forKey: "pushToTalkStyle") } }
     var audioRoute: AudioRoute { didSet { defaults.set(audioRoute.rawValue, forKey: "audioRoute") } }
     var mixWithOthers: Bool { didSet { defaults.set(mixWithOthers, forKey: "mixWithOthers") } }
+    var turnURL: String { didSet { defaults.set(turnURL, forKey: "turnURL") } }
+    var turnUsername: String { didSet { defaults.set(turnUsername, forKey: "turnUsername") } }
+    var turnPassword: String { didSet { defaults.set(turnPassword, forKey: "turnPassword") } }
     var appearance: Appearance { didSet { defaults.set(appearance.rawValue, forKey: "appearance") } }
     var theme: ThemeStyle { didSet { defaults.set(theme.rawValue, forKey: "theme") } }
     var defaultUsername: String { didSet { defaults.set(defaultUsername, forKey: "defaultUsername") } }
@@ -77,6 +80,9 @@ final class AppSettings {
         audioRoute = AudioRoute(rawValue: defaults.string(forKey: "audioRoute") ?? "")
             ?? ((defaults.object(forKey: "speakerphone") as? Bool ?? true) ? .speaker : .earpiece)
         mixWithOthers = defaults.object(forKey: "mixWithOthers") as? Bool ?? true
+        turnURL = defaults.string(forKey: "turnURL") ?? ""
+        turnUsername = defaults.string(forKey: "turnUsername") ?? ""
+        turnPassword = defaults.string(forKey: "turnPassword") ?? ""
         appearance = Appearance(rawValue: defaults.string(forKey: "appearance") ?? "") ?? .system
         theme = ThemeStyle(rawValue: defaults.string(forKey: "theme") ?? "") ?? .midnight
         defaultUsername = defaults.string(forKey: "defaultUsername") ?? ""
