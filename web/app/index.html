@@ -138,6 +138,10 @@
       <button type="button" data-value="neural">Neural</button>
     </div>
     <p class="hint" id="noiseHint"></p>
+    <div class="row between" style="margin-top:10px"><label class="check"><input id="procEcho" type="checkbox"> Echo cancellation</label></div>
+    <div class="row between"><label class="check"><input id="procNoise" type="checkbox"> Browser noise suppression</label></div>
+    <div class="row between"><label class="check"><input id="procGain" type="checkbox"> Auto gain</label></div>
+    <p class="hint">The browser's own stages, ahead of Mutter's. Keep echo cancellation on with speakers. Browser noise suppression on top of Neural tends to smear speech — try it both ways.</p>
 
     <h3>Quality</h3>
     <div id="bitrate" class="segmented">

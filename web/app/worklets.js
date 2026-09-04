@@ -85,17 +85,20 @@ class Framer extends AudioWorkletProcessor {
   }
 }
 
-/// Mixes every remote speaker into one output with per-user gain and a small jitter buffer.
-/// Each user's audio lives in a 1 s ring; playback of a user starts only once ~40 ms is
-/// buffered, and re-primes after an underrun instead of stuttering through it.
+/// Mixes every remote speaker into one output with per-user gain and an adaptive jitter buffer.
+/// Each user's audio lives in a 1 s ring; playback of a user starts only once the buffer target is
+/// met, and re-primes after an underrun instead of stuttering through it. The target starts at
+/// 40 ms, grows 20 ms per underrun up to 200 ms — a jittery link earns a deeper buffer — and
+/// creeps back down after fifteen clean seconds, so latency is only ever paid while it's needed.
 class Mixer extends AudioWorkletProcessor {
   constructor() {
     super();
     this.users = new Map();      // session -> { buf, read, write, gain, primed }
     this.master = 1;
-    this.jitter = 960 * 2;       // 40 ms before a stream starts
+    this.jitter = 960 * 2;       // 40 ms before a stream starts…
+    this.minJitter = 960 * 2; this.maxJitter = 960 * 10;   // …never below that, never above 200 ms
     this.cap = 48000 / 2;        // drop to 500 ms if a stream runs ahead of us
-    this.tick = 0; this.underruns = 0;
+    this.tick = 0; this.underruns = 0; this.stable = 0;
     this.port.onmessage = ({ data }) => {
       switch (data.type) {
         case 'push': this.push(data.session, data.samples); break;
@@ -117,11 +120,15 @@ class Mixer extends AudioWorkletProcessor {
     const out = outputs[0];
     const L = out[0], R = out[1] ?? out[0];
     L.fill(0);
-    if (++this.tick >= 375) { if (this.underruns) this.port.postMessage({ type: 'health', underruns: this.underruns }); this.tick = 0; this.underruns = 0; }   // once a second
+    if (++this.tick >= 375) {                                                       // once a second
+      if (this.underruns) { this.port.postMessage({ type: 'health', underruns: this.underruns, jitterMs: this.jitter / 48 }); this.stable = 0; }
+      else if (++this.stable >= 15 && this.jitter > this.minJitter) { this.jitter -= 480; this.stable = 0; }   // quiet for a while: give 10 ms back
+      this.tick = 0; this.underruns = 0;
+    }
     for (const u of this.users.values()) {
       const avail = this.available(u);
       if (!u.primed) { if (avail >= this.jitter) u.primed = true; else continue; }
-      if (avail < L.length) { u.primed = false; this.underruns++; continue; }          // underrun: go quiet, re-prime
+      if (avail < L.length) { u.primed = false; this.underruns++; if (this.jitter < this.maxJitter) this.jitter += 960; continue; }   // underrun: go quiet, deepen, re-prime
       const g = u.gain * this.master;
       for (let i = 0; i < L.length; i++) { L[i] += u.buf[u.read] * g; u.read = (u.read + 1) % u.buf.length; }
     }

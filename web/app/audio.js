@@ -7,7 +7,7 @@ const FRAME_SAMPLES = 960;                 // 20 ms at 48 kHz
 const FRAMES_PER_PACKET = FRAME_MS / 10;   // Mumble sequence numbers count 10 ms units
 const HANGOVER_MS = 400;
 
-const DEFAULTS = { transmitMode: 'vad', vadThresholdDb: -38, autoSensitivity: true, bitrate: 40_000, inputGain: 1, inputDeviceId: '', outputDeviceId: '', noiseSuppression: 'neural' };
+const DEFAULTS = { transmitMode: 'vad', vadThresholdDb: -38, autoSensitivity: true, bitrate: 40_000, inputGain: 1, inputDeviceId: '', outputDeviceId: '', noiseSuppression: 'neural', processing: { echo: true, noise: false, gain: true } };
 const VAD_OPEN = 0.5, VAD_HOLD = 0.3;   // RNNoise voice probability: open above, stay open above
 const OPEN_FRAMES = 2;             // consecutive frames above threshold before the gate opens
 
@@ -27,7 +27,8 @@ export class AudioEngine extends EventTarget {
     this.deafened = false;
     this.running = false;
     this.captureError = null;
-    this.stats = { packetsOut: 0, packetsIn: 0, samplesOut: 0 };
+    this.stats = { packetsOut: 0, packetsIn: 0, samplesOut: 0, concealed: 0 };
+    this._rx = new Map();          // session -> { last: frameNumber, pcm: last decoded frame } for loss concealment
     this._ctx = null; this._mixer = null; this._framer = null; this._stream = null; this._source = null;
     this._encoder = null; this._decoders = new Map(); this._gateOpen = false; this._lastVoiceAt = 0; this._closing = false;
     this._pending = []; this._ts = 0; this._levelTick = 0; this._openFrames = 0;
@@ -46,7 +47,7 @@ export class AudioEngine extends EventTarget {
     this._mixer = new AudioWorkletNode(this._ctx, 'mutter-mixer', { outputChannelCount: [2] });
     this._mixer.connect(this._ctx.destination);
     this._mixer.port.postMessage({ type: 'master', gain: this.deafened ? 0 : 1 });
-    this._mixer.port.onmessage = ({ data }) => { if (data.type === 'health' && data.underruns) { this.stats.underruns = (this.stats.underruns ?? 0) + data.underruns; this._diag(`playback ran dry ${data.underruns}× in the last second`); } };
+    this._mixer.port.onmessage = ({ data }) => { if (data.type === 'health' && data.underruns) { this.stats.underruns = (this.stats.underruns ?? 0) + data.underruns; this._diag(`playback ran dry ${data.underruns}× in the last second; buffer now ${data.jitterMs} ms`); } };
     this._framer = new AudioWorkletNode(this._ctx, 'mutter-framer', { numberOfInputs: 1, numberOfOutputs: 0 });
     this._framer.port.onmessage = ({ data }) => {
       if (data.type === 'rnnoise') { this.neural = data.ready; this._diag(data.ready ? 'RNNoise ready' : `RNNoise failed: ${data.error}`); if (!data.ready && this.settings.noiseSuppression === 'neural') this.setNoiseSuppression('strong'); this._emit('state'); return; }
@@ -89,9 +90,13 @@ export class AudioEngine extends EventTarget {
     this._source = this._stream = null; this.captureError = null;
     const id = this.settings.inputDeviceId;
     try {
-      // voiceIsolation is the platform's ML isolation where Chrome exposes it (ignored elsewhere).
+      // The browser's own stages run ahead of ours and are the user's to switch. Browser noise
+      // suppression defaults off: RNNoise already does that job, and two suppressors in series smear
+      // consonants. voiceIsolation is the platform's ML isolation where Chrome exposes it; it rides
+      // with the noise switch.
+      const proc = this.settings.processing ?? DEFAULTS.processing;
       this._stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, voiceIsolation: true, channelCount: 1, sampleRate: 48_000, ...(id ? { deviceId: { exact: id } } : {}) },
+        audio: { echoCancellation: proc.echo !== false, noiseSuppression: !!proc.noise, autoGainControl: proc.gain !== false, voiceIsolation: !!proc.noise, channelCount: 1, sampleRate: 48_000, ...(id ? { deviceId: { exact: id } } : {}) },
       });
     } catch (e) {
       if (id) { this.settings.inputDeviceId = ''; return this._openMicrophone(); }   // the remembered device is gone
@@ -115,6 +120,12 @@ export class AudioEngine extends EventTarget {
       const copy = this._rnnBytes.slice(0);                       // each worklet gets its own; transferred
       this._framer?.port.postMessage({ type: 'rnnoise', bytes: copy }, [copy]);
     } catch (e) { this.neural = false; this._diag(`RNNoise unavailable: ${e.message}`); if (this.settings.noiseSuppression === 'neural') this.setNoiseSuppression('strong'); }
+  }
+
+  /// Flip one of the browser's processing stages; the microphone is reopened with the new constraints.
+  async setProcessing(patch) {
+    this.settings.processing = { ...(this.settings.processing ?? DEFAULTS.processing), ...patch };
+    if (this.running) await this._openMicrophone();
   }
 
   /// Switch microphones without touching playback.
@@ -173,7 +184,11 @@ export class AudioEngine extends EventTarget {
     this._emit('state');
   }
 
-  _encoderConfig() { return { codec: 'opus', sampleRate: 48_000, numberOfChannels: 1, bitrate: this.settings.bitrate, opus: { frameDuration: FRAME_MS * 1000, application: 'voip', signal: 'voice' } }; }
+  /// complexity 10 is the best libopus can do and costs nothing a laptop notices. In-band FEC puts a
+  /// low-rate copy of each frame in the next packet, so a listener whose decoder knows about it
+  /// (Mumble desktop, iOS) rebuilds a lost frame instead of hearing a hole; packetlossperc tells
+  /// the encoder how much to expect, which is what makes it actually spend bits on the FEC.
+  _encoderConfig() { return { codec: 'opus', sampleRate: 48_000, numberOfChannels: 1, bitrate: this.settings.bitrate, opus: { frameDuration: FRAME_MS * 1000, application: 'voip', signal: 'voice', complexity: 10, useinbandfec: true, packetlossperc: 10 } }; }
   setBitrate(bps) { this.settings.bitrate = bps; if (this._encoder?.state === 'configured') this._encoder.configure(this._encoderConfig()); }
   setNoiseSuppression(level) { this.settings.noiseSuppression = level; this._framer?.port.postMessage({ type: 'suppress', level }); this._emit('state'); }
   setMuted(on) { this.muted = on; this.client.setSelfMute(on); if (on) this._closeGate(); if (!on) this.setDeafened(false, false); this._emit('state'); }
@@ -254,6 +269,7 @@ export class AudioEngine extends EventTarget {
           audio.copyTo(pcm, { planeIndex: 0, format: 'f32-planar' });
           audio.close();
           this.stats.samplesOut += pcm.length;
+          const rx = this._rx.get(session); if (rx) rx.pcm = pcm.slice();      // kept for concealment
           this._mixer?.port.postMessage({ type: 'push', session, samples: pcm }, [pcm.buffer]);
         },
         error: e => { this._diag(`decoder ${session}: ${e.message}`); this._decoders.delete(session); },
@@ -264,11 +280,36 @@ export class AudioEngine extends EventTarget {
       this._mixer?.port.postMessage({ type: 'gain', session: p.session, gain: u?.localMute ? 0 : (u?.localVolume ?? 1) });
     }
     if (p.opus.length && dec.state === 'configured') {
+      this._conceal(p);
       dec.decode(new EncodedAudioChunk({ type: 'key', timestamp: Number(p.frameNumber) * 10_000, data: p.opus }));
     }
   }
+
+  /// WebCodecs gives no way to ask the decoder for packet-loss concealment, so this is ours. Mumble
+  /// numbers frames in 10 ms units; a jump of more than one packet means packets went missing.
+  /// Each missing 20 ms is filled with the previous frame faded by 0.6 per step — crude next to a
+  /// real PLC, but a decaying echo of the last sound is far less audible than a hole, which the
+  /// ear hears as a click and the mixer as an underrun. More than three in a row is a new talk
+  /// spurt or a real outage, and is left alone.
+  _conceal(p) {
+    const seq = Number(p.frameNumber);
+    let rx = this._rx.get(p.session);
+    if (!rx) { rx = { last: null, pcm: null }; this._rx.set(p.session, rx); }
+    if (rx.last !== null && rx.pcm) {
+      const missing = Math.round((seq - rx.last) / FRAMES_PER_PACKET) - 1;
+      if (missing > 0 && missing <= 3) {
+        for (let k = 1; k <= missing; k++) {
+          const g = 0.6 ** k, fill = new Float32Array(rx.pcm.length);
+          for (let i = 0; i < fill.length; i++) fill[i] = rx.pcm[i] * g;
+          this._mixer?.port.postMessage({ type: 'push', session: p.session, samples: fill }, [fill.buffer]);
+        }
+        this.stats.concealed += missing;
+      }
+    }
+    rx.last = seq;
+  }
   _pruneDecoders() {
-    for (const s of [...this._decoders.keys()]) if (!this.client.users.has(s)) { try { this._decoders.get(s).close(); } catch {} this._decoders.delete(s); this._mixer?.port.postMessage({ type: 'remove', session: s }); }
+    for (const s of [...this._decoders.keys()]) if (!this.client.users.has(s)) { try { this._decoders.get(s).close(); } catch {} this._decoders.delete(s); this._rx.delete(s); this._mixer?.port.postMessage({ type: 'remove', session: s }); }
   }
 
   _emit(n) { this.dispatchEvent(new CustomEvent(n)); }
