@@ -1,40 +1,153 @@
 <!doctype html>
+<html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mutter Web</title>
+<meta name="color-scheme" content="dark">
+<title>Mutter</title>
 <link rel="stylesheet" href="/app/style.css">
 <body>
   <header>
-    <div class="brand"><span class="cap">M</span><h1>Mutter <span>Web</span></h1></div>
-    <div class="state"><span id="dot" class="dot"></span><span id="stateText">Not connected</span></div>
+    <div class="brand"><span class="cap">M</span><h1>Mutter</h1></div>
+    <div id="serverInfo" class="server" hidden>
+      <span id="serverLabel"></span>
+      <span class="state"><span id="dot" class="dot"></span><span id="stateText">Not connected</span></span>
+      <span id="pingPill" class="pill" hidden></span>
+    </div>
+    <div class="actions">
+      <button id="settingsBtn" class="icon" type="button" title="Settings" aria-label="Settings"></button>
+      <button id="leaveBtn" class="icon" type="button" title="Leave" aria-label="Leave" hidden></button>
+    </div>
   </header>
 
-  <form id="connectForm" class="panel">
-    <div class="row">
-      <label>Server<input id="host" value="minowick.com" spellcheck="false"></label>
-      <label class="narrow">Port<input id="port" value="64738" inputmode="numeric"></label>
-    </div>
-    <div class="row">
-      <label>Name<input id="username" value="Ala-PC" spellcheck="false"></label>
-      <label class="narrow">Password<input id="password" type="password" placeholder="optional"></label>
-    </div>
-    <button id="connectBtn" type="submit">Connect</button>
-    <p id="error" class="error" hidden></p>
-  </form>
+  <p id="unsupported" class="banner" hidden>Voice needs Chrome or Edge. You can still read chat.</p>
 
-  <main hidden id="session">
-    <section class="panel roster">
-      <h2>In this server</h2>
-      <ul id="users"></ul>
-    </section>
-    <section class="panel chat">
-      <h2>Chat</h2>
-      <div id="messages"></div>
-      <form id="chatForm">
-        <input id="chatInput" placeholder="Message" autocomplete="off">
-        <button type="submit" aria-label="Send">↑</button>
+  <section id="connect" class="screen">
+    <div class="card">
+      <ul id="savedServers" class="saved"></ul>
+      <form id="connectForm">
+        <div class="row">
+          <label>Server<input id="host" autocomplete="off" spellcheck="false" required></label>
+          <label class="narrow">Port<input id="port" value="64738" inputmode="numeric" autocomplete="off"></label>
+        </div>
+        <div class="row">
+          <label>Name<input id="username" autocomplete="off" spellcheck="false" required></label>
+          <label class="narrow">Password<input id="password" type="password" placeholder="optional" autocomplete="off"></label>
+        </div>
+        <div class="row between">
+          <label class="check"><input id="remember" type="checkbox"> Remember password</label>
+          <button id="connectBtn" type="submit">Connect</button>
+        </div>
+        <p id="error" class="error" hidden></p>
+      </form>
+    </div>
+  </section>
+
+  <main id="session" class="screen" hidden>
+    <aside class="channels">
+      <div class="pane-head"><h2>Channels</h2><button id="newChannelBtn" class="icon small" type="button" title="New channel" aria-label="New channel"></button></div>
+      <div id="tree" class="tree" role="tree"></div>
+    </aside>
+
+    <section class="chat">
+      <div class="pane-head">
+        <h2 id="chatTitle">Chat</h2>
+        <button id="scopePill" class="pill scope" type="button" hidden></button>
+      </div>
+      <div id="messages" class="messages"></div>
+      <form id="chatForm" class="composer">
+        <button id="imageBtn" class="icon" type="button" title="Send image" aria-label="Send image"></button>
+        <input id="imageInput" type="file" accept="image/*" hidden>
+        <input id="chatInput" placeholder="Message" autocomplete="off" maxlength="5000">
+        <button id="sendBtn" class="icon primary" type="submit" title="Send" aria-label="Send"></button>
       </form>
     </section>
+
+    <section id="stage" class="stage" hidden></section>
   </main>
+
+  <footer id="dock" hidden>
+    <div class="me">
+      <span id="meAvatar" class="avatar big"></span>
+      <div class="who">
+        <span id="meName"></span>
+        <span id="meChannel" class="sub"></span>
+      </div>
+    </div>
+    <div id="meter" class="meter" title="Input level">
+      <span id="meterFill"></span><span id="meterMark"></span>
+      <span id="meterLabel" class="label"></span>
+    </div>
+    <button id="pttBtn" class="talk" type="button" hidden>Talk</button>
+    <div class="controls">
+      <button id="muteBtn" class="icon" type="button" title="Mute" aria-label="Mute"></button>
+      <button id="deafBtn" class="icon" type="button" title="Deafen" aria-label="Deafen"></button>
+      <button id="shareBtn" class="icon" type="button" title="Share screen" aria-label="Share screen" hidden></button>
+    </div>
+  </footer>
+
+  <aside id="settings" class="sheet" hidden>
+    <div class="sheet-head"><h2>Settings</h2><button id="settingsClose" class="icon" type="button" aria-label="Close"></button></div>
+
+    <h3>Transmit</h3>
+    <div id="transmitMode" class="segmented" role="radiogroup">
+      <button type="button" data-value="vad">Voice</button>
+      <button type="button" data-value="ptt">Push to talk</button>
+      <button type="button" data-value="continuous">Always on</button>
+    </div>
+    <p class="hint" id="transmitHint"></p>
+
+    <h3>Sensitivity</h3>
+    <div class="meter settings-meter"><span id="sMeterFill"></span><span id="sMeterMark"></span></div>
+    <div class="row between">
+      <label class="check"><input id="autoSens" type="checkbox"> Auto</label>
+      <span id="thresholdLabel" class="hint"></span>
+    </div>
+    <input id="threshold" type="range" min="-70" max="-10" step="1">
+
+    <h3>Quality</h3>
+    <div id="bitrate" class="segmented">
+      <button type="button" data-value="16000">16k</button>
+      <button type="button" data-value="24000">24k</button>
+      <button type="button" data-value="40000">40k</button>
+      <button type="button" data-value="64000">64k</button>
+      <button type="button" data-value="96000">96k</button>
+    </div>
+
+    <h3>Microphone</h3>
+    <select id="micSelect"></select>
+    <p id="micStatus" class="hint"></p>
+
+    <h3>Look</h3>
+    <div id="themes" class="swatches"></div>
+
+    <h3>Screen share relay</h3>
+    <p class="hint">TURN server, for networks that block direct connections. Optional.</p>
+    <input id="turnUrl" placeholder="turn:host:3478" spellcheck="false">
+    <div class="row">
+      <input id="turnUser" placeholder="username" spellcheck="false">
+      <input id="turnPass" placeholder="credential" type="password">
+    </div>
+
+    <h3>Diagnostics</h3>
+    <div class="row">
+      <button id="diagBtn" class="ghost" type="button">Show log</button>
+      <button id="diagCopy" class="ghost" type="button">Copy log</button>
+    </div>
+    <pre id="diag" class="diag" hidden></pre>
+  </aside>
+
+  <div id="popover" class="popover" hidden></div>
+  <div id="toasts" class="toasts"></div>
+
+  <div id="overlay" class="overlay" hidden>
+    <div class="card">
+      <p id="overlayText">Reconnecting…</p>
+      <button id="overlayLeave" class="ghost" type="button">Leave</button>
+    </div>
+  </div>
+
+  <div id="viewer" class="viewer" hidden><img alt=""></div>
+
   <script type="module" src="/app/app.js"></script>
 </body>
+</html>
