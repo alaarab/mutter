@@ -4,7 +4,7 @@ export const $ = id => document.getElementById(id);
 export const el = (tag, props = {}, ...children) => { const e = Object.assign(document.createElement(tag), props); e.append(...children); return e; };
 
 /// Avatar colours: evenly spaced around the wheel at one saturation, same table as Theme.swift.
-export const PALETTE = ['#3D9BFF', '#3DDC84', '#FF6B35', '#C084FC', '#2DD4A7', '#FFC53D', '#FF7AA2', '#A8E831'];
+export const PALETTE = ['#6E8BC7', '#6FB08A', '#C4885E', '#9B87C4', '#5FA6A0', '#C0A96A', '#C08192', '#8FA96B'];
 export const colorFor = name => { let h = 5381; for (const b of new TextEncoder().encode(name ?? '')) h = ((h * 33) + b) >>> 0; return PALETTE[h % PALETTE.length]; };
 
 /// Initials, like the iOS Avatar: "marcus_k" → MK, "ali" → A.
