@@ -4,14 +4,13 @@
 import { ICON } from './icons.js';
 import { el } from './ui.js';
 
-export function mountStage({ share, client, stage, tab, showTab, toast }) {
+export function mountStage({ share, client, stage, tabs, showTab, toast }) {
   let video = null, wasSharing = false;
 
   function render() {
     const w = share.watching, s = share.sharing, offers = [...share.available].filter(([sender]) => sender !== w?.sender);
     const show = !!(w || s || offers.length);
-    tab.hidden = !show;
-    tab.classList.toggle('live', !!(w || offers.length));
+    for (const tab of tabs) { tab.hidden = !show; tab.classList.toggle('live', !!(w || offers.length)); }
     if (!show && document.body.dataset.tab === 'screen') showTab('chat');
     if (s && !wasSharing) showTab('screen');          // your own share just started: show the preview
     wasSharing = !!s;
@@ -32,8 +31,11 @@ export function mountStage({ share, client, stage, tab, showTab, toast }) {
       if (w.state !== 'connected') {
         const failed = w.state === 'failed' || w.state === 'disconnected';
         frame.append(el('div', { className: 'frame-note' },
-          el('span', { textContent: failed ? 'Connection failed' : 'Connecting…' }),
-          ...(failed ? [el('button', { type: 'button', className: 'ghost', textContent: 'Retry', onclick: () => share.watch(w.sender) })] : [])));
+          el('span', { textContent: failed ? 'Couldn’t connect' : 'Connecting…' }),
+          ...(failed ? [
+            el('span', { className: 'sub', textContent: 'One of you is on a network that blocks direct connections. A relay (TURN) in Settings → Screen share fixes that.' }),
+            el('button', { type: 'button', className: 'ghost', textContent: 'Retry', onclick: () => share.watch(w.sender) }),
+          ] : [])));
       }
       stage.append(bar, frame);
       renderStats();

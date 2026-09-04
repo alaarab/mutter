@@ -6,7 +6,8 @@ import { DATA_ID, encodeSignal, SignalAssembler } from '../src/rtcsignal.js';
 
 const ANNOUNCE_MS = 10_000;      // sharer repeats its announce for late arrivals
 const EXPIRE_MS = 25_000;        // viewer forgets a share it hasn't heard about for this long
-const GATHER_MS = 1500;          // vanilla ICE: wait this long for candidates, then send one SDP
+const GATHER_MS = 2500;          // wait this long for candidates before sending the SDP; the rest trickle
+const TRICKLE_MS = 250;          // batch late candidates so one message carries several
 const CODEC_ORDER = ['video/AV1', 'video/VP9', 'video/H264', 'video/VP8'];
 // murmur allows a burst of 15 then 4/s; we stay under both so nothing is silently dropped.
 const BUCKET = { burst: 12, rate: 3 };
@@ -89,10 +90,45 @@ export class ScreenShare extends EventTarget {
       if (this.watching !== w) return;
       w.state = pc.connectionState;
       this._diag(`viewer connection ${w.state}`);
+      if (w.state === 'connected' || w.state === 'failed') this._explain(pc, 'viewer');
       this._emit('state');
     };
     this._send([sender], { t: 'watch', id: a.id });
     this._emit('state');
+  }
+
+  /// Candidates that arrive after the SDP went out are sent as 'ice' messages, batched.
+  _trickle(pc, peer, id) {
+    let batch = [], timer = null;
+    pc.onicecandidate = e => {
+      if (!e.candidate || !pc._sdpSent) return;
+      batch.push(e.candidate.toJSON());
+      if (!timer) timer = setTimeout(() => { const c = batch; batch = []; timer = null; this._send([peer], { t: 'ice', id, c }); }, TRICKLE_MS);
+    };
+  }
+  _addIce(pc, c) {
+    if (pc.remoteDescription) pc.addIceCandidate(c).catch(e => this._diag(`candidate rejected: ${e.message}`));
+    else (pc._pendingIce ??= []).push(c);          // arrived before the SDP it belongs to
+  }
+  _flushIce(pc) { for (const c of pc._pendingIce ?? []) pc.addIceCandidate(c).catch(() => {}); pc._pendingIce = []; }
+
+  /// Logs which candidate types each side had — the thing to read when a connection fails.
+  async _explain(pc, who) {
+    try {
+      const report = await pc.getStats();
+      const local = {}, remote = {}, byId = new Map();
+      let selected = null;
+      report.forEach(s => {
+        byId.set(s.id, s);
+        if (s.type === 'local-candidate') local[s.candidateType] = (local[s.candidateType] ?? 0) + 1;
+        if (s.type === 'remote-candidate') remote[s.candidateType] = (remote[s.candidateType] ?? 0) + 1;
+        if (s.type === 'transport' && s.selectedCandidatePairId) selected = s.selectedCandidatePairId;
+      });
+      const fmt = o => Object.entries(o).map(([k, v]) => `${k}×${v}`).join(' ') || 'none';
+      let path = '';
+      if (selected && byId.get(selected)) { const p = byId.get(selected); path = ` · path ${byId.get(p.localCandidateId)?.candidateType ?? '?'} → ${byId.get(p.remoteCandidateId)?.candidateType ?? '?'}`; }
+      this._diag(`${who} ${pc.connectionState}: local ${fmt(local)} · remote ${fmt(remote)}${path}${pc.connectionState === 'failed' && !local.relay ? ' · no relay (TURN) configured' : ''}`);
+    } catch {}
   }
 
   unwatch(emit = true) {
@@ -129,13 +165,17 @@ export class ScreenShare extends EventTarget {
     pc.onconnectionstatechange = () => {
       if (s.peers.get(viewer) !== pc) return;
       this._diag(`viewer ${viewer} ${pc.connectionState}`);
+      if (pc.connectionState === 'connected' || pc.connectionState === 'failed') this._explain(pc, `sharer→${viewer}`);
       if (pc.connectionState === 'failed' || pc.connectionState === 'closed') s.peers.delete(viewer);
       this._emit('state');
     };
     try {
+      this._trickle(pc, viewer, s.id);
       await pc.setLocalDescription(await pc.createOffer());
       await gathered(pc);
-      this._send([viewer], { t: 'offer', id: s.id, sdp: pc.localDescription.sdp });
+      const sdp = pc.localDescription.sdp;
+      pc._sdpSent = true;
+      this._send([viewer], { t: 'offer', id: s.id, sdp });
     } catch (e) { this._diag(`offer failed: ${e.message}`); pc.close(); s.peers.delete(viewer); }
   }
 
@@ -143,13 +183,17 @@ export class ScreenShare extends EventTarget {
     const w = this.watching;
     if (!w || w.sender !== sender || w.id !== m.id) return;
     try {
+      this._trickle(w.pc, sender, m.id);
       await w.pc.setRemoteDescription({ type: 'offer', sdp: m.sdp });
+      this._flushIce(w.pc);
       // Declining the audio m-line is legal and the sharer must cope: iOS always does (WebRTC's
       // audio unit would fight its AVAudioEngine), the web does when the setting is off.
       if (this.settings.shareAudio === false) for (const tx of w.pc.getTransceivers()) if (tx.receiver.track?.kind === 'audio') tx.stop();
       await w.pc.setLocalDescription(await w.pc.createAnswer());
       await gathered(w.pc);
-      this._send([sender], { t: 'answer', id: m.id, sdp: w.pc.localDescription.sdp });
+      const sdp = w.pc.localDescription.sdp;
+      w.pc._sdpSent = true;
+      this._send([sender], { t: 'answer', id: m.id, sdp });
     } catch (e) { this._diag(`answer failed: ${e.message}`); w.state = 'failed'; this._emit('state'); }
   }
 
@@ -194,7 +238,7 @@ export class ScreenShare extends EventTarget {
       case 'offer': await this._answer(sender, m); break;
       case 'answer': {
         const pc = this.sharing?.peers.get(sender);
-        if (pc && this.sharing.id === m.id) await pc.setRemoteDescription({ type: 'answer', sdp: m.sdp }).catch(e => this._diag(`answer rejected: ${e.message}`));
+        if (pc && this.sharing.id === m.id) { await pc.setRemoteDescription({ type: 'answer', sdp: m.sdp }).catch(e => this._diag(`answer rejected: ${e.message}`)); this._flushIce(pc); }
         break;
       }
       case 'leave': {
@@ -203,8 +247,8 @@ export class ScreenShare extends EventTarget {
         break;
       }
       case 'ice': {
-        const pc = this.watching?.sender === sender ? this.watching.pc : this.sharing?.peers.get(sender);
-        if (pc && Array.isArray(m.c)) for (const c of m.c) pc.addIceCandidate(c).catch(() => {});
+        const pc = this.watching?.sender === sender && this.watching.id === m.id ? this.watching.pc : this.sharing?.id === m.id ? this.sharing.peers.get(sender) : null;
+        if (pc && Array.isArray(m.c)) for (const c of m.c) this._addIce(pc, c);
         break;
       }
     }
