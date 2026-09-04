@@ -292,7 +292,7 @@ export class ScreenShare extends EventTarget {
 // canvas tracks get an opaque id. None of those are titles a person wants to read.
 const prettyTitle = label =>
   /^screen/i.test(label) ? 'Screen' : /^window/i.test(label) ? 'Window' : /^web-contents/i.test(label) ? 'Tab'
-  : (!label || /^[\w-]{16,}$/.test(label)) ? 'Screen' : label.slice(0, 60);
+  : (!label || /^[\w+/=-]{16,}$/.test(label)) ? 'Screen' : label.slice(0, 60);
 
 const gathered = pc => pc.iceGatheringState === 'complete' ? Promise.resolve() : new Promise(resolve => {
   const timer = setTimeout(done, GATHER_MS);
