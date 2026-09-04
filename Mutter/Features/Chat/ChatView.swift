@@ -292,6 +292,11 @@ struct MessageRow: View {
                     }
                     .frame(maxWidth: 300, alignment: message.isOwn ? .trailing : .leading)
                     VStack(alignment: .leading, spacing: 8) {
+                        if !hasText && rendered.images.isEmpty && rendered.unreadableImages > 0 {
+                            Label("Image couldn't be shown", systemImage: "photo.badge.exclamationmark")
+                                .font(.footnote)
+                                .foregroundStyle(message.isOwn ? .white.opacity(0.85) : Theme.muted)
+                        }
                         if hasText {
                             Text(rendered.text)
                                 .font(.body)
