@@ -43,7 +43,7 @@ try {
   check(true, 'both tabs connected through the bridge');
   await a.waitFor('mutter.client.users.size === 2');
   await sleep(150);
-  check(await a.eval(`[...document.querySelectorAll('.user .name')].map(e => e.textContent).sort().join(',')`) === 'Alpha,Bravo', 'both users in the tree');
+  check(await a.eval(`[...document.querySelectorAll('.user .name > span:first-child')].map(e => e.textContent).sort().join(',')`) === 'Alpha,Bravo', 'both users in the tree');
   check(await a.eval(`document.querySelectorAll('.ch').length`) === 5, 'five channels rendered');
   check(await a.eval(`document.querySelector('.msg.system')?.textContent.includes('Welcome')`), 'welcome text shown as a system message');
   if (shots) await a.screenshot(`${shots}/01-session.png`);
@@ -51,7 +51,7 @@ try {
   await step('channel chat delivered and own bubble shown', async () => {
     await a.type('#chatInput', 'hello from alpha');
     await a.click('#sendBtn');
-    await b.waitFor(`[...document.querySelectorAll('.msg .text')].some(e => e.textContent.includes('hello from alpha'))`);
+    await b.waitFor(`[...document.querySelectorAll('.msg .bubble')].some(e => e.textContent.includes('hello from alpha'))`);
     if (await a.eval(`document.querySelectorAll('.msg.own').length`) !== 1) throw new Error('own bubble missing');
     if (await a.eval(`document.getElementById('chatInput').value`) !== '') throw new Error('input not cleared');
   });
@@ -61,6 +61,14 @@ try {
     await b.waitFor(`${findUser('Alpha')}?.channelId === 1`);
     await a.waitFor(`mutter.client.myChannel?.channelId === 1 && document.getElementById('meChannel').textContent === 'Lounge'`);
     await a.waitFor(`document.getElementById('chatTitle').textContent === 'Lounge'`);
+    if (shots) {
+      await b.send('Emulation.setDeviceMetricsOverride', { width: 420, height: 760, deviceScaleFactor: 1, mobile: false });
+      await b.eval(`document.querySelector('#tabs [data-tab="channels"]').click()`);
+      await b.screenshot(`${shots}/06-narrow-channels.png`);
+      await b.eval(`document.querySelector('#tabs [data-tab="chat"]').click()`);
+      await b.screenshot(`${shots}/07-narrow-chat.png`);
+      await b.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+    }
   });
 
   await step('voice flows Alpha → Bravo once both are in Lounge', async () => {
@@ -94,7 +102,7 @@ try {
   await step('mute shows on the other side', async () => {
     await a.click('#muteBtn');
     await b.waitFor(`${findUser('Alpha')}.selfMute === true`);
-    await b.waitFor(`!!document.querySelector('.user .badge[title="Muted"]')`);
+    await b.waitFor(`[...document.querySelectorAll('.user .status')].some(s => s.textContent === 'Muted') && !!document.querySelector('.user .avatar .over')`);
     await a.waitFor(`document.getElementById('muteBtn').classList.contains('active')`);
   });
 
@@ -109,7 +117,7 @@ try {
 
   await step('direct message arrives tagged "direct"', async () => {
     await b.eval(`mutter.client.sendText('psst', { sessions: [${findUser('Alpha')}.session] })`);
-    await a.waitFor(`[...document.querySelectorAll('.msg')].some(e => e.textContent.includes('psst') && e.querySelector('.tag')?.textContent === 'direct')`);
+    await a.waitFor(`[...document.querySelectorAll('.msg')].some(e => e.textContent.includes('psst') && e.querySelector('.tag')?.textContent === 'DM')`);
   });
 
   await step('image is shrunk to the server limit and rendered inline', async () => {
@@ -122,8 +130,16 @@ try {
       if (html.length > mutter.client.serverInfo.imageMessageLength) throw new Error('too big: ' + html.length);
       mutter.client.sendText(html, { channelId: 1 });
     })()`);
-    await b.waitFor(`!!document.querySelector('.msg .text img')`);
+    await b.waitFor(`!!document.querySelector('.msg .bubble img')`);
     if (shots) await b.screenshot(`${shots}/03-image.png`);
+  });
+
+  await step('a long message that isn’t well-formed XML is refused and marked undelivered', async () => {
+    // What the old client sent: <img …> with no slash. murmur's XML pass rejects it as TextTooLong.
+    await a.eval(`mutter.client.sendText('<img src="data:image/jpeg;base64,' + 'QUFB'.repeat(2000) + '">', { channelId: 1 })`);
+    await a.waitFor(`!!document.querySelector('.msg.failed .failed-note')`, { timeout: 4000 });
+    await a.waitFor(`[...document.querySelectorAll('.toast')].some(t => /too long/i.test(t.textContent))`, { timeout: 3000 });
+    if (await b.eval(`[...document.querySelectorAll('.msg img')].some(i => i.src.includes('QUFBQUFB'))`)) throw new Error('fake server delivered a malformed message');
   });
 
   await step('desktop Mumble’s percent-encoded data URI image decodes', async () => {
@@ -136,12 +152,12 @@ try {
       const enc = b64.match(/.{1,72}/g).map(encodeURIComponent).join('\\n');
       mutter.client.sendText('<img src="data:image/PNG;base64,' + enc + '" />', { channelId: 1 });
     })()`);
-    await a.waitFor(`(() => { const img = [...document.querySelectorAll('.msg .text img')].find(i => i.src.startsWith('data:image/PNG')); return img && img.complete && img.naturalWidth === 48; })()`, { timeout: 5000 });
+    await a.waitFor(`(() => { const img = [...document.querySelectorAll('.msg .bubble img')].find(i => i.src.startsWith('data:image/PNG')); return img && img.complete && img.naturalWidth === 48; })()`, { timeout: 5000 });
   });
 
   await step('hostile HTML is neutralised', async () => {
     await b.eval(`mutter.client.sendText('<b>bold</b><script>window.pwned=1</script><img src="x" onerror="window.pwned=2"><a href="javascript:alert(1)">j</a> see https://example.com/x', { channelId: 1 })`);
-    await a.waitFor(`[...document.querySelectorAll('.msg .text b')].some(e => e.textContent === 'bold')`);
+    await a.waitFor(`[...document.querySelectorAll('.msg .bubble b')].some(e => e.textContent === 'bold')`);
     const ok = await a.eval(`!window.pwned && !document.querySelector('.msg script') && !document.querySelector('.msg a[href^="javascript"]') && !document.querySelector('.msg img[onerror]') && !!document.querySelector('.msg a[href="https://example.com/x"]')`);
     if (!ok) throw new Error('something dangerous survived, or linkify failed');
   });

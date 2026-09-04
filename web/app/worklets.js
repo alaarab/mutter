@@ -1,20 +1,29 @@
 // AudioWorklet processors. Runs on the audio render thread, so: no allocation in process(),
 // no DOM, messages only.
 
-/// Turns the 128-sample render quanta into 20 ms frames (960 samples at 48 kHz) for Opus.
+import { NoiseSuppressor } from './dsp.js';
+
+/// Cleans the microphone and turns the 128-sample render quanta into 20 ms frames (960 samples
+/// at 48 kHz) for Opus. The suppressor runs here, before framing, so the level meter and the
+/// voice gate both see the cleaned signal.
 class Framer extends AudioWorkletProcessor {
   constructor() {
     super();
     this.frame = new Float32Array(960);
     this.fill = 0;
+    this.suppressor = new NoiseSuppressor('strong');
+    this.port.onmessage = ({ data }) => {
+      if (data.type === 'suppress') { this.suppressor.level = data.level; if (data.level === 'off') this.suppressor.reset(); }
+    };
   }
   process(inputs) {
     const ch = inputs[0]?.[0];
     if (!ch) return true;
+    const cleaned = this.suppressor.process(ch);
     let i = 0;
-    while (i < ch.length) {
-      const n = Math.min(ch.length - i, 960 - this.fill);
-      this.frame.set(ch.subarray(i, i + n), this.fill);
+    while (i < cleaned.length) {
+      const n = Math.min(cleaned.length - i, 960 - this.fill);
+      this.frame.set(cleaned.subarray(i, i + n), this.fill);
       this.fill += n; i += n;
       if (this.fill === 960) {
         this.port.postMessage(this.frame, [this.frame.buffer]);   // transfer, then re-allocate once
