@@ -108,3 +108,5 @@ A sharing user gets a green screen badge in the channel tree; clicking it watche
   rule: send the SDP after `iceGatheringState == complete` or 1.5 s, whichever is first.
 - Send `watch` only after receiving `announce` for that `id`; ignore `offer` for another id.
 - Keep receivers explicit and respect the rate limit — the server drops, it does not tell you.
+
+See also docs/extensions.md for the typing indicator.

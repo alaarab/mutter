@@ -58,6 +58,8 @@ export class NoiseSuppressor {
     this.power = new Float32Array(this.half + 1);
     this.frameCount = 0;
     this.level = level;
+    this.hfEnvDb = -60; this.lfEnvDb = -60; this.clickRun = 0;   // click detector state
+    this.clicks = 0;
   }
 
   /// Feed samples in, get processed samples out: a Float32Array whose length is whatever the
@@ -88,6 +90,7 @@ export class NoiseSuppressor {
   reset() {
     this.inFill = 0; this.inBuf.fill(0); this.overlap.fill(0);
     this.noise.fill(1e-6); this.prevGain.fill(1); this.prevPower.fill(0); this.frameCount = 0;
+    this.hfEnvDb = -60; this.lfEnvDb = -60; this.clickRun = 0;
   }
 
   _frame() {
@@ -97,11 +100,25 @@ export class NoiseSuppressor {
     this.fft.transform(re, im);
     for (let k = 0; k <= half; k++) power[k] = re[k] * re[k] + im[k] * im[k];
 
+    // Keyboard clicks: a sudden broadband burst whose energy sits above 3 kHz while the voice
+    // band under 1 kHz barely moved. Spectral subtraction can't see them (they aren't
+    // stationary), so on Strong the frame's high band is ducked instead. Voiced speech onsets
+    // carry low-band energy and are left alone; an isolated "s" loses at most one 10 ms frame.
+    let total = 0, lf = 0, hf = 0;
+    for (let k = 1; k <= half; k++) { const p = power[k]; total += p; if (k < 22) lf += p; else if (k >= 64) hf += p; }
+    const lfDb = 10 * Math.log10(lf / n + 1e-12), hfDb = 10 * Math.log10(hf / n + 1e-12);
+    // The high band jumped ≥12 dB over its own envelope, and either the frame is mostly high band
+    // (click in silence) or the voice band held steady (click over speech). Three frames at most,
+    // so a sustained "s" is speech, not a click.
+    const click = this.level === 'strong' && this.frameCount > 8 && hfDb - this.hfEnvDb > 12 && (hf / (total + 1e-12) > 0.55 || lfDb - this.lfEnvDb < 6) && this.clickRun < 3;
+    if (click) { this.clickRun++; this.clicks++; }
+    else { this.clickRun = 0; this.hfEnvDb += (hfDb > this.hfEnvDb ? 0.08 : 0.02) * (hfDb - this.hfEnvDb); this.lfEnvDb += (lfDb > this.lfEnvDb ? 0.08 : 0.02) * (lfDb - this.lfEnvDb); }
+
     const warmingUp = ++this.frameCount <= 8;
     for (let k = 0; k <= half; k++) {
       const p = power[k];
       if (warmingUp) noise[k] = Math.max(p, 1e-8);
-      else {
+      else if (!click) {
         const post = p / Math.max(noise[k], 1e-10);
         noise[k] = Math.max(noise[k] + (post < 3 ? 0.06 : 0.0025) * (p - noise[k]), 1e-8);
       }
@@ -114,6 +131,7 @@ export class NoiseSuppressor {
     }
     let prev = gain[0];
     for (let k = 1; k < half; k++) { const cur = gain[k]; gain[k] = 0.25 * prev + 0.5 * cur + 0.25 * gain[k + 1]; prev = cur; }
+    if (click) for (let k = 32; k <= half; k++) gain[k] *= 0.1;       // −20 dB above 1.5 kHz for this frame
 
     for (let k = 0; k <= half; k++) { re[k] *= gain[k]; im[k] *= gain[k]; }
     for (let k = 1; k < half; k++) { re[n - k] = re[k]; im[n - k] = -im[k]; }   // keep the spectrum Hermitian

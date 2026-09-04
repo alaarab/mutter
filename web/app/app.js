@@ -1,46 +1,86 @@
-// Mutter Web. The iPhone app's session in a small window: a header, one pane at a time
-// (Channels, Chat, Server, Screen) behind a tab strip, and the voice dock — two columns when
-// the window is wide enough. Speaks to the bridge over WebSocket; the bridge is a byte pipe,
-// so everything Mumble happens in this tab.
+// Mutter Web. A Revolt/Discord-shaped shell — server rail, channel sidebar, chat, members — over
+// the Mumble session (client.js) and voice (audio.js); a tabbed phone layout under 880px.
+// Speaks to the bridge over WebSocket; the bridge is a byte pipe, so everything Mumble happens
+// in this tab.
 
 import { MumbleClient } from './client.js';
 import { AudioEngine } from './audio.js';
 import { ScreenShare } from './share.js';
+import { TypingIndicator } from './typing.js';
 import { mountStage } from './stage.js';
 import { THEMES, applyTheme } from './themes.js';
 import { settings, saveSettings, servers, rememberServer, forgetServer, collapsedFor } from './store.js';
-import { sanitize, renderMessage, imageToHtml, escapeHtml, openViewer } from './chat.js';
-import { $, el, avatar } from './ui.js';
+import { sanitize, imageToHtml, escapeHtml, plainText, openViewer } from './chat.js';
+import { renderTree, refreshUser, presence } from './tree.js';
+import { MessageList, typingText } from './messages.js';
+import { renderMembers } from './members.js';
+import { openPopover, closePopover, menuItem, profileCard, channelMenu, serverMenu } from './popovers.js';
+import { $, el, avatar, colorFor, initials } from './ui.js';
 import { ICON } from './icons.js';
 
 const client = new MumbleClient();
 const audio = new AudioEngine(client, settings);
 const share = new ScreenShare(client, settings);
-const ui = { scope: null, collapsed: null, target: null, popover: null, statsFor: null, renderQueued: false, inSession: false, filter: '', unread: 0 };
+const typing = new TypingIndicator(client);
+const ui = { scope: null, collapsed: null, target: null, statsFor: null, renderQueued: false, inSession: false, filter: '', unread: 0, recordingKey: false };
 const wide = matchMedia('(min-width: 880px)');
-window.mutter = { client, audio, share, settings };   // console + tests
+window.mutter = { client, audio, share, typing, settings };   // console + tests
 
+settings.pttKey ??= 'Space';
+settings.showMembers ??= true;
+settings.textSize ??= 14;
 applyTheme(settings.theme);
-for (const [id, icon] of Object.entries({ leaveBtn: 'leave', newChannelBtn: 'plus', imageBtn: 'image', sendBtn: 'send', muteBtn: 'mic', deafBtn: 'headphones', shareBtn: 'screen', settingsBtn: 'settings', settingsClose: 'close' })) $(id).innerHTML = ICON[icon];
+document.documentElement.style.setProperty('--text-size', `${settings.textSize}px`);
+for (const [id, icon] of Object.entries({ railAdd: 'plus', railSettings: 'settings', newChannelBtn: 'plus', backBtn: 'back', screenBtn: 'screen', serverBtn: 'info', membersBtn: 'users', imageBtn: 'plus', sendBtn: 'send', leaveBtn: 'leave', shareBtn: 'screen', muteBtn: 'mic', deafBtn: 'headphones', settingsBtn: 'settings', settingsClose: 'close', connectClose: 'close' })) $(id).innerHTML = ICON[icon];
+$('leaveBtn').append(el('span', { textContent: 'Disconnect' }));
+$('shareBtn').append(el('span', { textContent: 'Share screen' }));
 document.querySelector('.search-icon').innerHTML = ICON.search;
-document.querySelector('#scopePill .chev').innerHTML = ICON.chevron;
+for (const c of document.querySelectorAll('.chev')) c.innerHTML = ICON.chevron;
 for (const [tab, icon] of [['channels', 'channels'], ['chat', 'message'], ['screen', 'screen'], ['server', 'server']]) $('tabs').querySelector(`[data-tab="${tab}"] i`).innerHTML = ICON[icon];
 if (!AudioEngine.supported) $('unsupported').hidden = false;
 
-// ---- tabs ----
+const messages = new MessageList($('messages'), {
+  client, onImage: openViewer,
+  onQuote: m => { const ta = $('chatInput'); ta.value = `> ${plainText(m.html).slice(0, 300)}\n${ta.value}`; ta.focus(); autoGrow(); },
+  onMessageUser: s => { setScope({ sessions: [s] }); $('chatInput').focus(); },
+  onMuteFor: s => { const u = client.users.get(s); if (u) { audio.setUserLocalMute(s, !u.localMute); toast(u.localMute ? `${u.name} muted for you` : `${u.name} unmuted`); scheduleRender(); } },
+});
+
+// ---- layout: desktop vs phone, tabs, panels ----
+
+function applyLayout() {
+  const desktop = wide.matches;
+  document.body.dataset.layout = desktop ? 'desktop' : 'phone';
+  // The voice and user panels live at the bottom of the sidebar on desktop and in the dock on phones.
+  const home = desktop ? $('sidebar') : $('dock');
+  if ($('voicePanel').parentElement !== home) { if (desktop) home.append($('voicePanel'), $('userPanel')); else home.prepend($('voicePanel'), $('userPanel')); }
+  document.body.dataset.members = desktop && settings.showMembers ? 'on' : 'off';
+  $('membersBtn').classList.toggle('on', !!settings.showMembers);
+  if (desktop && document.body.dataset.tab === 'channels') showTab('chat');
+  positionToasts();
+}
+function positionToasts() { const t = $('toasts'), m = $('main'); if (wide.matches) { t.style.left = `${m.offsetLeft}px`; t.style.width = `${m.offsetWidth}px`; } else { t.style.left = ''; t.style.width = ''; } }
+wide.addEventListener('change', applyLayout);
 
 function showTab(name) {
   if (name === 'channels' && wide.matches) name = 'chat';
   document.body.dataset.tab = name;
   for (const b of $('tabs').querySelectorAll('button')) b.classList.toggle('on', b.dataset.tab === name);
-  if (name === 'chat' || (wide.matches && name === 'channels')) { ui.unread = 0; $('unread').hidden = true; }
-  if (name === 'chat') { const box = $('messages'); box.scrollTop = box.scrollHeight; }
+  $('serverBtn').classList.toggle('on', name === 'server');
+  $('screenBtn').classList.toggle('on', name === 'screen');
+  if (chatVisible()) { ui.unread = 0; $('unread').hidden = true; messages.clearUnread(); $('messages').scrollTop = $('messages').scrollHeight; }
+  renderChanHead();
 }
 $('tabs').addEventListener('click', e => { const b = e.target.closest('button[data-tab]'); if (b) showTab(b.dataset.tab); });
-wide.addEventListener('change', () => showTab(document.body.dataset.tab));
-const chatVisible = () => ui.inSession && (document.body.dataset.tab === 'chat' || (wide.matches && document.body.dataset.tab === 'channels'));
+$('backBtn').onclick = () => showTab('channels');
+$('serverBtn').onclick = () => showTab(document.body.dataset.tab === 'server' ? 'chat' : 'server');
+$('screenBtn').onclick = () => showTab(document.body.dataset.tab === 'screen' ? 'chat' : 'screen');
+$('railHome').onclick = () => showTab('chat');
+$('membersBtn').onclick = () => { settings.showMembers = !settings.showMembers; saveSettings(); applyLayout(); };
+const chatVisible = () => ui.inSession && (document.body.dataset.tab === 'chat' || (wide.matches && document.body.dataset.tab === 'channels')) && !document.hidden;
+document.addEventListener('visibilitychange', () => { if (chatVisible()) { ui.unread = 0; $('unread').hidden = true; } });
 
-// ---- connect screen ----
+// ---- connect: card + server rail ----
 
 function renderSavedServers() {
   const list = $('savedServers');
@@ -48,30 +88,49 @@ function renderSavedServers() {
   list.hidden = !servers.length;
   for (const s of servers) {
     const main = el('button', { type: 'button', className: 'saved-main' },
-      el('span', { className: 'saved-icon', innerHTML: ICON.server }),
-      el('span', { className: 'saved-text' }, el('strong', {}, s.host + (s.port !== 64738 ? `:${s.port}` : '')), el('span', { className: 'sub' }, `as ${s.username}`)));
+      Object.assign(avatar(s.host, 'm'), { textContent: initials(s.host.replace(/\..*/, '')) }),
+      el('span', { className: 'saved-text' }, el('strong', {}, label(s)), el('span', { className: 'sub' }, `as ${s.username}`)));
     main.onclick = () => { fillForm(s); connect(readForm()); };
-    const del = el('button', { type: 'button', className: 'icon small', title: 'Forget', innerHTML: ICON.trash });
-    del.onclick = () => { forgetServer(s.host, s.port); renderSavedServers(); };
+    const del = el('button', { type: 'button', className: 'icon small', innerHTML: ICON.trash }); del.dataset.tip = 'Forget';
+    del.onclick = () => { forgetServer(s.host, s.port); renderSavedServers(); renderRail(); };
     list.append(el('li', { className: 'saved-row' }, main, del));
+  }
+}
+const label = s => s.port === 64738 ? s.host : `${s.host}:${s.port}`;
+const sameServer = (a, b) => a && b && a.host === b.host && a.port === b.port;
+
+function renderRail() {
+  const box = $('railServers');
+  box.replaceChildren();
+  for (const s of servers) {
+    const b = el('button', { type: 'button', className: `rail-btn server${sameServer(s, ui.target) ? ' on' : ''}${sameServer(s, ui.target) && !client.isConnected && client.state !== 'disconnected' ? ' busy' : ''}`, textContent: initials(s.host.replace(/\..*/, '')) });
+    b.style.background = colorFor(s.host);
+    b.dataset.tip = label(s);
+    b.onclick = () => { if (sameServer(s, ui.target) && client.isConnected) { showTab('chat'); return; } fillForm(s); connect(readForm()); };
+    box.append(b);
   }
 }
 function fillForm(s) { $('host').value = s.host ?? ''; $('port').value = s.port ?? 64738; $('username').value = s.username ?? ''; $('password').value = s.password ?? ''; $('remember').checked = s.password !== undefined; }
 function readForm() {
   return { host: $('host').value.trim(), port: Number($('port').value) || 64738, username: $('username').value.trim(), password: $('password').value || undefined, remember: $('remember').checked };
 }
+function showConnect(open) { $('connect').hidden = !open; $('connectClose').hidden = !ui.inSession; if (open) $('host').focus(); }
+$('railAdd').onclick = () => { fillForm({ host: '', port: 64738, username: servers[0]?.username ?? '' }); showConnect(true); };
+$('connectClose').onclick = () => showConnect(false);
+$('connectForm').addEventListener('submit', e => { e.preventDefault(); connect(readForm()); });
 renderSavedServers();
 fillForm(servers[0] ?? { host: '', port: 64738, username: '' });
-$('connectForm').addEventListener('submit', e => { e.preventDefault(); connect(readForm()); });
+renderRail();
 
 async function connect(target) {
   if (!target.host || !target.username) return;
+  if (client.state !== 'disconnected') { client.disconnect(); await audio.stop(); }
   showError(null);
   ui.target = target;
   ui.collapsed = collapsedFor(target.host);
   rememberServer(target);
-  renderSavedServers();
-  $('title').textContent = target.port === 64738 ? target.host : `${target.host}:${target.port}`;
+  renderSavedServers(); renderRail();
+  $('title').textContent = label(target);
   $('connectBtn').disabled = true;
   client.connect(target);
   // Started inside the click so the AudioContext is allowed to run; the mic prompt appears now.
@@ -85,30 +144,20 @@ $('leaveBtn').onclick = leave;
 $('overlayLeave').onclick = leave;
 function showError(text) { $('error').hidden = !text; $('error').textContent = text ?? ''; }
 
-// ---- screens and connection state ----
-
-function showScreen(name) {
-  ui.inSession = name === 'session';
-  $('connect').hidden = ui.inSession;
-  $('session').hidden = !ui.inSession;
-  $('dock').hidden = !ui.inSession;
-  $('leaveBtn').hidden = !ui.inSession;
-  if (!ui.inSession) { $('overlay').hidden = true; $('pingPill').hidden = true; $('title').textContent = 'Mutter'; closePopover(); }
-}
+// ---- connection state ----
 
 client.addEventListener('state', () => {
   const s = client.state;
-  const label = { disconnected: 'Not connected', connecting: 'Connecting…', authenticating: 'Signing in…', connected: 'Connected', reconnecting: 'Reconnecting…' }[s];
-  $('dot').className = `dot ${s === 'connected' ? 'on' : s === 'disconnected' ? '' : 'wait'}`;
+  const wait = s !== 'connected' && s !== 'disconnected';
+  $('dot').className = `dot ${s === 'connected' ? 'on' : wait ? 'wait' : ''}`;
   $('connectBtn').disabled = s !== 'disconnected';
-  $('connectBtn').textContent = s === 'disconnected' ? 'Connect' : label;
+  $('connectBtn').textContent = s === 'disconnected' ? 'Connect' : { connecting: 'Connecting…', authenticating: 'Signing in…', reconnecting: 'Reconnecting…' }[s];
+  const vp = document.querySelector('.vp-state');
+  vp.className = `vp-state${s === 'connected' ? '' : wait ? ' wait' : ' off'}`;
+  vp.querySelector('.dot').className = `dot${s === 'connected' ? ' on' : wait ? ' wait' : ''}`;
+  $('vpState').textContent = s === 'connected' ? 'Voice connected' : wait ? 'Connecting…' : 'Not connected';
   if (s === 'connected') {
-    if (!ui.inSession) {
-      showScreen('session');
-      showTab(wide.matches ? 'chat' : 'channels');
-      $('messages').replaceChildren();
-      for (const m of client.messages) appendMessage(m);
-    }
+    if (!ui.inSession) { ui.inSession = true; showConnect(false); messages.reset(); for (const m of client.messages) messages.append(m); showTab('chat'); }
     $('overlay').hidden = true;
     ui.scope = null;
     audio.resync();
@@ -116,11 +165,15 @@ client.addEventListener('state', () => {
   } else if (s === 'reconnecting') {
     $('overlay').hidden = false;
     $('overlayText').textContent = `Reconnecting to ${ui.target?.host}…`;
-    renderSubtitle();
   } else if (s === 'disconnected') {
-    if (ui.inSession) { showScreen('connect'); audio.stop(); }
-    renderSubtitle();
-  } else renderSubtitle();
+    if (ui.inSession) { ui.inSession = false; audio.stop(); $('pingPill').hidden = true; closePopover(); }
+    $('overlay').hidden = true;
+    showConnect(true);
+    $('subtitle').textContent = 'Not connected';
+    $('memberList').replaceChildren(); $('tree').replaceChildren();
+  }
+  renderRail();
+  renderPanels();
 });
 client.addEventListener('error', e => showError(e.detail));
 client.addEventListener('stats', () => {
@@ -128,172 +181,49 @@ client.addEventListener('stats', () => {
   $('pingPill').hidden = false; $('pingPill').textContent = `${ms} ms`; $('pingPill').classList.toggle('slow', ms > 150);
 });
 
-function renderSubtitle() {
-  if (!client.isConnected) { $('subtitle').textContent = { connecting: 'Connecting…', authenticating: 'Signing in…', reconnecting: 'Reconnecting…' }[client.state] ?? 'Not connected'; return; }
-  const n = client.users.size;
-  $('subtitle').textContent = `${n} online · in ${client.myChannel?.name ?? '—'}`;
-}
-
-// ---- channel tree ----
+// ---- rendering ----
 
 client.addEventListener('channels', scheduleRender);
 client.addEventListener('users', scheduleRender);
-// Coalesces the burst of UserState/ChannelState events in one socket message into one render.
-// A microtask, not requestAnimationFrame: background tabs stop animating but still get messages.
-function scheduleRender() { if (ui.renderQueued) return; ui.renderQueued = true; queueMicrotask(() => { ui.renderQueued = false; if (ui.inSession) { renderTree(); renderDock(); renderChatTitle(); renderSubtitle(); renderServerPane(); } }); }
-
-$('search').addEventListener('input', () => { ui.filter = $('search').value.trim().toLowerCase(); renderTree(); });
-$('search').addEventListener('keydown', e => { if (e.key === 'Escape') { $('search').value = ''; ui.filter = ''; renderTree(); } });
-
-function renderTree() {
-  const root = client.rootChannel;
-  const frag = document.createDocumentFragment();
-  if (root && ui.filter) renderFiltered(frag);
-  else if (root) renderChannel(root, 0, frag);
-  $('tree').replaceChildren(frag);
+client.addEventListener('server', scheduleRender);
+share.addEventListener('available', scheduleRender);
+share.addEventListener('state', scheduleRender);
+// A microtask coalesces the burst of state messages in one socket read into one render, and
+// keeps working in background tabs where requestAnimationFrame stops.
+function scheduleRender() { if (ui.renderQueued) return; ui.renderQueued = true; queueMicrotask(() => { ui.renderQueued = false; if (ui.inSession) renderAll(); }); }
+function renderAll() {
+  renderTreeNow(); renderMembersNow(); renderPanels(); renderChanHead(); renderScope(); renderServerPane();
+  $('subtitle').textContent = `${client.users.size} online · in #${client.myChannel?.name ?? '—'}`;
 }
 
-function renderFiltered(into) {
-  const q = ui.filter;
-  for (const c of [...client.channels.values()].sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))) if ((c.name ?? '').toLowerCase().includes(q)) into.append(channelRow(c, 0, true));
-  for (const u of [...client.users.values()].sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))) if ((u.name ?? '').toLowerCase().includes(q)) into.append(userRow(u, 0, client.channels.get(u.channelId)?.name));
-  if (!into.childNodes.length) into.append(el('p', { className: 'hint', textContent: 'Nothing matches.', style: 'padding: 8px 12px' }));
-}
-
-function subtreeCount(c) { let n = client.usersIn(c.channelId).length; for (const k of client.children(c.channelId)) n += subtreeCount(k); return n; }
-
-function renderChannel(c, depth, into) {
-  const users = client.usersIn(c.channelId), kids = client.children(c.channelId);
-  const collapsed = ui.collapsed.set.has(c.channelId) && c.channelId !== client.myChannel?.channelId;
-  into.append(channelRow(c, depth, false, collapsed, users.length + kids.length > 0));
-  if (collapsed) return;
-  for (const u of users) into.append(userRow(u, depth + 1));
-  for (const k of kids) renderChannel(k, depth + 1, into);
-}
-
-function channelRow(c, depth, flat, collapsed = false, hasChildren = true) {
-  const current = c.channelId === client.myChannel?.channelId;
-  const row = el('div', { className: `ch${current ? ' current' : ''}${collapsed ? ' collapsed' : ''}`, role: 'treeitem' });
-  row.style.setProperty('--depth', depth);
-  const disc = el('button', { type: 'button', className: `disc${hasChildren && !flat ? '' : ' empty'}`, innerHTML: ICON.chevron, tabIndex: -1 });
-  disc.onclick = e => { e.stopPropagation(); if (ui.collapsed.set.has(c.channelId)) ui.collapsed.set.delete(c.channelId); else ui.collapsed.set.add(c.channelId); ui.collapsed.save(); renderTree(); };
-  const n = subtreeCount(c);
-  row.append(disc, el('span', { className: 'hash', textContent: '#' }), el('span', { className: 'name', textContent: c.name ?? '…' }));
-  if (n) row.append(el('span', { className: 'count', textContent: c.maxUsers ? `${n}/${c.maxUsers}` : String(n) }));
-  if (!current) {
-    const join = el('button', { type: 'button', className: 'join', title: 'Join', innerHTML: ICON.join });
-    join.onclick = e => { e.stopPropagation(); client.joinChannel(c.channelId); };
-    row.append(join);
-  }
-  row.onclick = () => channelPopover(row, c);
-  return row;
-}
-
-function userStatus(u, me) {
-  if (u.talking || (me && audio.isTransmitting)) return ['Speaking', 'speaking'];
-  if (u.selfDeaf || u.deaf) return [u.deaf ? 'Deafened by server' : 'Deafened', 'warn'];
-  if (u.selfMute || u.mute || u.suppress) return [u.mute ? 'Muted by server' : u.suppress ? 'Suppressed' : 'Muted', ''];
-  if (u.localMute) return ['Muted for you', 'warn'];
-  if (share.available.has(u.session) || (me && share.sharing)) return ['Sharing screen', 'live'];
-  return ['', ''];
-}
-
-function userRow(u, depth, where) {
-  const me = u.session === client.me;
-  const talking = u.talking || (me && audio.isTransmitting);
-  const row = el('div', { className: `user${me ? ' me' : ''}${talking ? ' talking' : ''}`, role: 'treeitem' });
-  row.dataset.session = u.session;
-  row.style.setProperty('--depth', depth);
-  const av = avatar(u.name, 'm');
-  if (u.selfDeaf || u.deaf) av.append(el('span', { className: 'over', innerHTML: ICON.headphonesOff }));
-  else if (u.selfMute || u.mute || u.suppress) av.append(el('span', { className: 'over', innerHTML: ICON.micOff }));
-  const name = el('span', { className: 'name' }, el('span', { textContent: u.name ?? '…' }));
-  if (me) name.append(el('span', { className: 'you', textContent: 'you' }));
-  if (u.prioritySpeaker) name.append(el('span', { className: 'star', title: 'Priority speaker', innerHTML: ICON.star }));
-  const [text, cls] = userStatus(u, me);
-  const status = el('span', { className: `status ${cls}`, textContent: where ? (text ? `${text} · #${where}` : `#${where}`) : text });
-  row.append(av, el('span', { className: 'col' }, name, status));
-  if (share.available.has(u.session)) {
-    const b = el('button', { type: 'button', className: 'live-badge', title: 'Watch their screen', innerHTML: ICON.screen });
-    b.onclick = e => { e.stopPropagation(); share.watch(u.session); showTab('screen'); };
-    row.append(b);
-  }
-  row.onclick = () => userPopover(row, u);
-  return row;
-}
-
-client.addEventListener('talking', e => {
-  for (const r of document.querySelectorAll(`.user[data-session="${e.detail.session}"]`)) {
-    r.classList.toggle('talking', e.detail.talking);
-    const u = client.users.get(e.detail.session);
-    if (u) { const [text, cls] = userStatus(u, u.session === client.me); const s = r.querySelector('.status'); s.textContent = text; s.className = `status ${cls}`; }
-  }
-  renderTalkers();
+const treeCtx = () => ({
+  client, audio, share, collapsed: ui.collapsed?.set ?? new Set(), filter: ui.filter,
+  isCurrent: c => c.channelId === client.myChannel?.channelId,
+  onToggle: c => { if (ui.collapsed.set.has(c.channelId)) ui.collapsed.set.delete(c.channelId); else ui.collapsed.set.add(c.channelId); ui.collapsed.save(); renderTreeNow(); },
+  onJoin: c => client.joinChannel(c.channelId),
+  onChannel: (row, c) => channelMenu(row, c, { client, isCurrent: x => x.channelId === client.myChannel?.channelId, setScope: s => { setScope(s); showTab('chat'); }, newChannel }),
+  onUser: (row, u) => openProfile(row, u),
+  onWatch: u => { share.watch(u.session); showTab('screen'); },
 });
+function renderTreeNow() { renderTree($('tree'), treeCtx()); }
+function renderMembersNow() { renderMembers($('memberList'), $('memberCount'), { ...treeCtx(), onUser: (row, u) => openProfile(row, u) }); }
+$('search').addEventListener('input', () => { ui.filter = $('search').value.trim().toLowerCase(); renderTreeNow(); });
+$('search').addEventListener('keydown', e => { if (e.key === 'Escape') { $('search').value = ''; ui.filter = ''; renderTreeNow(); } });
 
-// ---- popovers ----
-
-function openPopover(anchor, build) {
-  closePopover();
-  const pop = $('popover');
-  pop.replaceChildren();
-  build(pop);
-  pop.hidden = false;
-  const r = anchor.getBoundingClientRect(), pw = pop.offsetWidth, ph = pop.offsetHeight;
-  let left = Math.min(r.left, window.innerWidth - pw - 10), top = r.bottom + 6;
-  if (top + ph > window.innerHeight - 10) top = Math.max(10, r.top - ph - 6);
-  pop.style.left = `${Math.max(10, left)}px`; pop.style.top = `${top}px`;
-  ui.popover = { anchor };
-}
-function closePopover() { $('popover').hidden = true; ui.popover = null; ui.statsFor = null; }
-document.addEventListener('pointerdown', e => { const pop = $('popover'); if (!pop.hidden && !pop.contains(e.target) && !ui.popover?.anchor.contains(e.target)) closePopover(); });
-const action = (icon, label, fn, on = false) => { const b = el('button', { type: 'button', className: `action${on ? ' on' : ''}`, innerHTML: `${ICON[icon]}<span>${label}</span>` }); b.onclick = fn; return b; };
-
-function channelPopover(anchor, c) {
-  openPopover(anchor, pop => {
-    pop.append(el('h3', {}, el('span', { className: 'hash', textContent: '# ' }), c.name ?? ''));
-    if (c.description) { const d = el('div', { className: 'desc' }); d.append(sanitize(c.description)); pop.append(d); }
-    const meta = [];
-    if (c.temporary) meta.push('temporary');
-    if (c.maxUsers) meta.push(`up to ${c.maxUsers}`);
-    if (meta.length) pop.append(el('p', { className: 'hint', textContent: meta.join(' · ') }));
-    const actions = el('div', { className: 'actions' });
-    if (c.channelId !== client.myChannel?.channelId) actions.append(action('join', 'Join', () => { client.joinChannel(c.channelId); closePopover(); }));
-    actions.append(action('message', 'Message here', () => { setScope({ channelId: c.channelId }); closePopover(); showTab('chat'); }));
-    actions.append(action('message', 'Message here and below', () => { setScope({ treeId: c.channelId }); closePopover(); showTab('chat'); }));
-    actions.append(action('plus', 'New channel inside', () => { closePopover(); newChannel(c.channelId); }));
-    pop.append(actions);
+function openProfile(anchor, u) {
+  profileCard(anchor, u, {
+    client, audio, share, presence: x => presence(x, treeCtx()),
+    statsFor: (session, node) => { ui.statsFor = { session, el: node }; client.requestStats(session); },
+    onMessage: x => { setScope({ sessions: [x.session] }); showTab('chat'); $('chatInput').focus(); },
+    onWatch: x => { share.watch(x.session); showTab('screen'); },
+    rerender: scheduleRender,
   });
 }
-
-function userPopover(anchor, u) {
-  const me = u.session === client.me;
-  openPopover(anchor, pop => {
-    pop.append(el('div', { className: 'user-head' }, avatar(u.name, 'l'), el('div', {}, el('h3', { textContent: u.name }), el('p', { className: 'hint', textContent: `${me ? 'You · ' : ''}#${client.channels.get(u.channelId)?.name ?? ''}` }))));
-    if (u.comment) { const d = el('div', { className: 'desc' }); d.append(sanitize(u.comment)); pop.append(d); }
-    if (!me) {
-      const actions = el('div', { className: 'actions' });
-      actions.append(action('message', 'Message', () => { setScope({ sessions: [u.session] }); closePopover(); showTab('chat'); $('chatInput').focus(); }));
-      actions.append(action(u.localMute ? 'volume' : 'volumeOff', u.localMute ? 'Unmute for me' : 'Mute for me', () => { audio.setUserLocalMute(u.session, !u.localMute); closePopover(); scheduleRender(); }));
-      if (share.available.has(u.session)) actions.append(action('screen', 'Watch their screen', () => { share.watch(u.session); closePopover(); showTab('screen'); }));
-      pop.append(actions);
-      const vol = el('input', { type: 'range', min: 0, max: 200, value: Math.round((u.localVolume ?? 1) * 100) });
-      const volLabel = el('span', { className: 'hint', textContent: `${vol.value}%` });
-      vol.oninput = () => { audio.setUserVolume(u.session, vol.value / 100); volLabel.textContent = `${vol.value}%`; };
-      pop.append(el('div', { className: 'row between' }, el('span', { className: 'hint', textContent: 'Volume' }), volLabel), vol);
-    }
-    const stats = el('p', { className: 'hint stats', textContent: '…' });
-    pop.append(stats);
-    ui.statsFor = { session: u.session, el: stats };
-    client.requestStats(u.session);
-  });
-}
-
 client.addEventListener('user-stats', e => {
   const m = e.detail;
   if (ui.statsFor?.session !== m.session) return;
   const parts = [];
-  if (m.onlineSecs !== undefined) parts.push(`online ${fmtDuration(m.onlineSecs)}`);
+  if (m.onlineSecs !== undefined) parts.push(`Online ${fmtDuration(m.onlineSecs)}`);
   if (m.idleSecs) parts.push(`idle ${fmtDuration(m.idleSecs)}`);
   if (m.bandwidth) parts.push(`${Math.round(m.bandwidth / 1000)} kbit/s`);
   if (m.tcpPackets !== undefined && !m.udpPackets) parts.push('TCP only');
@@ -301,62 +231,68 @@ client.addEventListener('user-stats', e => {
 });
 const fmtDuration = s => s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s / 60)}m` : `${(s / 3600).toFixed(1)}h`;
 
+client.addEventListener('talking', e => { const u = client.users.get(e.detail.session); if (u) refreshUser(u, treeCtx()); renderTalkers(); });
+
 function newChannel(parent = client.myChannel?.channelId ?? 0) {
   const name = prompt('Channel name');
   if (name?.trim()) client.createChannel(parent, name.trim(), true);
 }
 $('newChannelBtn').onclick = () => newChannel();
+$('serverHead').onclick = () => { if (ui.inSession) serverMenu($('serverHead'), { showTab, newChannel, leave, toast, address: () => label(ui.target) }); };
+
+function renderChanHead() {
+  const tab = document.body.dataset.tab;
+  const c = client.myChannel;
+  if (tab === 'server') { $('chatTitle').textContent = 'Server'; $('chanDesc').textContent = ui.target ? label(ui.target) : ''; }
+  else if (tab === 'screen') { $('chatTitle').textContent = 'Screen'; $('chanDesc').textContent = share.watching ? `${client.users.get(share.watching.sender)?.name ?? ''}’s screen` : share.sharing ? 'You are sharing' : ''; }
+  else { $('chatTitle').textContent = c?.name ?? 'Chat'; $('chanDesc').textContent = c?.description ? plainText(c.description) : ''; }
+  document.querySelector('.chan-head .hash').style.visibility = tab === 'chat' || tab === 'channels' ? 'visible' : 'hidden';
+}
 
 // ---- chat ----
 
 function sendScope() { return ui.scope ?? { channelId: client.myChannel?.channelId ?? 0 }; }
-function setScope(scope) { ui.scope = scope; renderChatTitle(); }
-
-function renderChatTitle() {
+function setScope(scope) { ui.scope = scope; renderScope(); }
+function renderScope() {
   const scope = sendScope(), pill = $('scopePill');
   let title = client.channels.get(scope.channelId)?.name ?? 'Chat', kind = '';
-  if (scope.sessions) { const u = client.users.get(scope.sessions[0]); if (!u) { ui.scope = null; return renderChatTitle(); } title = u.name; kind = 'dm'; }
+  if (scope.sessions) { const u = client.users.get(scope.sessions[0]); if (!u) { ui.scope = null; return renderScope(); } title = u.name; kind = 'dm'; }
   else if (scope.treeId !== undefined) { title = `${client.channels.get(scope.treeId)?.name ?? 'Chat'} +`; kind = 'tree'; }
-  $('chatTitle').textContent = title;
+  $('scopeName').textContent = title;
   pill.className = `scope ${kind}`;
-  $('chatInput').placeholder = kind === 'dm' ? `Message ${title}` : 'Message';
+  $('chatInput').placeholder = kind === 'dm' ? `Message ${title}` : `Message #${title}`;
 }
 $('scopePill').onclick = () => openPopover($('scopePill'), pop => {
   const cur = client.myChannel, scope = sendScope();
-  pop.append(el('h3', { textContent: 'Send to' }));
+  pop.append(el('h3', { className: 'mtitle', textContent: 'Send to' }));
   const actions = el('div', { className: 'actions' });
-  actions.append(action('message', `#${cur?.name ?? 'channel'}`, () => { setScope(null); closePopover(); }, !ui.scope || (scope.channelId === cur?.channelId && scope.treeId === undefined && !scope.sessions)));
-  actions.append(action('channels', `#${cur?.name ?? 'channel'} and below`, () => { setScope({ treeId: cur?.channelId ?? 0 }); closePopover(); }, scope.treeId === cur?.channelId));
-  if (scope.sessions) actions.append(action('close', `Stop messaging ${client.users.get(scope.sessions[0])?.name ?? ''}`, () => { setScope(null); closePopover(); }));
-  pop.append(actions, el('p', { className: 'hint', textContent: 'To message one person, tap them in Channels.' }));
+  actions.append(menuItem('message', `#${cur?.name ?? 'channel'}`, () => { setScope(null); closePopover(); }, { on: !ui.scope }));
+  actions.append(menuItem('channels', `#${cur?.name ?? 'channel'} and below`, () => { setScope({ treeId: cur?.channelId ?? 0 }); closePopover(); }, { on: scope.treeId === cur?.channelId }));
+  if (scope.sessions) actions.append(menuItem('close', `Stop messaging ${client.users.get(scope.sessions[0])?.name ?? ''}`, () => { setScope(null); closePopover(); }));
+  pop.append(actions, el('p', { className: 'hint', textContent: 'To message one person, click their name.' }));
 });
 
-function appendMessage(m) {
-  const box = $('messages');
-  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
-  const prev = client.messages[client.messages.indexOf(m) - 1];
-  box.append(renderMessage(m, { myChannelId: client.myChannel?.channelId ?? 0, channels: client.channels, onImage: openViewer, prev }));
-  while (box.children.length > 500) box.firstChild.remove();
-  if (atBottom || m.own) box.scrollTop = box.scrollHeight;
-  if (!m.own && !m.scope?.system && !chatVisible()) { ui.unread++; $('unread').hidden = false; $('unread').textContent = ui.unread > 99 ? '99+' : String(ui.unread); }
-}
-client.addEventListener('text', e => { if (ui.inSession) appendMessage(e.detail); });
-client.addEventListener('text-failed', e => {
-  const bubble = $('messages').querySelector(`[data-id="${e.detail.id}"]`);
-  if (!bubble || bubble.classList.contains('failed')) return;
-  bubble.classList.add('failed');
-  bubble.querySelector('.col')?.append(el('div', { className: 'failed-note', textContent: `Not delivered · ${e.detail.failed}` }));
+client.addEventListener('text', e => {
+  if (!ui.inSession) return;
+  const m = e.detail;
+  if (!m.own && !m.scope?.system && !chatVisible()) { messages.markUnreadFromHere(); ui.unread++; $('unread').hidden = false; $('unread').textContent = ui.unread > 99 ? '99+' : String(ui.unread); }
+  messages.append(m);
 });
+client.addEventListener('text-failed', e => messages.markFailed(e.detail));
 
+const ta = $('chatInput');
+function autoGrow() { ta.style.height = 'auto'; ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`; }
+ta.addEventListener('input', () => { autoGrow(); if (ta.value) typing.noteTyping(sendScope()); else typing.stopped(); });
+ta.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('chatForm').requestSubmit(); } });
 $('chatForm').addEventListener('submit', e => {
   e.preventDefault();
-  const text = $('chatInput').value.trim();
+  const text = ta.value.trim();
   if (!text) return;
-  if (client.sendText(escapeHtml(text).replace(/\n/g, '<br />'), sendScope())) $('chatInput').value = '';   // XHTML: murmur parses long messages strictly
+  if (client.sendText(escapeHtml(text).replace(/\n/g, '<br />'), sendScope())) { ta.value = ''; autoGrow(); typing.stopped(); }   // XHTML: murmur parses long messages strictly
 });
 $('imageBtn').onclick = () => $('imageInput').click();
 $('imageInput').onchange = () => { const f = $('imageInput').files[0]; if (f) sendImage(f); $('imageInput').value = ''; };
-$('chatInput').addEventListener('paste', e => { const f = [...e.clipboardData.items].find(i => i.type.startsWith('image/'))?.getAsFile(); if (f) { e.preventDefault(); sendImage(f); } });
+ta.addEventListener('paste', e => { const f = [...e.clipboardData.items].find(i => i.type.startsWith('image/'))?.getAsFile(); if (f) { e.preventDefault(); sendImage(f); } });
 $('messages').addEventListener('dragover', e => e.preventDefault());
 $('messages').addEventListener('drop', e => { e.preventDefault(); const f = [...e.dataTransfer.files].find(f => f.type.startsWith('image/')); if (f) sendImage(f); });
 async function sendImage(file) {
@@ -365,13 +301,22 @@ async function sendImage(file) {
 }
 $('viewer').onclick = () => { $('viewer').hidden = true; };
 
+typing.addEventListener('change', renderTyping);
+function renderTyping() {
+  const names = typing.who(sendScope());
+  const bar = $('typingBar');
+  bar.hidden = !names.length;
+  if (names.length) bar.replaceChildren(el('span', { className: 'dots' }, el('i'), el('i'), el('i')), el('span', { textContent: typingText(names) }));
+}
+
 // ---- server pane ----
 
 function renderServerPane() {
+  if (document.body.dataset.tab !== 'server') return;
   const info = client.serverInfo, v = info.version ?? {};
   const pane = $('serverPane');
   pane.replaceChildren();
-  const welcome = el('div', { className: 'card' }, el('h3', { textContent: ui.target?.host ?? '' }));
+  const welcome = el('div', { className: 'card' }, el('h3', { textContent: ui.target ? label(ui.target) : '' }));
   if (info.welcomeText) { const w = el('div', { className: 'welcome' }); w.append(sanitize(info.welcomeText)); welcome.append(w); }
   pane.append(welcome);
   const kv = el('dl', { className: 'kv' });
@@ -386,59 +331,58 @@ function renderServerPane() {
   ];
   for (const [k, val] of rows) kv.append(el('dt', { textContent: k }), el('dd', { textContent: val }));
   pane.append(el('div', { className: 'card' }, el('h3', { textContent: 'Connection' }), kv));
-  const diag = el('div', { className: 'card' }, el('h3', { textContent: 'Log' }));
-  const pre = el('pre', { className: 'diag', textContent: client.log.slice(-60).map(l => `${l.date.toLocaleTimeString([], { hour12: false })} [${l.tag}] ${l.message}`).join('\n') || 'Nothing yet.' });
+  const pre = el('pre', { className: 'diag', textContent: client.log.slice(-80).map(l => `${l.date.toLocaleTimeString([], { hour12: false })} [${l.tag}] ${l.message}`).join('\n') || 'Nothing yet.' });
   const copy = el('button', { type: 'button', className: 'ghost', textContent: 'Copy log' });
   copy.onclick = async () => { try { await navigator.clipboard.writeText(diagText()); toast('Log copied'); } catch { toast('Could not copy', 'warn'); } };
-  diag.append(pre, el('div', { className: 'row', style: 'margin-top:8px' }, copy));
-  pane.append(diag);
+  pane.append(el('div', { className: 'card' }, el('h3', { textContent: 'Log' }), pre, el('div', { className: 'row', style: 'margin-top:8px' }, copy)));
   pre.scrollTop = pre.scrollHeight;
 }
-client.addEventListener('server', scheduleRender);
 client.addEventListener('log', () => { if (document.body.dataset.tab === 'server') scheduleRender(); renderDiag(); });
 
-// ---- voice dock ----
+// ---- voice: panels, meter, keys ----
 
-function renderDock() {
+function renderPanels() {
+  const me = client.myUser;
   $('meChannel').textContent = client.myChannel?.name ?? '—';
-  renderTalkers();
-  renderVoiceState();
-}
-
-function renderTalkers() {
-  const box = $('talkers');
-  box.replaceChildren();
-  box.className = 'talkers';
-  const talking = [...client.users.values()].filter(u => u.talking || (u.session === client.me && audio.isTransmitting));
-  if (talking.length) {
-    const stack = el('span', { className: 'stack' });
-    for (const u of talking.slice(0, 5)) stack.append(avatar(u.name, 's'));
-    box.append(stack, el('span', { className: 'names', textContent: talking.map(u => u.session === client.me ? 'you' : u.name).join(', ') }));
-    box.classList.add('on');
-    return;
-  }
-  if (audio.captureError) { box.textContent = audio.captureError; box.classList.add('warn'); return; }
-  box.textContent = audio.muted ? 'Muted' : { vad: 'Voice activity', ptt: 'Push to talk · hold Space', continuous: 'Always on' }[settings.transmitMode] ?? '';
-}
-
-function renderVoiceState() {
+  const av = avatar(me?.name ?? ui.target?.username ?? '?', 'l'); av.id = 'meAvatar'; av.classList.add('presence', me ? presence(me, treeCtx())[1] : 'invisible'); av.append(el('span', { className: 'sdot' }));
+  if (audio.isTransmitting && !audio.muted) av.classList.add('speaking');
+  $('meAvatar').replaceWith(av);
+  $('meName').textContent = me?.name ?? ui.target?.username ?? '—';
+  const sub = $('meStatus');
+  sub.className = 'sub';
+  if (audio.captureError) { sub.textContent = audio.captureError; sub.classList.add('warn'); }
+  else if (audio.deafened) sub.textContent = 'Deafened';
+  else if (audio.muted) sub.textContent = 'Muted';
+  else { sub.textContent = { vad: 'Voice activity', ptt: `Push to talk · ${keyLabel(settings.pttKey)}`, continuous: 'Always on' }[settings.transmitMode] ?? ''; }
   $('muteBtn').innerHTML = ICON[audio.muted ? 'micOff' : 'mic'];
   $('muteBtn').classList.toggle('active', audio.muted);
-  $('muteBtn').classList.toggle('live', audio.isTransmitting && !audio.muted);
-  $('muteBtn').title = audio.muted ? 'Unmute' : 'Mute';
+  $('muteBtn').dataset.tip = audio.muted ? 'Unmute' : 'Mute';
   $('deafBtn').innerHTML = ICON[audio.deafened ? 'headphonesOff' : 'headphones'];
   $('deafBtn').classList.toggle('active', audio.deafened);
-  $('deafBtn').title = audio.deafened ? 'Undeafen' : 'Deafen';
+  $('deafBtn').dataset.tip = audio.deafened ? 'Undeafen' : 'Deafen';
   $('pttBtn').hidden = settings.transmitMode !== 'ptt';
+  $('pttBtn').textContent = `Hold to talk · ${keyLabel(settings.pttKey)}`;
   $('meter').hidden = settings.transmitMode === 'ptt';
   $('meter').classList.toggle('muted', audio.muted);
   $('pttBtn').classList.toggle('active', audio.pttPressed);
   $('micStatus').textContent = audio.captureError ? `${audio.captureError}. Check the site permissions in the address bar.` : '';
-  const me = document.querySelector(`.user[data-session="${client.me}"]`);
-  if (me) { me.classList.toggle('talking', audio.isTransmitting); const u = client.myUser; if (u) { const [t, c] = userStatus(u, true); const s = me.querySelector('.status'); s.textContent = t; s.className = `status ${c}`; } }
+  $('shareBtn').classList.toggle('active', !!share.sharing);
+  $('shareBtn').innerHTML = `${ICON[share.sharing ? 'screenOff' : 'screen']}<span>${share.sharing ? 'Stop sharing' : 'Share screen'}</span>`;
+  const live = !!(share.watching || share.available.size || share.sharing);
+  $('screenBtn').hidden = !live; $('screenBtn').classList.toggle('live', !!(share.available.size && !share.watching));
+  renderTalkers();
 }
-audio.addEventListener('state', () => { renderVoiceState(); renderTalkers(); });
-audio.addEventListener('transmit', () => { renderVoiceState(); renderTalkers(); });
+function renderTalkers() {
+  const box = $('talkers');
+  box.replaceChildren();
+  const talking = [...client.users.values()].filter(u => u.talking || (u.session === client.me && audio.isTransmitting && !audio.muted));
+  if (!talking.length) return;
+  const stack = el('span', { className: 'stack' });
+  for (const u of talking.slice(0, 4)) stack.append(avatar(u.name, 'xs'));
+  box.append(stack, el('span', { textContent: talking.map(u => u.session === client.me ? 'you' : u.name).join(', ') }));
+}
+audio.addEventListener('state', () => { renderPanels(); if (client.myUser) refreshUser(client.myUser, treeCtx()); });
+audio.addEventListener('transmit', () => { renderPanels(); if (client.myUser) refreshUser(client.myUser, treeCtx()); });
 audio.addEventListener('level', () => {
   const pct = db => Math.max(0, Math.min(100, (db + 70) / 60 * 100));
   const level = pct(audio.inputLevelDb), mark = pct(audio.thresholdDb);
@@ -452,19 +396,33 @@ audio.addEventListener('level', () => {
     $('floorHint').textContent = settings.autoSensitivity ? `Room noise is about ${Math.round(audio.noiseFloorDb)} dB; the gate opens 12 dB above it and follows the room.` : 'Fixed threshold. Turn on automatic sensitivity to follow the room.';
   }
 });
-
 $('muteBtn').onclick = () => audio.setMuted(!audio.muted);
 $('deafBtn').onclick = () => audio.setDeafened(!audio.deafened);
 $('pttBtn').addEventListener('pointerdown', e => { e.preventDefault(); audio.setPTT(true); });
 for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) $('pttBtn').addEventListener(ev, () => audio.setPTT(false));
 
+// Push to talk: any key by its `code`, or Mouse3/Mouse4/Mouse5. Letters and digits are ignored
+// while typing in a field; modifiers and function keys work anywhere. The browser only sees
+// keys while the window is focused.
 const isTyping = e => /^(input|textarea|select)$/i.test(e.target.tagName) || e.target.isContentEditable;
+const plainKey = code => /^(Key|Digit|Numpad|Space|Backquote|Minus|Equal|Bracket|Semicolon|Quote|Comma|Period|Slash|Backslash|Enter|Backspace)/.test(code);
+export function keyLabel(code) {
+  if (!code) return '—';
+  if (/^Mouse\d$/.test(code)) return `Mouse ${code.slice(5)}`;
+  return code.replace(/^Key|^Digit/, '').replace(/^Control(Left|Right)$/, '$1 Ctrl').replace(/^Shift(Left|Right)$/, '$1 Shift').replace(/^Alt(Left|Right)$/, '$1 Alt').replace(/^Meta(Left|Right)$/, '$1 Meta').replace(/^Backquote$/, '`').replace(/([a-z])([A-Z])/g, '$1 $2');
+}
 window.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closePopover(); $('viewer').hidden = true; if (!$('settings').hidden) toggleSettings(false); return; }
-  if (e.code === 'Space' && !isTyping(e) && ui.inSession) { e.preventDefault(); if (!e.repeat) audio.setPTT(true); }
+  if (ui.recordingKey) { e.preventDefault(); if (e.key !== 'Escape') setPttKey(e.code); else endRecording(); return; }
+  if (e.key === 'Escape') { $('viewer').hidden = true; if (!$('settings').hidden) toggleSettings(false); return; }
+  if (e.code === settings.pttKey && ui.inSession && !(isTyping(e) && plainKey(e.code))) { e.preventDefault(); if (!e.repeat) audio.setPTT(true); }
 });
-window.addEventListener('keyup', e => { if (e.code === 'Space' && audio.pttPressed) { e.preventDefault(); audio.setPTT(false); } });
+window.addEventListener('keyup', e => { if (e.code === settings.pttKey && audio.pttPressed) { e.preventDefault(); audio.setPTT(false); } });
+window.addEventListener('mousedown', e => { const code = `Mouse${e.button}`; if (ui.recordingKey && e.button >= 3) { e.preventDefault(); setPttKey(code); return; } if (code === settings.pttKey && ui.inSession) { e.preventDefault(); audio.setPTT(true); } });
+window.addEventListener('mouseup', e => { if (`Mouse${e.button}` === settings.pttKey && audio.pttPressed) audio.setPTT(false); });
+window.addEventListener('contextmenu', e => { if (settings.pttKey === 'Mouse2') e.preventDefault(); });
 window.addEventListener('blur', () => audio.setPTT(false));
+function setPttKey(code) { settings.pttKey = code; saveSettings(); endRecording(); renderPanels(); renderSettings(); }
+function endRecording() { ui.recordingKey = false; $('pttKeyBtn')?.classList.remove('recording'); renderSettings(); }
 
 // ---- screen share ----
 
@@ -474,39 +432,41 @@ $('shareBtn').onclick = async () => {
   try { await share.start(); showTab('screen'); }
   catch (e) { if (e.name !== 'NotAllowedError') toast(`Can't share: ${e.message}`, 'warn'); }
 };
-share.addEventListener('state', () => {
-  $('shareBtn').classList.toggle('active', !!share.sharing);
-  $('shareBtn').innerHTML = ICON[share.sharing ? 'screenOff' : 'screen'];
-  $('shareBtn').title = share.sharing ? 'Stop sharing' : 'Share screen';
-  scheduleRender();
-});
-share.addEventListener('available', scheduleRender);
-mountStage({ share, client, stage: $('stage'), tab: $('tabScreen'), showTab, toast });
+mountStage({ share, client, stage: $('stage'), tabs: [$('tabScreen'), $('screenBtn')], showTab, toast });
 
 // ---- settings ----
 
-function toggleSettings(open = $('settings').hidden) { $('settings').hidden = !open; if (open) renderSettings(); }
+function toggleSettings(open = $('settings').hidden) { $('settings').hidden = !open; if (open) renderSettings(); else endRecording(); }
 $('settingsBtn').onclick = () => toggleSettings();
+$('railSettings').onclick = () => toggleSettings();
 $('settingsClose').onclick = () => toggleSettings(false);
 
 function segmented(id, value, onChange) {
   for (const b of $(id).querySelectorAll('button')) {
     b.classList.toggle('on', b.dataset.value === String(value));
-    b.onclick = () => { onChange(b.dataset.value); saveSettings(); renderSettings(); renderDock(); };
+    b.onclick = () => { onChange(b.dataset.value); saveSettings(); renderSettings(); renderPanels(); };
   }
 }
 
 async function renderSettings() {
   segmented('transmitMode', settings.transmitMode, v => { settings.transmitMode = v; });
-  $('transmitHint').textContent = { vad: 'Opens the mic when it hears you. Space talks too.', ptt: 'Hold Space or the button.', continuous: 'Always sending while unmuted.' }[settings.transmitMode];
+  $('transmitHint').textContent = { vad: `Opens the mic when it hears you. ${keyLabel(settings.pttKey)} talks too.`, ptt: `Hold ${keyLabel(settings.pttKey)} or the button.`, continuous: 'Always sending while unmuted.' }[settings.transmitMode];
+  let keyRow = $('pttKeyRow');
+  if (!keyRow) {
+    keyRow = el('div', { id: 'pttKeyRow', className: 'row between', style: 'margin-top:8px' }, el('span', { className: 'hint', textContent: 'Push-to-talk key' }), el('button', { id: 'pttKeyBtn', type: 'button', className: 'keycap' }));
+    $('transmitHint').after(keyRow);
+    $('pttKeyBtn').onclick = () => { ui.recordingKey = !ui.recordingKey; $('pttKeyBtn').classList.toggle('recording', ui.recordingKey); $('pttKeyBtn').textContent = ui.recordingKey ? 'Press a key…' : keyLabel(settings.pttKey); };
+  }
+  if (!ui.recordingKey) $('pttKeyBtn').textContent = keyLabel(settings.pttKey);
   segmented('bitrate', settings.bitrate, v => audio.setBitrate(Number(v)));
   segmented('noiseSuppression', settings.noiseSuppression, v => audio.setNoiseSuppression(v));
+  segmented('textSize', settings.textSize, v => { settings.textSize = Number(v); document.documentElement.style.setProperty('--text-size', `${v}px`); });
   $('autoSens').checked = settings.autoSensitivity;
   $('threshold').value = settings.autoSensitivity ? Math.round(audio.thresholdDb) : settings.vadThresholdDb;
   $('threshold').disabled = settings.autoSensitivity;
   $('thresholdLabel').textContent = `${Math.round(audio.thresholdDb)} dB${settings.autoSensitivity ? ' auto' : ''}`;
   $('themes').replaceChildren(...Object.entries(THEMES).map(([name, t]) => {
-    const b = el('button', { type: 'button', className: `swatch${settings.theme === name ? ' on' : ''}`, title: t.title });
+    const b = el('button', { type: 'button', className: `swatch${settings.theme === name ? ' on' : ''}` }); b.dataset.tip = t.title;
     b.style.setProperty('--sw-bg', t.bg); b.style.setProperty('--sw-accent', t.accent);
     b.onclick = () => { settings.theme = name; saveSettings(); applyTheme(name); renderSettings(); };
     return b;
@@ -517,14 +477,13 @@ async function renderSettings() {
   const sel = $('micSelect');
   sel.replaceChildren(el('option', { value: '', textContent: 'Default microphone' }), ...devices.map((d, i) => el('option', { value: d.deviceId, textContent: d.label || `Microphone ${i + 1}` })));
   sel.value = devices.some(d => d.deviceId === settings.inputDeviceId) ? settings.inputDeviceId : '';
-  renderVoiceState();
+  renderPanels();
 }
 $('autoSens').onchange = () => { settings.autoSensitivity = $('autoSens').checked; saveSettings(); renderSettings(); };
 $('threshold').oninput = () => { settings.vadThresholdDb = Number($('threshold').value); saveSettings(); $('thresholdLabel').textContent = `${settings.vadThresholdDb} dB`; };
 $('micSelect').onchange = async () => { await audio.setInputDevice($('micSelect').value); saveSettings(); };
 for (const [id, key] of [['turnUrl', 'url'], ['turnUser', 'username'], ['turnPass', 'credential']]) $(id).onchange = () => { settings.turn[key] = $(id).value.trim(); saveSettings(); };
 $('shareAudio').onchange = () => { settings.shareAudio = $('shareAudio').checked; saveSettings(); };
-
 $('diagBtn').onclick = () => { const d = $('diag'); d.hidden = !d.hidden; $('diagBtn').textContent = d.hidden ? 'Show log' : 'Hide log'; renderDiag(); };
 $('diagCopy').onclick = async () => { try { await navigator.clipboard.writeText(diagText()); toast('Log copied'); } catch { toast('Could not copy', 'warn'); } };
 const diagText = () => client.log.map(l => `${l.date.toISOString()} [${l.tag}] ${l.message}`).join('\n');
@@ -543,4 +502,8 @@ function toast(text, kind = 'info') {
 
 // ---- boot ----
 
+applyLayout();
+showTab('chat');
+showConnect(true);
+renderPanels();
 if (location.hash === '#auto' && servers[0]) connect(servers[0]);

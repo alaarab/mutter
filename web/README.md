@@ -28,36 +28,44 @@ Node 18+ is the only requirement. There are **no dependencies** — the WebSocke
 hand-rolled precisely so a locked-down machine needs no `npm install`.
 
 ```sh
-node web/bridge/server.mjs      # then open http://localhost:8788 in Chrome or Edge
+node web/bridge/server.mjs
 ```
+
+That starts the bridge **and opens Mutter as its own window** — Chrome/Edge app mode: no tabs,
+no address bar, its own taskbar entry, remembers its size. From WSL it launches the Windows
+browser (Edge by default; `BROWSER=chrome` to pick). `--no-open` just serves. You can also
+install it from Chrome's address bar ("Install Mutter") for a permanent icon.
 
 Set `PORT` to use a different port. Open it as `localhost`, not a LAN address: the microphone
 and the Opus codec are only available to secure origins, and `localhost` counts as one.
 
 Voice needs Chrome or Edge (WebCodecs + AudioWorklet). Other browsers get chat only.
 
-**Make it a window.** In Chrome, address bar → "Install Mutter" (or menu → Cast, save and share
-→ Install page as app). It opens as its own small window with no browser chrome, remembers its
-size, and gets a taskbar icon — no installer, no admin. Size it like a phone.
-
 ## What works
 
-The layout is the iPhone app's session: header with the server name and ping, one pane at a
-time — Channels, Chat, Server, Screen — behind a tab strip, and the voice dock. When the window
-is wide the channel tree stays put and the tabs pick the right-hand pane.
+The shell is the Revolt/Discord shape (`docs/revolt-notes.md` has the measurements it follows):
+a server rail on the left with your saved servers, the channel sidebar with the voice panel
+and your user panel at the bottom, the chat with a channel header, and a member list on the
+right. Under 880px it becomes the phone layout — one pane at a time behind a tab strip.
 
 - Connect, saved servers, reconnect with backoff after a drop (fresh roster, no ghost "old me").
 - Channel tree with people nested under their channel, search, collapse (remembered per
-  server), counts, join arrow, speaking rings with a status line, mute / deafen / priority marks.
+  server), counts, a join arrow on hover, status-dot avatars (speaking ring, muted, deafened,
+  sharing). Members grouped by channel on the right. Click anyone for a profile card: banner,
+  badges, connection stats, message / mute-for-me / volume / watch / join them.
 - Voice both ways over the TCP tunnel: 20 ms Opus at 16–96 kbit/s, per-user jitter buffer.
   Cleaning: the browser's echo cancellation and gain control, plus the iOS app's spectral noise
-  suppressor ported to an AudioWorklet (Off / Light / Strong; −10 / −22 dB on hiss, fans, hum).
-  Voice activity with automatic sensitivity that follows the room's noise floor, push to talk
-  (hold **Space** or the button), always on. Mute, deafen, local per-user mute and volume.
-- Chat to the channel, a channel and its subtree, or one person. Inbound HTML goes through a
-  whitelist. Images: paste, drop or pick; they're shrunk to the server's limit and sent as the
-  well-formed XHTML murmur insists on for long messages. A refused message is marked
-  "Not delivered" with the server's reason.
+  suppressor ported to an AudioWorklet (Off / Light / Strong; −10 / −22 dB on hiss, fans, hum)
+  with a keyboard-click ducker on Strong. Voice activity with automatic sensitivity that
+  follows the room's noise floor; push to talk on any key or mouse button you pick in Settings
+  (Space by default; the browser only hears keys while the window is focused); always on. Mute,
+  deafen, local per-user mute and volume.
+- Chat the Discord way: grouped by author within seven minutes, day dividers, a "New messages"
+  line, hover toolbar (quote, copy, message them, mute for me), Enter sends and Shift+Enter
+  breaks. Send to the channel, a channel and its subtree, or one person. Typing indicators
+  ride our plugin channel (`docs/extensions.md`). Inbound HTML goes through a whitelist.
+  Images: paste, drop or pick; they're shrunk to the server's limit and sent as the well-formed
+  XHTML murmur insists on for long messages. A refused message is marked "Not delivered".
 - Five palettes from the iOS app, the same typefaces, settings and diagnostics log in the sheet.
 - **Screen share**, which stock Mumble clients don't have: the share button in the dock opens
   the browser's picker (screen, window or tab, with audio where the browser offers it). People
@@ -79,7 +87,8 @@ is wide the channel tree stays put and the tabs pick the right-hand pane.
 | `app/client.js` | The session: handshake, roster, chat, reconnect, talking detection |
 | `app/audio.js`, `app/worklets.js`, `app/dsp.js` | Capture → noise suppressor → gate → Opus → tunnel; tunnel → Opus → mixer |
 | `app/share.js`, `app/stage.js` | WebRTC screen share (one connection per viewer) and its UI |
-| `app/app.js`, `chat.js`, `store.js`, `themes.js`, `icons.js` | The UI |
+| `app/typing.js` | Typing indicator over the plugin channel |
+| `app/app.js`, `tree.js`, `messages.js`, `members.js`, `popovers.js`, `chat.js`, `store.js`, `themes.js`, `icons.js`, `ui.js` | The UI |
 | `probe.mjs` | CLI handshake test — connects and dumps the roster, no browser involved |
 | `test/` | Fake Mumble server, headless-Chromium driver, end-to-end and codec tests |
 
@@ -97,7 +106,8 @@ node web/test/e2e.test.mjs                          # two tabs, voice both ways,
 FAKE_VERSION=1.4.287 node web/test/e2e.test.mjs     # same, legacy voice format
 node web/test/share.test.mjs                        # screen share between two tabs, WebRTC + signaling
 node web/test/signal.test.mjs                       # the plugin-message fragment codec, in Node
-node web/test/dsp.test.mjs                          # the noise suppressor: FFT, SNR gain, block-size independence
+node web/test/dsp.test.mjs                          # the noise suppressor: FFT, SNR gain, click ducking, block-size independence
+node web/test/typing.test.mjs                       # typing indicator between three tabs
 node web/test/fake-server.mjs                       # keep one running to click around against
 node web/probe.mjs <host> [port] [username]         # handshake against any server, read-only
 ```

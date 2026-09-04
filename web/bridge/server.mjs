@@ -9,9 +9,11 @@ import tls from 'node:tls';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const PORT = Number(process.env.PORT ?? 8788);
+const OPEN = !process.argv.includes('--no-open') && !process.env.NO_OPEN;
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 // The brand faces live with the iOS app; mount them so the web client looks like Mutter.
 const FONTS = path.join(ROOT, '..', 'Mutter', 'Resources', 'Fonts');
@@ -130,6 +132,28 @@ class WSConnection {
 }
 
 server.listen(PORT, () => {
-  console.log(`Mutter Web  →  http://localhost:${PORT}`);
-  console.log('(running in WSL? Windows reaches this at the same localhost address)');
+  const url = `http://localhost:${PORT}`;
+  console.log(`Mutter  →  ${url}`);
+  if (OPEN) openAppWindow(url); else console.log('(running in WSL? Windows reaches this at the same localhost address)');
 });
+
+/// Opens Mutter as its own window — Chrome/Edge "app mode": no tabs, no address bar, remembers
+/// its size, its own taskbar entry. From WSL this launches the Windows browser. `--no-open` skips it.
+function openAppWindow(url) {
+  const flags = [`--app=${url}`, '--window-size=1180,760'];
+  const wsl = process.platform === 'linux' && /microsoft/i.test(safeRead('/proc/version'));
+  const browser = process.env.BROWSER;
+  let cmd, args, how;
+  if (wsl || process.platform === 'win32') { cmd = 'cmd.exe'; args = ['/c', 'start', browser || 'msedge', ...flags]; how = browser || 'Edge'; }
+  else if (process.platform === 'darwin') { cmd = 'open'; args = ['-na', browser || 'Google Chrome', '--args', ...flags]; how = browser || 'Chrome'; }
+  else { cmd = browser || ['google-chrome', 'chromium', 'chromium-browser', 'microsoft-edge', 'brave'].find(has); args = flags; how = cmd; }
+  if (!cmd) { console.log(`Open ${url} in Chrome or Edge (install it from the address bar for an app window).`); return; }
+  try {
+    const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
+    child.on('error', () => console.log(`Couldn't launch ${how}; open ${url} in Chrome or Edge.`));
+    child.unref();
+    console.log(`Opened an app window with ${how}. (--no-open to skip, BROWSER=chrome to pick.)`);
+  } catch { console.log(`Couldn't launch ${how}; open ${url} in Chrome or Edge.`); }
+}
+const safeRead = f => { try { return fs.readFileSync(f, 'utf8'); } catch { return ''; } };
+const has = bin => { try { execFileSync('which', [bin], { stdio: 'ignore' }); return true; } catch { return false; } };

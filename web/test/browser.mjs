@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 export async function startBridge({ verbose = !!process.env.VERBOSE } = {}) {
   const port = 8800 + Math.floor(Math.random() * 400);
   const script = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bridge', 'server.mjs');
-  const proc = spawn(process.execPath, [script], { env: { ...process.env, PORT: String(port) }, stdio: ['ignore', verbose ? 'inherit' : 'ignore', 'inherit'] });
+  const proc = spawn(process.execPath, [script], { env: { ...process.env, PORT: String(port), NO_OPEN: '1' }, stdio: ['ignore', verbose ? 'inherit' : 'ignore', 'inherit'] });
   for (let i = 0; i < 50; i++) {
     try { await fetch(`http://localhost:${port}/`); return { port, url: `http://localhost:${port}`, proc, close: () => proc.kill() }; } catch { await sleep(100); }
   }

@@ -72,7 +72,36 @@ const run = (s, x, block) => { const parts = []; for (let i = 0; i < x.length; i
   console.log(` ok  light: hiss −${lightDrop.toFixed(1)} dB`);
 }
 
-// 4. odd block sizes (128-sample render quanta) produce the same output as 960-sample blocks
+// 4. keyboard clicks (5 ms broadband bursts) between and during words are ducked; the voice isn't
+{
+  const rate = 48000, total = 6 * rate;
+  let seed = 777;
+  const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296 - 0.5; };
+  const x = new Float32Array(total), clickMask = new Uint8Array(total), voiceMask = new Uint8Array(total);
+  for (let i = 0; i < total; i++) {
+    const t = i / rate;
+    x[i] = rnd() * 0.004;                                                       // faint room noise
+    const talking = (t % 2) > 1;                                                // 1 s on, 1 s off
+    if (talking) { x[i] += 0.1 * (Math.sin(2 * Math.PI * 180 * t) + 0.5 * Math.sin(2 * Math.PI * 360 * t) + 0.3 * Math.sin(2 * Math.PI * 900 * t)); voiceMask[i] = 1; }
+    const phase = t % 0.3;                                                      // a key every 300 ms
+    if (phase < 0.005) { x[i] += rnd() * 0.5 * (1 - phase / 0.005); clickMask[i] = 1; }
+  }
+  const s = new NoiseSuppressor('strong');
+  const out = run(s, x, 960);
+  const quietIn = [], quietOut = [], overIn = [], overOut = [], voiceIn = [], voiceOut = [];
+  for (let i = total / 3; i < out.length; i++) {
+    if (clickMask[i]) { if (voiceMask[i]) { overIn.push(x[i]); overOut.push(out[i]); } else { quietIn.push(x[i]); quietOut.push(out[i]); } }
+    else if (voiceMask[i] && !clickMask[Math.max(0, i - 1200)]) { voiceIn.push(x[i]); voiceOut.push(out[i]); }
+  }
+  const drop = (a, b) => dbfs(Float32Array.from(a)) - dbfs(Float32Array.from(b));
+  const quietDrop = drop(quietIn, quietOut), overDrop = drop(overIn, overOut), voiceDrop = drop(voiceIn, voiceOut);
+  assert.ok(s.clicks > 10, `detector fired only ${s.clicks} times`);
+  assert.ok(quietDrop > 8, `clicks between words should drop by >8 dB, got ${quietDrop.toFixed(1)}`);
+  assert.ok(Math.abs(voiceDrop) < 3, `voice should be untouched (same ≤3 dB as without clicks), changed by ${voiceDrop.toFixed(1)} dB`);
+  console.log(` ok  keyboard clicks: between words −${quietDrop.toFixed(1)} dB, over speech −${overDrop.toFixed(1)} dB (voice itself ${voiceDrop >= 0 ? '−' : '+'}${Math.abs(voiceDrop).toFixed(1)} dB, ${s.clicks} click frames)`);
+}
+
+// 5. odd block sizes (128-sample render quanta) produce the same output as 960-sample blocks
 {
   const x = Float32Array.from({ length: 48000 }, (_, i) => Math.sin(i / 11) * 0.1 + ((i * 7919) % 13 - 6) / 600);
   const ya = run(new NoiseSuppressor('strong'), x, 128), yb = run(new NoiseSuppressor('strong'), x, 960);
