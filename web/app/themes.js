@@ -4,19 +4,19 @@
 // `glow` is the wash behind the shell, and `light` flips the few places that assume a dark ground.
 
 export const THEMES = {
-  graphite: {
-    title: 'Graphite',
-    accent: '#7C7CFF', accentActive: '#5F5FE0', onAccent: '#FFFFFF',
-    bg: '#0B0B0D', surface: '#131316', elevated: '#1B1B20', sunken: '#08080A', separator: '#26262C',
-    ink: '#F4F4F6', body: '#B5B5BE', muted: '#7B7B85',
-    glow: '14%',
-  },
   carbon: {
     title: 'Carbon',
     accent: '#EDEDF0', accentActive: '#CFCFD4', onAccent: '#0A0A0B',
     bg: '#08080A', surface: '#111113', elevated: '#1A1A1D', sunken: '#050506', separator: '#242427',
     ink: '#FAFAFA', body: '#B9B9BC', muted: '#7C7C80',
     glow: '0%',
+  },
+  graphite: {
+    title: 'Graphite',
+    accent: '#7C7CFF', accentActive: '#5F5FE0', onAccent: '#FFFFFF',
+    bg: '#0B0B0D', surface: '#131316', elevated: '#1B1B20', sunken: '#08080A', separator: '#26262C',
+    ink: '#F4F4F6', body: '#B5B5BE', muted: '#7B7B85',
+    glow: '14%',
   },
   slate: {
     title: 'Slate',
@@ -48,7 +48,7 @@ export const THEMES = {
   },
 };
 
-export const DEFAULT_THEME = 'graphite';
+export const DEFAULT_THEME = 'carbon';
 
 export function applyTheme(name) {
   const t = THEMES[name] ?? THEMES[DEFAULT_THEME];

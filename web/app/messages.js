@@ -5,7 +5,7 @@
 
 import { sanitize, plainText } from './chat.js';
 import { ICON } from './icons.js';
-import { el, avatar, colorFor } from './ui.js';
+import { el, avatar } from './ui.js';
 
 const GROUP_MS = 7 * 60_000;
 
@@ -48,7 +48,8 @@ export class MessageList {
     if (cont) gutter.append(el('time', { className: 'hover-time', textContent: shortTime(m.date) }));
     else {
       gutter.append(avatar(m.senderName, 'm'));
-      const meta = el('div', { className: 'meta' }, el('span', { className: 'author', textContent: m.senderName ?? '…', style: `color:${colorFor(m.senderName)}` }));
+      // The avatar carries who said it; a tinted name on top of that is one colour too many.
+      const meta = el('div', { className: 'meta' }, el('span', { className: 'author', textContent: m.senderName ?? '…' }));
       const tag = scopeTag(m.scope, client);
       if (tag) meta.append(el('span', { className: `tag${m.scope?.sessions?.length ? ' dm' : ''}`, textContent: tag }));
       meta.append(el('time', { textContent: longTime(m.date), title: m.date.toLocaleString() }));
