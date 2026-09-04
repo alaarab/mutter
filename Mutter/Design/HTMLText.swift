@@ -9,6 +9,9 @@ enum HTMLText {
         var text: AttributedString
         var images: [UIImage]
         var links: [URL]
+        /// Image tags that were present but couldn't be decoded, so the UI can say so instead
+        /// of rendering an empty bubble.
+        var unreadableImages: Int = 0
     }
 
     private static let cache = NSCache<NSString, Box>()
@@ -33,7 +36,7 @@ enum HTMLText {
 
     static func render(_ html: String) -> Rendered {
         if let cached = cache.object(forKey: html as NSString) { return cached.value }
-        let images = extractImages(from: html)
+        let (images, unreadable) = extractImages(from: html)
         let stripped = stripImages(from: html)
         var attributed: AttributedString
         if looksLikeHTML(stripped) {
@@ -43,7 +46,7 @@ enum HTMLText {
         }
         attributed = normalizeStyle(attributed)
         let links = detectLinks(in: String(attributed.characters))
-        let result = Rendered(text: attributed, images: images, links: links)
+        let result = Rendered(text: attributed, images: images, links: links, unreadableImages: unreadable)
         cache.setObject(Box(result), forKey: html as NSString)
         return result
     }
@@ -124,15 +127,21 @@ enum HTMLText {
         return out
     }
 
-    private static func extractImages(from html: String) -> [UIImage] {
-        guard let regex = try? NSRegularExpression(pattern: "<img[^>]*src=[\"']data:image/[a-zA-Z]+;base64,([^\"']+)[\"'][^>]*>", options: .caseInsensitive) else { return [] }
+    private static func extractImages(from html: String) -> (images: [UIImage], unreadable: Int) {
+        guard let regex = try? NSRegularExpression(pattern: "<img[^>]*src=[\"']data:image/[a-zA-Z]+;base64,([^\"']+)[\"'][^>]*>", options: .caseInsensitive) else { return ([], 0) }
         let ns = html as NSString
-        return regex.matches(in: html, range: NSRange(location: 0, length: ns.length)).compactMap { m in
+        let matches = regex.matches(in: html, range: NSRange(location: 0, length: ns.length))
+        let images: [UIImage] = matches.compactMap { m in
             guard m.numberOfRanges > 1 else { return nil }
-            let b64 = ns.substring(with: m.range(at: 1))
+            var b64 = ns.substring(with: m.range(at: 1))
+            // Desktop Mumble percent-encodes the base64 (+ → %2B, = → %3D) and inserts %0A every
+            // 72 characters. Decoding that directly swallows the hex digits as base64 and yields
+            // garbage, so undo the percent-encoding first; plain base64 passes through unchanged.
+            if b64.contains("%"), let decoded = b64.removingPercentEncoding { b64 = decoded }
             guard let data = Data(base64Encoded: b64, options: .ignoreUnknownCharacters) else { return nil }
             return UIImage(data: data)
         }
+        return (images, matches.count - images.count)
     }
 
     private static func stripImages(from html: String) -> String {
