@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Mutter">
-  <!-- 2 — Waveform Monogram Trace: the M as a single audio trace.
+  <!-- 1 — Pressed Talk Key: the one gesture the app is built around, as an object.
        The accent is one CSS variable; see the style block below to re-theme.
        Flat single-colour silhouette: the matching cand-N-flat.svg. -->
   <defs><linearGradient id="tint" x1="0" y1="0" x2=".78" y2="1">
@@ -20,10 +20,17 @@
       <stop offset="0" stop-color="#fff" stop-opacity=".6"/>
       <stop offset=".4" stop-color="#fff" stop-opacity="0"/>
     </linearGradient>
-    <linearGradient id="trace" x1="0" y1="0" x2=".9" y2="1">
+    <linearGradient id="skirt" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" class="ga" stop-color="#3D9BFF" stop-opacity=".5"/>
+      <stop offset="1" class="ga2" stop-color="#1C77DB" stop-opacity=".32"/>
+    </linearGradient>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" class="ga" stop-color="#3D9BFF"/>
       <stop offset="1" class="ga2" stop-color="#1C77DB"/>
-    </linearGradient></defs>
+    </linearGradient>
+    <filter id="drop" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="24" stdDeviation="26" flood-color="#02060F" flood-opacity=".6"/>
+    </filter></defs>
   <style>
     /* One variable drives the whole mark. Set the custom property --accent (and --accent-2,
        the darker "accent-active" tone) on the root element or on any ancestor to re-theme:
@@ -41,7 +48,9 @@
   <g id="mark"><rect class="bg" fill="#0B0F17" width="512" height="512" rx="114"/>
   <rect width="512" height="512" rx="114" fill="url(#tint)"/>
   <rect width="512" height="512" rx="114" fill="url(#glow)"/>
-  <g class="a" fill="#3D9BFF" opacity=".3"><rect x="104" y="252" width="304" height="8" rx="4"/></g>
-  <path d="M96 344L156 168L256 292L356 168L416 344" fill="none" stroke="url(#trace)" stroke-width="64" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M96 344L156 168L256 292L356 168L416 344" fill="none" stroke="url(#lit)" stroke-width="64" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <g filter="url(#drop)"><rect x="95" y="115" width="322" height="307" rx="90" fill="url(#skirt)"/></g>
+  <rect x="110" y="109" width="292" height="277" rx="77" fill="url(#face)"/>
+  <rect x="110" y="109" width="292" height="277" rx="77" fill="url(#lit)"/>
+  <rect x="112.5" y="111.5" width="287" height="272" rx="74.5" fill="none" stroke="url(#bev)" stroke-width="5"/>
+  <path class="ink" fill="#F7FBFF" d="M170.2 325.5L170.2 169.5L231.8 169.5L256 232.7L280.2 169.5L341.8 169.5L341.8 325.5L304.4 325.5L304.4 196L256 321.6L207.6 196L207.6 325.5Z"/></g>
 </svg>

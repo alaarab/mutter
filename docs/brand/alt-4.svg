@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Mutter">
-  <!-- 2 — Waveform Monogram Trace: the M as a single audio trace.
+  <!-- 4 — Live Hold Ring: the speaking ring, broken like a hold gauge.
        The accent is one CSS variable; see the style block below to re-theme.
        Flat single-colour silhouette: the matching cand-N-flat.svg. -->
   <defs><linearGradient id="tint" x1="0" y1="0" x2=".78" y2="1">
@@ -20,7 +20,7 @@
       <stop offset="0" stop-color="#fff" stop-opacity=".6"/>
       <stop offset=".4" stop-color="#fff" stop-opacity="0"/>
     </linearGradient>
-    <linearGradient id="trace" x1="0" y1="0" x2=".9" y2="1">
+    <linearGradient id="core" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" class="ga" stop-color="#3D9BFF"/>
       <stop offset="1" class="ga2" stop-color="#1C77DB"/>
     </linearGradient></defs>
@@ -41,7 +41,8 @@
   <g id="mark"><rect class="bg" fill="#0B0F17" width="512" height="512" rx="114"/>
   <rect width="512" height="512" rx="114" fill="url(#tint)"/>
   <rect width="512" height="512" rx="114" fill="url(#glow)"/>
-  <g class="a" fill="#3D9BFF" opacity=".3"><rect x="104" y="252" width="304" height="8" rx="4"/></g>
-  <path d="M96 344L156 168L256 292L356 168L416 344" fill="none" stroke="url(#trace)" stroke-width="64" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M96 344L156 168L256 292L356 168L416 344" fill="none" stroke="url(#lit)" stroke-width="64" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <path class="sa2" stroke="#1C77DB" d="M302.4 398.7A150 150 0 1 1 209.6 113.3" fill="none" stroke-width="54" stroke-linecap="round" opacity=".8"/>
+  <path class="sa" stroke="#3D9BFF" d="M302.4 113.3A150 150 0 0 1 377.4 344.2" fill="none" stroke-width="54" stroke-linecap="round"/>
+  <rect x="190" y="190" width="132" height="132" rx="44" fill="url(#core)"/>
+  <rect x="190" y="190" width="132" height="132" rx="44" fill="url(#lit)"/></g>
 </svg>

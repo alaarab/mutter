@@ -15,7 +15,7 @@ import { MessageList } from './messages.js';
 import { renderMembers } from './members.js';
 import { openPopover, closePopover, menuItem, profileCard, channelMenu, serverMenu } from './popovers.js';
 import { $, el, avatar, colorFor, initials } from './ui.js';
-import { ICON } from './icons.js';
+import { ICON, MARK } from './icons.js';
 
 const client = new MumbleClient();
 const audio = new AudioEngine(client, settings);
@@ -35,6 +35,8 @@ $('backBtn').prepend(el('span', { innerHTML: ICON.back }));         // the badge
 $('leaveBtn').append(el('span', { textContent: 'Disconnect' }));
 $('shareBtn').append(el('span', { textContent: 'Share screen' }));
 document.querySelector('.search-icon').innerHTML = ICON.search;
+$('railHome').innerHTML = MARK;
+document.querySelector('.cap').innerHTML = MARK;
 for (const c of document.querySelectorAll('.chev')) c.innerHTML = ICON.chevron;
 if (!AudioEngine.supported) $('unsupported').hidden = false;
 

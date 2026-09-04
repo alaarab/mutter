@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Mutter">
-  <!-- 2 — Waveform Monogram Trace: the M as a single audio trace.
+  <!-- 6 — Key On Air: the talk key with sound leaving it, in the app's own geometry.
        The accent is one CSS variable; see the style block below to re-theme.
        Flat single-colour silhouette: the matching cand-N-flat.svg. -->
   <defs><linearGradient id="tint" x1="0" y1="0" x2=".78" y2="1">
@@ -20,7 +20,11 @@
       <stop offset="0" stop-color="#fff" stop-opacity=".6"/>
       <stop offset=".4" stop-color="#fff" stop-opacity="0"/>
     </linearGradient>
-    <linearGradient id="trace" x1="0" y1="0" x2=".9" y2="1">
+    <linearGradient id="skirt6" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" class="ga" stop-color="#3D9BFF" stop-opacity=".55"/>
+      <stop offset="1" class="ga2" stop-color="#1C77DB" stop-opacity=".35"/>
+    </linearGradient>
+    <linearGradient id="face6" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" class="ga" stop-color="#3D9BFF"/>
       <stop offset="1" class="ga2" stop-color="#1C77DB"/>
     </linearGradient></defs>
@@ -41,7 +45,11 @@
   <g id="mark"><rect class="bg" fill="#0B0F17" width="512" height="512" rx="114"/>
   <rect width="512" height="512" rx="114" fill="url(#tint)"/>
   <rect width="512" height="512" rx="114" fill="url(#glow)"/>
-  <g class="a" fill="#3D9BFF" opacity=".3"><rect x="104" y="252" width="304" height="8" rx="4"/></g>
-  <path d="M96 344L156 168L256 292L356 168L416 344" fill="none" stroke="url(#trace)" stroke-width="64" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M96 344L156 168L256 292L356 168L416 344" fill="none" stroke="url(#lit)" stroke-width="64" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <g fill="none" stroke-linecap="round" stroke-width="46">
+    <path class="sa" stroke="#3D9BFF" d="M298 128A86 86 0 0 1 384 214L384 298A86 86 0 0 1 298 384"/>
+    <path class="sa" stroke="#3D9BFF" d="M214 128A86 86 0 0 0 128 214L128 298A86 86 0 0 0 214 384"/>
+  </g>
+  <rect x="190" y="198" width="132" height="128" rx="42" fill="url(#skirt6)"/>
+  <rect x="196" y="194" width="120" height="116" rx="34" fill="url(#face6)"/>
+  <rect x="196" y="194" width="120" height="116" rx="34" fill="url(#lit)"/></g>
 </svg>
