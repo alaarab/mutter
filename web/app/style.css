@@ -10,9 +10,9 @@
 @font-face { font-family: 'Plus Jakarta Sans'; src: url('/fonts/PlusJakartaSans-Bold.ttf'); font-weight: 700; }
 
 :root {
-  --accent: #7C7CFF; --accent-active: #5F5FE0; --on-accent: #FFFFFF; --glow: 14%;
-  --bg: #0B0B0D; --surface: #131316; --elevated: #1B1B20; --sunken: #08080A;
-  --separator: #26262C; --ink: #F4F4F6; --body: #B5B5BE; --muted: #7B7B85;
+  --accent: #EDEDF0; --accent-active: #CFCFD4; --on-accent: #0A0A0B; --glow: 0%;
+  --bg: #08080A; --surface: #111113; --elevated: #1A1A1D; --sunken: #050506;
+  --separator: #242427; --ink: #FAFAFA; --body: #B9B9BC; --muted: #7C7C80;
   --speaking: #3DDC84; --danger: #FF5A5A; --warn: #FFC53D; --whisper: #9C8CFF;
   --online: #3ABF7E; --away: #F39F00; --busy: #F84848; --streaming: #977EFF; --invisible: #A5A5A5;
   --hover: color-mix(in srgb, var(--ink) 6%, transparent); --active: color-mix(in srgb, var(--ink) 11%, transparent);
@@ -212,11 +212,12 @@ body[data-tab="chat"] #paneChat, body[data-tab="channels"] #paneChat, body[data-
 .row:hover .gutter .hover-time { opacity: 1; }
 .row .body { flex: 1; min-width: 0; }
 .row .meta { display: flex; align-items: baseline; gap: 6px; line-height: 20px; }
-.row .author { font-weight: 600; font-size: 14.5px; cursor: pointer; } .row .author:hover { text-decoration: underline; }
+.row .author { font-weight: 600; font-size: 14.5px; color: var(--ink); cursor: pointer; } .row .author:hover { text-decoration: underline; }
 .row .meta time { font-size: 11px; color: var(--muted); }
 .row .tag { font: 600 10px var(--sans); color: var(--muted); background: var(--elevated); border-radius: 4px; padding: 1px 5px; }
 .row .tag.dm { color: var(--whisper); background: color-mix(in srgb, var(--whisper) 16%, var(--elevated)); }
 .row .content { font-size: var(--text-size); line-height: 1.375; color: var(--ink); overflow-wrap: anywhere; white-space: pre-wrap; }
+.row .content a { text-decoration: underline; text-underline-offset: 2px; }
 .row .content p { margin: 0; } .row .content p + p { margin-top: 4px; }
 .row .content img { display: block; max-width: min(100%, 400px); max-height: 300px; border-radius: var(--r8); margin: 4px 0 2px; cursor: zoom-in; }
 .row .content pre, .row .content code { font: 12.5px ui-monospace, monospace; background: var(--sunken); border: 1px solid var(--separator); border-radius: 5px; padding: 1px 5px; }
