@@ -7,7 +7,8 @@ const FRAME_SAMPLES = 960;                 // 20 ms at 48 kHz
 const FRAMES_PER_PACKET = FRAME_MS / 10;   // Mumble sequence numbers count 10 ms units
 const HANGOVER_MS = 400;
 
-const DEFAULTS = { transmitMode: 'vad', vadThresholdDb: -38, autoSensitivity: true, bitrate: 40_000, inputGain: 1, inputDeviceId: '', noiseSuppression: 'strong' };
+const DEFAULTS = { transmitMode: 'vad', vadThresholdDb: -38, autoSensitivity: true, bitrate: 40_000, inputGain: 1, inputDeviceId: '', noiseSuppression: 'neural' };
+const VAD_OPEN = 0.5, VAD_HOLD = 0.3;   // RNNoise voice probability: open above, stay open above
 const OPEN_FRAMES = 2;             // consecutive frames above threshold before the gate opens
 
 export class AudioEngine extends EventTarget {
@@ -47,8 +48,12 @@ export class AudioEngine extends EventTarget {
     this._mixer.port.postMessage({ type: 'master', gain: this.deafened ? 0 : 1 });
     this._mixer.port.onmessage = ({ data }) => { if (data.type === 'health' && data.underruns) { this.stats.underruns = (this.stats.underruns ?? 0) + data.underruns; this._diag(`playback ran dry ${data.underruns}× in the last second`); } };
     this._framer = new AudioWorkletNode(this._ctx, 'mutter-framer', { numberOfInputs: 1, numberOfOutputs: 0 });
-    this._framer.port.onmessage = ({ data }) => this._onFrame(data);
+    this._framer.port.onmessage = ({ data }) => {
+      if (data.type === 'rnnoise') { this.neural = data.ready; this._diag(data.ready ? 'RNNoise ready' : `RNNoise failed: ${data.error}`); if (!data.ready && this.settings.noiseSuppression === 'neural') this.setNoiseSuppression('strong'); this._emit('state'); return; }
+      this._onFrame(data.samples, data.vad);
+    };
     this._framer.port.postMessage({ type: 'suppress', level: this.settings.noiseSuppression });
+    this._loadRnnoise();
 
     this._encoder = new AudioEncoder({
       output: (chunk) => {
@@ -101,6 +106,16 @@ export class AudioEngine extends EventTarget {
     this._emit('state');
   }
 
+  /// RNNoise (WebAssembly) lives inside the worklet; the main thread only fetches the bytes.
+  async _loadRnnoise() {
+    if (this.neural === false) return;
+    try {
+      this._rnnBytes ??= await (await fetch('/app/rnnoise.wasm')).arrayBuffer();
+      const copy = this._rnnBytes.slice(0);                       // each worklet gets its own; transferred
+      this._framer?.port.postMessage({ type: 'rnnoise', bytes: copy }, [copy]);
+    } catch (e) { this.neural = false; this._diag(`RNNoise unavailable: ${e.message}`); if (this.settings.noiseSuppression === 'neural') this.setNoiseSuppression('strong'); }
+  }
+
   /// Switch microphones without touching playback.
   async setInputDevice(deviceId) {
     this.settings.inputDeviceId = deviceId;
@@ -140,8 +155,9 @@ export class AudioEngine extends EventTarget {
 
   // ---- capture path ----
 
-  _onFrame(samples) {
+  _onFrame(samples, vad = -1) {
     if (!this.running) return;
+    this.vadProb = vad;
     // Frames come every 20 ms; a gap means this thread was busy and the frames queued up.
     const t = performance.now();
     if (this._lastFrameAt && t - this._lastFrameAt > 150 && t - (this._lastStallLog ?? 0) > 2000) { this._lastStallLog = t; this.stats.captureStalls = (this.stats.captureStalls ?? 0) + 1; this._diag(`capture stalled ${Math.round(t - this._lastFrameAt)} ms — the page was busy`); }
@@ -158,7 +174,7 @@ export class AudioEngine extends EventTarget {
       this.noiseFloorDb = db < this.noiseFloorDb ? db : Math.min(db, this.noiseFloorDb + 0.5 * FRAME_MS / 1000);
       this.effectiveThresholdDb = Math.min(-15, Math.max(-60, this.noiseFloorDb + 12));
     }
-    const wants = this._shouldTransmit(db);
+    const wants = this._shouldTransmit(db, vad);
     const now = performance.now();
     // Voice activity needs two consecutive frames above threshold, so a click doesn't open the gate.
     this._openFrames = wants ? this._openFrames + 1 : 0;
@@ -176,12 +192,17 @@ export class AudioEngine extends EventTarget {
 
   get thresholdDb() { return this.settings.autoSensitivity ? this.effectiveThresholdDb : this.settings.vadThresholdDb; }
 
-  _shouldTransmit(db) {
+  _shouldTransmit(db, vad = -1) {
     if (this.muted || !this.client.isConnected) return false;
     switch (this.settings.transmitMode) {
       case 'continuous': return true;
       case 'ptt': return this.pttPressed;
-      default: return this.pttPressed || db > this.thresholdDb;
+      default:
+        if (this.pttPressed) return true;
+        // With RNNoise the network says whether this is a voice; the level only has to clear the
+        // room's floor so a confident-but-silent frame can't open the gate.
+        if (vad >= 0) return vad >= (this._gateOpen ? VAD_HOLD : VAD_OPEN) && db > Math.min(this.thresholdDb, this.noiseFloorDb + 6);
+        return db > this.thresholdDb;
     }
   }
   _closeGate() { if (this._gateOpen) { this._gateOpen = false; this._closing = true; } }

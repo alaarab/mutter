@@ -64,10 +64,12 @@ right. Under 880px it becomes the phone layout — one pane at a time behind a t
   sharing). Members grouped by channel on the right. Click anyone for a profile card: banner,
   badges, connection stats, message / mute-for-me / volume / watch / join them.
 - Voice both ways over the TCP tunnel: 20 ms Opus at 16–96 kbit/s, per-user jitter buffer.
-  Cleaning: the browser's echo cancellation and gain control, plus the iOS app's spectral noise
-  suppressor ported to an AudioWorklet (Off / Light / Strong; −10 / −22 dB on hiss, fans, hum)
-  with a keyboard-click ducker on Strong. Voice activity with automatic sensitivity that
-  follows the room's noise floor; push to talk on any key or mouse button you pick in Settings
+  Cleaning: the browser's echo cancellation and gain control, then **RNNoise** — the neural
+  denoiser Mumble desktop uses, compiled to WebAssembly and run in the worklet (−22 dB on
+  realistic background noise, voice within 1 dB; `web/vendor/rnnoise`) — or the iOS app's
+  spectral suppressor (Light / Strong, with a keyboard-click ducker). Voice activity uses
+  RNNoise's voice probability over the room's noise floor; push to talk on any key or mouse
+  button you pick in Settings
   (Space by default; the browser only hears keys while the window is focused); always on. Mute,
   deafen, local per-user mute and volume.
 - Chat the Discord way: grouped by author within seven minutes, day dividers, a "New messages"
@@ -119,7 +121,8 @@ FAKE_UDP=0 node web/test/e2e.test.mjs               # same with UDP blocked: voi
 node web/test/ocb2.test.mjs                         # the cipher against Mumble's test vectors, loss/replay/resync rules
 node web/test/share.test.mjs                        # screen share between two tabs, WebRTC + signaling
 node web/test/signal.test.mjs                       # the plugin-message fragment codec, in Node
-node web/test/dsp.test.mjs                          # the noise suppressor: FFT, SNR gain, click ducking, block-size independence
+node web/test/dsp.test.mjs                          # the spectral suppressor: FFT, SNR gain, click ducking, block-size independence
+node web/test/rnnoise.test.mjs                      # the RNNoise wasm: loads without imports, −22 dB on noise, voice kept, speed
 node web/test/typing.test.mjs                       # typing indicator between three tabs
 node web/test/fake-server.mjs                       # keep one running to click around against
 node web/probe.mjs <host> [port] [username]         # handshake against any server, read-only

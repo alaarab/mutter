@@ -42,6 +42,8 @@ try {
   const b = await open('Bravo');
   check(true, 'both tabs connected through the bridge');
   await a.waitFor('mutter.client.users.size === 2');
+  await a.waitFor('mutter.audio.neural === true', { label: 'RNNoise instantiated in the worklet', timeout: 8000 });
+  check(await a.eval(`mutter.settings.noiseSuppression`) === 'neural', 'neural noise suppression is the default and RNNoise loaded');
   await sleep(150);
   check(await a.eval(`[...document.querySelectorAll('.user .name > span:first-child')].map(e => e.textContent).sort().join(',')`) === 'Alpha,Bravo', 'both users in the tree');
   check(await a.eval(`document.querySelectorAll('.ch').length`) === 5, 'five channels rendered');

@@ -33,7 +33,7 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FONTS = path.join(ROOT, '..', 'Mutter', 'Resources', 'Fonts');
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.ttf': 'font/ttf', '.png': 'image/png', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json' };
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.ttf': 'font/ttf', '.png': 'image/png', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json', '.wasm': 'application/wasm' };
 
 const server = http.createServer((req, res) => {
   const rel = decodeURIComponent(new URL(req.url, 'http://x').pathname);
