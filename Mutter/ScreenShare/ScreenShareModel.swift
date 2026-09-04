@@ -52,6 +52,9 @@ final class ScreenShareModel: NSObject {
     @ObservationIgnored private var expiryTimer: Timer?
     @ObservationIgnored private var statsTimer: Timer?
     @ObservationIgnored private var lastBytes: UInt64 = 0
+    /// Trickled candidates that arrive before the offer is applied; flushed once it is.
+    @ObservationIgnored private var pendingICE: [ICECandidateInit] = []
+    @ObservationIgnored private var remoteDescriptionSet = false
     @ObservationIgnored private var lastStatsAt = Date()
 
     /// One factory for the app. WebRTC must never touch the audio session: Mutter's own engine
@@ -97,8 +100,9 @@ final class ScreenShareModel: NSObject {
             guard let w = watching, w.id == msg.id, w.sender == from, let sdp = msg.sdp else { return }
             Task { await accept(offer: sdp, from: from, id: msg.id) }
         case "ice":
-            guard let pc, watching?.id == msg.id else { return }
-            for c in msg.c ?? [] { pc.add(RTCIceCandidate(sdp: c.candidate, sdpMLineIndex: c.sdpMLineIndex ?? 0, sdpMid: c.sdpMid)) { _ in } }
+            guard watching?.id == msg.id else { return }
+            let candidates = msg.c ?? []
+            if let pc, remoteDescriptionSet { addCandidates(candidates, to: pc) } else { pendingICE.append(contentsOf: candidates) }
         default:
             break   // watch/answer/leave are sharer-side
         }
@@ -116,7 +120,16 @@ final class ScreenShareModel: NSObject {
         sender.send(.watch(share.id), to: [share.sender])
     }
 
+    private func addCandidates(_ candidates: [ICECandidateInit], to pc: RTCPeerConnection) {
+        for c in candidates {
+            pc.add(RTCIceCandidate(sdp: c.candidate, sdpMLineIndex: c.sdpMLineIndex ?? 0, sdpMid: c.sdpMid)) { error in
+                if let error { DiagnosticsLog.shared.add("share", "ice candidate rejected: \(error.localizedDescription)") }
+            }
+        }
+    }
+
     func stopWatching(sendLeave: Bool = true) {
+        pendingICE.removeAll(); remoteDescriptionSet = false
         if let w = watching, sendLeave { sender.send(.leave(w.id), to: [w.sender]) }
         statsTimer?.invalidate(); statsTimer = nil
         pc?.close(); pc = nil
@@ -141,6 +154,7 @@ final class ScreenShareModel: NSObject {
 
     private func accept(offer sdp: String, from sender: UInt32, id: String) async {
         pc?.close()
+        remoteDescriptionSet = false
         let config = RTCConfiguration()
         var ice = [RTCIceServer(urlStrings: ["stun:stun.l.google.com:19302"])]
         if let turn = turnServer, !turn.url.isEmpty {
@@ -162,6 +176,8 @@ final class ScreenShareModel: NSObject {
 
         do {
             try await pc.setRemoteDescription(RTCSessionDescription(type: .offer, sdp: sdp))
+            remoteDescriptionSet = true
+            if !pendingICE.isEmpty { addCandidates(pendingICE, to: pc); pendingICE.removeAll() }
             let answer = try await pc.answer(for: constraints)
             try await pc.setLocalDescription(answer)
             // Vanilla ICE: wait until gathering completes or 1.5 s, then send the whole answer.
