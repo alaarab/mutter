@@ -66,6 +66,7 @@ try {
     await b.waitFor(`mutter.share.watching?.stats.w === 640 && mutter.share.watching.stats.h === 360`, { timeout: 15_000, label: 'video stats report 640×360' });
     await b.waitFor(`(() => { const v = document.querySelector('#stage video'); return v && v.videoWidth === 640 && v.getVideoPlaybackQuality().totalVideoFrames > 2; })()`, { timeout: 8000, label: 'video element decoding frames' });
     await b.waitFor(`document.getElementById('shareStats')?.textContent.includes('640×360')`);
+    if (await b.eval(`document.querySelector('.stage-bar .title .sub')?.textContent`) !== 'Screen') throw new Error('opaque track label leaked into the title');
     await a.waitFor(`mutter.share.viewerCount === 1`, { timeout: 5000 });
     if (shots) { await b.send('Page.bringToFront'); await b.screenshot(`${shots}/04-watching.png`); await a.send('Page.bringToFront'); await a.screenshot(`${shots}/05-sharing.png`); }
   });
