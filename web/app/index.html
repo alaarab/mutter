@@ -1,25 +1,26 @@
 <!doctype html>
 <html lang="en">
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#151B26">
+<link rel="manifest" href="/app/manifest.webmanifest">
+<link rel="icon" href="/app/icon.svg" type="image/svg+xml">
 <title>Mutter</title>
 <link rel="stylesheet" href="/app/style.css">
-<body>
-  <header>
-    <div class="brand"><span class="cap">M</span><h1>Mutter</h1></div>
-    <div id="serverInfo" class="server" hidden>
-      <span id="serverLabel"></span>
-      <span class="state"><span id="dot" class="dot"></span><span id="stateText">Not connected</span></span>
-      <span id="pingPill" class="pill" hidden></span>
+<body data-tab="channels">
+<div id="app">
+  <header id="top">
+    <span class="cap">M</span>
+    <div class="titles">
+      <h1 id="title">Mutter</h1>
+      <p class="sub"><span id="dot" class="dot"></span><span id="subtitle">Not connected</span></p>
     </div>
-    <div class="actions">
-      <button id="settingsBtn" class="icon" type="button" title="Settings" aria-label="Settings"></button>
-      <button id="leaveBtn" class="icon" type="button" title="Leave" aria-label="Leave" hidden></button>
-    </div>
+    <span id="pingPill" class="ping" hidden></span>
+    <button id="leaveBtn" class="icon" type="button" title="Leave" aria-label="Leave" hidden></button>
   </header>
 
-  <p id="unsupported" class="banner" hidden>Voice needs Chrome or Edge. You can still read chat.</p>
+  <p id="unsupported" class="banner" hidden>Voice needs Chrome or Edge. Chat still works.</p>
 
   <section id="connect" class="screen">
     <div class="card">
@@ -43,52 +44,57 @@
   </section>
 
   <main id="session" class="screen" hidden>
-    <aside class="channels">
-      <div class="pane-head"><h2>Channels</h2><button id="newChannelBtn" class="icon small" type="button" title="New channel" aria-label="New channel"></button></div>
-      <div id="tree" class="tree" role="tree"></div>
-    </aside>
-
-    <section class="chat">
-      <div class="pane-head">
-        <h2 id="chatTitle">Chat</h2>
-        <button id="scopePill" class="pill scope" type="button" hidden></button>
+    <section id="paneChannels" class="pane">
+      <div class="search">
+        <span class="search-icon"></span>
+        <input id="search" placeholder="Find a channel or person" autocomplete="off" spellcheck="false">
+        <button id="newChannelBtn" class="icon small" type="button" title="New channel" aria-label="New channel"></button>
       </div>
+      <div id="tree" class="tree" role="tree"></div>
+    </section>
+
+    <section id="paneChat" class="pane">
       <div id="messages" class="messages"></div>
       <form id="chatForm" class="composer">
         <button id="imageBtn" class="icon" type="button" title="Send image" aria-label="Send image"></button>
         <input id="imageInput" type="file" accept="image/*" hidden>
+        <button id="scopePill" class="scope" type="button" title="Where this goes"><span class="hash">#</span><span id="chatTitle">Chat</span><span class="chev"></span></button>
         <input id="chatInput" placeholder="Message" autocomplete="off" maxlength="5000">
         <button id="sendBtn" class="icon primary" type="submit" title="Send" aria-label="Send"></button>
       </form>
     </section>
 
-    <section id="stage" class="stage" hidden></section>
+    <section id="paneServer" class="pane"><div id="serverPane" class="server-pane"></div></section>
+
+    <section id="stage" class="pane stage"></section>
   </main>
 
   <footer id="dock" hidden>
-    <div class="me">
-      <span id="meAvatar" class="avatar big"></span>
-      <div class="who">
-        <span id="meName"></span>
-        <span id="meChannel" class="sub"></span>
+    <div class="voicebar">
+      <div class="now">
+        <div class="chan"><span class="hash">#</span><span id="meChannel">—</span></div>
+        <div id="talkers" class="talkers"></div>
       </div>
+      <button id="muteBtn" class="round" type="button" title="Mute" aria-label="Mute"></button>
+      <button id="deafBtn" class="round" type="button" title="Deafen" aria-label="Deafen"></button>
+      <button id="shareBtn" class="round" type="button" title="Share screen" aria-label="Share screen" hidden></button>
+      <button id="settingsBtn" class="round" type="button" title="Settings" aria-label="Settings"></button>
     </div>
-    <div id="meter" class="meter" title="Input level">
-      <span id="meterFill"></span><span id="meterMark"></span>
-      <span id="meterLabel" class="label"></span>
-    </div>
-    <button id="pttBtn" class="talk" type="button" hidden>Talk</button>
-    <div class="controls">
-      <button id="muteBtn" class="icon" type="button" title="Mute" aria-label="Mute"></button>
-      <button id="deafBtn" class="icon" type="button" title="Deafen" aria-label="Deafen"></button>
-      <button id="shareBtn" class="icon" type="button" title="Share screen" aria-label="Share screen" hidden></button>
-    </div>
+    <div id="meter" class="meter" title="Input level"><span id="meterFill"></span><span id="meterMark"></span></div>
+    <button id="pttBtn" class="talk" type="button" hidden>Hold to talk</button>
+    <nav id="tabs" class="tabs">
+      <button type="button" data-tab="channels" class="on"><i></i>Channels</button>
+      <button type="button" data-tab="chat"><i></i>Chat<span id="unread" class="count" hidden></span></button>
+      <button type="button" data-tab="screen" id="tabScreen" hidden><i></i>Screen</button>
+      <button type="button" data-tab="server"><i></i>Server</button>
+    </nav>
   </footer>
+</div>
 
   <aside id="settings" class="sheet" hidden>
     <div class="sheet-head"><h2>Settings</h2><button id="settingsClose" class="icon" type="button" aria-label="Close"></button></div>
 
-    <h3>Transmit</h3>
+    <h3>How you talk</h3>
     <div id="transmitMode" class="segmented" role="radiogroup">
       <button type="button" data-value="vad">Voice</button>
       <button type="button" data-value="ptt">Push to talk</button>
@@ -96,13 +102,22 @@
     </div>
     <p class="hint" id="transmitHint"></p>
 
-    <h3>Sensitivity</h3>
+    <h3>Voice activity</h3>
     <div class="meter settings-meter"><span id="sMeterFill"></span><span id="sMeterMark"></span></div>
     <div class="row between">
-      <label class="check"><input id="autoSens" type="checkbox"> Auto</label>
+      <label class="check"><input id="autoSens" type="checkbox"> Automatic sensitivity</label>
       <span id="thresholdLabel" class="hint"></span>
     </div>
     <input id="threshold" type="range" min="-70" max="-10" step="1">
+    <p class="hint" id="floorHint"></p>
+
+    <h3>Noise</h3>
+    <div id="noiseSuppression" class="segmented">
+      <button type="button" data-value="off">Off</button>
+      <button type="button" data-value="light">Light</button>
+      <button type="button" data-value="strong">Strong</button>
+    </div>
+    <p class="hint">Cuts hiss, fans and hum before your voice is sent, on top of the browser's own echo cancellation.</p>
 
     <h3>Quality</h3>
     <div id="bitrate" class="segmented">

@@ -1,18 +1,20 @@
-// The stage: the third column that appears when someone in the channel is sharing a screen —
-// their video with live stats, or your own preview while you share, or a card offering to watch.
+// The Screen tab: someone's shared screen with live stats, your own preview while you share, or
+// cards offering to watch. The tab only exists while there is something to show.
 
 import { ICON } from './icons.js';
+import { el } from './ui.js';
 
-const el = (tag, props = {}, ...children) => { const e = Object.assign(document.createElement(tag), props); e.append(...children); return e; };
-
-export function mountStage({ share, client, stage, session, toast }) {
-  let video = null;
+export function mountStage({ share, client, stage, tab, showTab, toast }) {
+  let video = null, wasSharing = false;
 
   function render() {
     const w = share.watching, s = share.sharing, offers = [...share.available].filter(([sender]) => sender !== w?.sender);
     const show = !!(w || s || offers.length);
-    stage.hidden = !show;
-    session.classList.toggle('sharing', show);
+    tab.hidden = !show;
+    tab.classList.toggle('live', !!(w || offers.length));
+    if (!show && document.body.dataset.tab === 'screen') showTab('chat');
+    if (s && !wasSharing) showTab('screen');          // your own share just started: show the preview
+    wasSharing = !!s;
     stage.replaceChildren();
     if (!show) { video = null; return; }
 
@@ -46,7 +48,8 @@ export function mountStage({ share, client, stage, session, toast }) {
         el('span', { className: 'spacer' }),
         segmented(s.contentHint, v => share.setContentHint(v)),
         el('button', { type: 'button', className: 'ghost danger', textContent: 'Stop', onclick: () => share.stop() }));
-      stage.append(bar, w ? preview : el('div', { className: 'frame' }, preview));
+      if (w) { stage.append(bar); stage.querySelector('.frame').append(preview); }
+      else stage.append(bar, el('div', { className: 'frame' }, preview));
     }
 
     if (offers.length) {
@@ -56,7 +59,7 @@ export function mountStage({ share, client, stage, session, toast }) {
         list.append(el('div', { className: 'offer' },
           el('span', { className: 'offer-icon', innerHTML: ICON.screen }),
           el('span', { className: 'title' }, el('strong', {}, `${name} is sharing`), el('span', { className: 'sub', textContent: `${a.title}${a.w ? ` · ${a.w}×${a.h}` : ''}${a.audio ? ' · audio' : ''}` })),
-          el('button', { type: 'button', className: 'watch', textContent: 'Watch', onclick: () => share.watch(sender) })));
+          el('button', { type: 'button', className: 'watch', textContent: 'Watch', onclick: () => { share.watch(sender); showTab('screen'); } })));
       }
       stage.append(list);
     }

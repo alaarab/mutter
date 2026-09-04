@@ -197,8 +197,7 @@ export class FakeMumbleServer extends EventEmitter {
 
   _text(u, m) {
     const html = m.message ?? '';
-    const limit = /<img/i.test(html) ? this.config.imageMessageLength : this.config.messageLength;
-    if (html.length > limit) { this.dropped.text++; return this._deny(u, DenyType.textTooLong, 'Message too long'); }
+    if (!this._textAllowed(html)) { this.dropped.text++; return this._deny(u, DenyType.textTooLong); }
     const recipients = new Set();
     for (const s of m.sessions ?? []) if (this.users.has(s)) recipients.add(s);
     for (const cid of m.channelIds ?? []) for (const x of this.users.values()) if (x.channelId === cid) recipients.add(x.session);
@@ -211,6 +210,17 @@ export class FakeMumbleServer extends EventEmitter {
     const out = msg.textMessage({ actor: u.session, sessions: m.sessions, channelIds: m.channelIds, treeIds: m.treeIds, message: html });
     for (const s of recipients) this._sendTo(this.users.get(s), out);
     this.emit('text', { from: u.session, html, recipients: [...recipients] });
+  }
+
+  /// murmur's Server::isTextAllowed with allowhtml on: short messages pass unparsed; anything
+  /// longer than textmessagelength must be well-formed XML (QXmlStreamReader) and, with the
+  /// <img src> values removed, still fit textmessagelength; nothing may exceed imagemessagelength.
+  _textAllowed(html) {
+    const { messageLength, imageMessageLength } = this.config;
+    if (html.length <= messageLength) return true;
+    if (imageMessageLength && html.length >= imageMessageLength) return false;
+    if (!xmlWellFormed(html)) return false;
+    return html.replace(/(<img\b[^>]*?\bsrc\s*=\s*")[^"]*(")/gi, '$1$2').length <= messageLength;
   }
 
   _plugin(u, m) {
@@ -241,10 +251,12 @@ export class FakeMumbleServer extends EventEmitter {
 
   // ---- plumbing ----
 
+  /// PermissionDenied: 1 permission, 2 channel_id, 3 session, 4 reason, 5 type, 6 name.
   _deny(u, type, reason, extra = {}) {
     const w = new Writer();
-    if (extra.channelId !== undefined) w.uint(3, extra.channelId);
-    this._sendTo(u, frame(MessageType.permissionDenied, w.string(5, reason).uint(6, type).finish()));
+    if (extra.channelId !== undefined) w.uint(2, extra.channelId);
+    if (reason !== undefined) w.string(4, reason);          // murmur sends most types bare
+    this._sendTo(u, frame(MessageType.permissionDenied, w.uint(5, type).finish()));
   }
   _sendTo(u, bytes) { if (u && !u.socket.destroyed) u.socket.write(bytes); }
   _broadcast(bytes, except) { for (const x of this.users.values()) if (x !== except && x.synced) this._sendTo(x, bytes); }
@@ -279,6 +291,29 @@ const msg = {
     return frame(MessageType.pluginDataTransmission, w.bytes(3, data).string(4, dataId).finish());
   },
 };
+
+/// A close-enough stand-in for QXmlStreamReader on `<document>html</document>`: every tag must
+/// be a proper element with quoted attributes, closed or self-closing, properly nested, and any
+/// bare `&` must be an entity. `<img src="…">` without the slash is the classic failure.
+export function xmlWellFormed(html) {
+  const TAG = /<(\/?)([A-Za-z][\w:.-]*)((?:\s+[\w:.-]+\s*=\s*(?:"[^"<]*"|'[^'<]*'))*)\s*(\/?)>/y;
+  const stack = [];
+  let i = 0;
+  while (i < html.length) {
+    const lt = html.indexOf('<', i);
+    const text = html.slice(i, lt === -1 ? html.length : lt);
+    if (/&(?![A-Za-z]+;|#\d+;|#x[0-9A-Fa-f]+;)/.test(text) || />/.test(text)) return false;
+    if (lt === -1) break;
+    TAG.lastIndex = lt;
+    const m = TAG.exec(html);
+    if (!m) return false;
+    const [, closing, name, , selfClosing] = m;
+    if (closing) { if (stack.pop() !== name.toLowerCase()) return false; }
+    else if (!selfClosing) stack.push(name.toLowerCase());
+    i = TAG.lastIndex;
+  }
+  return stack.length === 0;
+}
 
 /// Client → server audio: protobuf has target/frame/opus; legacy is header, seq, len, opus.
 function parseClientAudio(b, legacy) {

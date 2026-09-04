@@ -51,12 +51,12 @@ try {
       return mutter.share.start({ stream, contentHint: 'motion' });
     })()`);
     await a.waitFor('!!mutter.share.sharing && mutter.share.sharing.audio === true');
-    await a.waitFor(`document.getElementById('shareBtn').classList.contains('active') && !document.getElementById('stage').hidden`);
+    await a.waitFor(`document.getElementById('shareBtn').classList.contains('active') && !document.getElementById('tabScreen').hidden && document.body.dataset.tab === 'screen'`);
   });
 
   await step('Bravo is offered the share (announce arrived, card and badge shown)', async () => {
     await b.waitFor('mutter.share.available.size === 1', { timeout: 5000 });
-    await b.waitFor(`!!document.querySelector('.offer .watch') && !!document.querySelector('.user .badge.live')`);
+    await b.waitFor(`!!document.querySelector('.offer .watch') && !!document.querySelector('.user .live-badge') && !document.getElementById('tabScreen').hidden`);
     await b.waitFor(`[...document.querySelectorAll('.toast')].some(t => t.textContent.includes('started sharing'))`, { timeout: 3000 });
   });
 
@@ -102,7 +102,7 @@ try {
   await step('Stop sharing clears the offer everywhere', async () => {
     await a.click('#shareBtn');
     await a.waitFor('!mutter.share.sharing');
-    await b.waitFor('mutter.share.available.size === 0 && document.getElementById("stage").hidden', { timeout: 4000 });
+    await b.waitFor('mutter.share.available.size === 0 && document.getElementById("tabScreen").hidden && document.body.dataset.tab !== "screen"', { timeout: 4000 });
   });
 
   check(plugin.count > 0 && plugin.max <= 1000, `server relayed ${plugin.count} plugin messages (${plugin.bytes} bytes, largest ${plugin.max})`);

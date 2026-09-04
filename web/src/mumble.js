@@ -95,7 +95,7 @@ const FIELDS = {
   [MessageType.userState]: { 1: ['session', 'uint'], 2: ['actor', 'uint'], 3: ['name', 'string'], 4: ['userId', 'uint'], 5: ['channelId', 'uint'], 6: ['mute', 'bool'], 7: ['deaf', 'bool'], 8: ['suppress', 'bool'], 9: ['selfMute', 'bool'], 10: ['selfDeaf', 'bool'], 12: ['pluginContext', 'bytes'], 13: ['pluginIdentity', 'string'], 14: ['comment', 'string'], 15: ['hash', 'string'], 18: ['prioritySpeaker', 'bool'], 19: ['recording', 'bool'] },
   [MessageType.userRemove]: { 1: ['session', 'uint'], 2: ['actor', 'uint'], 3: ['reason', 'string'], 4: ['ban', 'bool'] },
   [MessageType.textMessage]: { 1: ['actor', 'uint'], 2: ['sessions', 'uint', true], 3: ['channelIds', 'uint', true], 4: ['treeIds', 'uint', true], 5: ['message', 'string'] },
-  [MessageType.permissionDenied]: { 2: ['permission', 'uint'], 3: ['channelId', 'uint'], 4: ['session', 'uint'], 5: ['reason', 'string'], 6: ['type', 'uint'], 7: ['name', 'string'] },
+  [MessageType.permissionDenied]: { 1: ['permission', 'uint'], 2: ['channelId', 'uint'], 3: ['session', 'uint'], 4: ['reason', 'string'], 5: ['type', 'uint'], 6: ['name', 'string'] },
   [MessageType.serverConfig]: { 2: ['welcomeText', 'string'], 3: ['allowHtml', 'bool'], 4: ['messageLength', 'uint'], 5: ['imageMessageLength', 'uint'], 6: ['maxUsers', 'uint'] },
   [MessageType.pluginDataTransmission]: { 1: ['senderSession', 'uint'], 2: ['receiverSessions', 'uint', true], 3: ['data', 'bytes'], 4: ['dataId', 'string'] },
 };

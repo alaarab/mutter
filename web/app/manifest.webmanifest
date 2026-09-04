@@ -1,0 +1,13 @@
+{
+  "name": "Mutter",
+  "short_name": "Mutter",
+  "description": "A modern Mumble client",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0B0F17",
+  "theme_color": "#151B26",
+  "icons": [
+    { "src": "/app/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

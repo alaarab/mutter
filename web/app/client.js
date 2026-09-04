@@ -13,6 +13,15 @@ const REJECT_USERNAME_IN_USE = 5;
 const WATCHDOG_MS = 20_000;
 const MAX_RECONNECTS = 6;
 
+// PermissionDenied.DenyType. Only `text` carries a reason string; the rest arrive bare.
+const DenyType = { text: 0, permission: 1, superUser: 2, channelName: 3, textTooLong: 4, h9k: 5, temporaryChannel: 6, missingCertificate: 7, userName: 8, channelFull: 9, nestingLimit: 10, channelCountLimit: 11, channelListenerLimit: 12, userListenerLimit: 13 };
+const DENY_TEXT = {
+  1: 'You don’t have permission for that', 2: 'Only the SuperUser can do that', 3: 'That channel name isn’t allowed',
+  4: 'Message too long for this server', 6: 'Not allowed in a temporary channel', 7: 'A certificate is required',
+  8: 'That username isn’t allowed', 9: 'Channel is full', 10: 'Channels are nested too deep', 11: 'Too many channels',
+  12: 'Channel listener limit reached', 13: 'You’re listening to too many channels',
+};
+
 export class MumbleClient extends EventTarget {
   constructor() {
     super();
@@ -239,7 +248,14 @@ export class MumbleClient extends EventTarget {
         this._pushMessage({ senderSession: m.actor, senderName: sender?.name ?? 'Server', html: m.message ?? '', scope: m.sessions?.length ? { sessions: m.sessions } : m.treeIds?.length ? { treeId: m.treeIds[0] } : { channelId: m.channelIds?.[0] ?? 0 }, own: false });
         break;
       }
-      case MessageType.permissionDenied: this._note(m.reason || 'Permission denied'); break;
+      case MessageType.permissionDenied: {
+        const what = m.type === DenyType.text ? (m.reason || 'Not allowed') : `${DENY_TEXT[m.type] ?? 'Not allowed'}${m.reason ? ` — ${m.reason}` : ''}`;
+        this._note(what);
+        // murmur answers an oversized TextMessage with TextTooLong and nothing else, so the
+        // bubble we echoed locally is the one that never went out.
+        if (m.type === DenyType.textTooLong && this._lastOwn) { this._lastOwn.failed = what; this._emit('text-failed', this._lastOwn); }
+        break;
+      }
       case MessageType.ping: {
         if (m.timestamp) { const rtt = Date.now() - Number(BigInt(m.timestamp) / 1000n); if (rtt >= 0 && rtt < 60000) { this.stats.samples.push(rtt); if (this.stats.samples.length > 10) this.stats.samples.shift(); this.stats.tcpPingMs = Math.round(this.stats.samples.reduce((a, b) => a + b, 0) / this.stats.samples.length); this._emit('stats'); } }
         break;
@@ -276,6 +292,7 @@ export class MumbleClient extends EventTarget {
   _emit(name, detail) { this.dispatchEvent(new CustomEvent(name, { detail })); }
   _pushMessage(m) {
     const msg = { id: crypto.randomUUID(), date: new Date(), ...m };
+    if (msg.own) this._lastOwn = msg;
     this.messages.push(msg);
     if (this.messages.length > 2000) this.messages.shift();
     this.dispatchEvent(new CustomEvent('text', { detail: msg }));
