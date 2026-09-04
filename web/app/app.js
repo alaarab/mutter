@@ -454,7 +454,7 @@ $('shareBtn').onclick = async () => {
   try { await share.start(); showTab('screen'); }
   catch (e) { if (e.name !== 'NotAllowedError') toast(`Can't share: ${e.message}`, 'warn'); }
 };
-mountStage({ share, client, stage: $('stage'), tabs: [$('screenBtn')], showTab, toast });
+mountStage({ share, client, stage: $('stage'), tabs: [$('screenBtn')], showTab, toast, applySink: e => audio.applySink(e) });
 
 // ---- settings ----
 
@@ -470,7 +470,7 @@ function segmented(id, value, onChange) {
   }
 }
 
-async function renderSettings() {
+function renderSettings() {
   segmented('transmitMode', settings.transmitMode, v => { settings.transmitMode = v; });
   $('transmitHint').textContent = { vad: `Opens the mic when it hears you. ${keyLabel(settings.pttKey)} talks too.`, ptt: `Hold ${keyLabel(settings.pttKey)} or the button.`, continuous: 'Always sending while unmuted.' }[settings.transmitMode];
   let keyRow = $('pttKeyRow');
@@ -496,15 +496,33 @@ async function renderSettings() {
   }));
   $('turnUrl').value = settings.turn.url; $('turnUser').value = settings.turn.username; $('turnPass').value = settings.turn.credential;
   $('shareAudio').checked = settings.shareAudio !== false;
-  const devices = await audio.inputDevices();
-  const sel = $('micSelect');
-  sel.replaceChildren(el('option', { value: '', textContent: 'Default microphone' }), ...devices.map((d, i) => el('option', { value: d.deviceId, textContent: d.label || `Microphone ${i + 1}` })));
-  sel.value = devices.some(d => d.deviceId === settings.inputDeviceId) ? settings.inputDeviceId : '';
+  renderDevices();
   renderPanels();
 }
+/// Filling the two device pickers is the one slow part of the panel, so it happens on its own —
+/// a browser that is slow to enumerate can no longer leave the rest of Settings half-drawn.
+async function renderDevices() {
+  const fill = (sel, list, fallback, chosen) => {
+    sel.replaceChildren(el('option', { value: '', textContent: fallback }),
+      ...list.map((d, i) => el('option', { value: d.deviceId, textContent: d.label || `${fallback.replace(/^(Default|System) /, '')} ${i + 1}` })));
+    sel.value = list.some(d => d.deviceId === chosen) ? chosen : '';
+  };
+  fill($('micSelect'), [], 'Default microphone', '');
+  fill($('outSelect'), [], 'System default', '');
+  $('outSelect').disabled = !AudioEngine.canPickOutput;
+  const [ins, outs] = await Promise.all([audio.inputDevices(), audio.outputDevices()]);
+  fill($('micSelect'), ins, 'Default microphone', settings.inputDeviceId);
+  fill($('outSelect'), outs, 'System default', settings.outputDeviceId);
+  $('outStatus').textContent = !AudioEngine.canPickOutput ? 'This browser always uses the system default. Chrome and Edge can choose.'
+    : outs.some(d => d.label) ? 'Voice and a shared screen’s audio both follow this.'
+    : 'Allow the microphone once and the device names appear here.';
+}
+navigator.mediaDevices?.addEventListener?.('devicechange', () => { if (!$('settings').hidden) renderDevices(); });
+
 $('autoSens').onchange = () => { settings.autoSensitivity = $('autoSens').checked; saveSettings(); renderSettings(); };
 $('threshold').oninput = () => { settings.vadThresholdDb = Number($('threshold').value); saveSettings(); $('thresholdLabel').textContent = `${settings.vadThresholdDb} dB`; };
 $('micSelect').onchange = async () => { await audio.setInputDevice($('micSelect').value); saveSettings(); };
+$('outSelect').onchange = async () => { await audio.setOutputDevice($('outSelect').value); saveSettings(); };
 for (const [id, key] of [['turnUrl', 'url'], ['turnUser', 'username'], ['turnPass', 'credential']]) $(id).onchange = () => { settings.turn[key] = $(id).value.trim(); saveSettings(); };
 $('shareAudio').onchange = () => { settings.shareAudio = $('shareAudio').checked; saveSettings(); };
 $('diagBtn').onclick = () => { const d = $('diag'); d.hidden = !d.hidden; $('diagBtn').textContent = d.hidden ? 'Show log' : 'Hide log'; renderDiag(); };

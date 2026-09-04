@@ -7,7 +7,7 @@ const FRAME_SAMPLES = 960;                 // 20 ms at 48 kHz
 const FRAMES_PER_PACKET = FRAME_MS / 10;   // Mumble sequence numbers count 10 ms units
 const HANGOVER_MS = 400;
 
-const DEFAULTS = { transmitMode: 'vad', vadThresholdDb: -38, autoSensitivity: true, bitrate: 40_000, inputGain: 1, inputDeviceId: '', noiseSuppression: 'neural' };
+const DEFAULTS = { transmitMode: 'vad', vadThresholdDb: -38, autoSensitivity: true, bitrate: 40_000, inputGain: 1, inputDeviceId: '', outputDeviceId: '', noiseSuppression: 'neural' };
 const VAD_OPEN = 0.5, VAD_HOLD = 0.3;   // RNNoise voice probability: open above, stay open above
 const OPEN_FRAMES = 2;             // consecutive frames above threshold before the gate opens
 
@@ -69,6 +69,7 @@ export class AudioEngine extends EventTarget {
     });
     this._encoder.configure(this._encoderConfig());
     this.running = true;
+    await this._applySink();
     await this._ctx.resume();
 
     if (source === 'tone') {
@@ -122,8 +123,39 @@ export class AudioEngine extends EventTarget {
     if (this.running) await this._openMicrophone();
   }
 
-  async inputDevices() {
-    try { return (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput'); } catch { return []; }
+  /// Device lists, or [] if the browser doesn't answer. The timeout is not paranoia: an
+  /// enumerateDevices() that never settles would otherwise hang whoever awaited it.
+  async devices(kind) {
+    try {
+      const all = await Promise.race([navigator.mediaDevices.enumerateDevices(), new Promise(r => setTimeout(() => r(null), 2000))]);
+      if (!all) { this._diag('the browser did not answer enumerateDevices()'); return []; }
+      return all.filter(d => d.kind === kind);
+    } catch { return []; }
+  }
+  inputDevices() { return this.devices('audioinput'); }
+  outputDevices() { return this.devices('audiooutput'); }
+
+  /// Chrome can point an AudioContext at a chosen output since 110; without it we're stuck with
+  /// whatever the system picked.
+  static get canPickOutput() { return typeof AudioContext !== 'undefined' && 'setSinkId' in AudioContext.prototype; }
+
+  async setOutputDevice(deviceId) {
+    this.settings.outputDeviceId = deviceId;
+    await this._applySink();
+    this._emit('state');
+  }
+
+  async _applySink() {
+    const id = this.settings.outputDeviceId;
+    if (!this._ctx?.setSinkId) return;
+    try { await this._ctx.setSinkId(id || ''); this._diag(`output → ${id ? id.slice(0, 8) : 'system default'}`); }
+    catch (e) { this._diag(`output device rejected: ${e.message}`); this.settings.outputDeviceId = ''; }
+  }
+
+  /// Point a media element (the screen-share video) at the same output as the voice.
+  applySink(elm) {
+    const id = this.settings.outputDeviceId;
+    if (id && elm?.setSinkId) elm.setSinkId(id).catch(() => {});
   }
 
   async stop() {

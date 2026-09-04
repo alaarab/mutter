@@ -4,7 +4,7 @@
 import { ICON } from './icons.js';
 import { el } from './ui.js';
 
-export function mountStage({ share, client, stage, tabs, showTab, toast }) {
+export function mountStage({ share, client, stage, tabs, showTab, toast, applySink }) {
   let video = null, wasSharing = false;
 
   function render() {
@@ -19,7 +19,7 @@ export function mountStage({ share, client, stage, tabs, showTab, toast }) {
 
     if (w) {
       const name = client.users.get(w.sender)?.name ?? 'Someone';
-      if (!video) { video = el('video', { autoplay: true, playsInline: true, className: 'remote' }); video.srcObject = w.stream; }
+      if (!video) { video = el('video', { autoplay: true, playsInline: true, className: 'remote' }); video.srcObject = w.stream; applySink?.(video); }
       const bar = el('div', { className: 'stage-bar' },
         el('span', { className: 'title' }, el('strong', {}, name), el('span', { className: 'sub', textContent: share.available.get(w.sender)?.title ?? '' })),
         el('span', { className: 'stats', id: 'shareStats' }),
