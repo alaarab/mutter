@@ -159,6 +159,7 @@ export function userStatsRequest(session) {
 // Extra decoders
 Object.assign(FIELDS, {
   [MessageType.codecVersion]: { 1: ['alpha', 'uint'], 2: ['beta', 'uint'], 3: ['preferAlpha', 'bool'], 4: ['opus', 'bool'] },
+  [MessageType.cryptSetup]: { 1: ['key', 'bytes'], 2: ['clientNonce', 'bytes'], 3: ['serverNonce', 'bytes'] },
   [MessageType.permissionQuery]: { 1: ['channelId', 'uint'], 2: ['permissions', 'uint'], 3: ['flush', 'bool'] },
   [MessageType.ping]: { 1: ['timestamp', 'uint'], 2: ['good', 'uint'], 3: ['late', 'uint'], 4: ['lost', 'uint'], 5: ['resync', 'uint'], 6: ['udpPackets', 'uint'], 7: ['tcpPackets', 'uint'], 8: ['udpPingAvg', 'bytes'], 9: ['udpPingVar', 'bytes'], 10: ['tcpPingAvg', 'bytes'], 11: ['tcpPingVar', 'bytes'] },
   [MessageType.suggestConfig]: { 1: ['version', 'uint'], 2: ['positional', 'bool'], 3: ['pushToTalk', 'bool'] },

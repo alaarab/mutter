@@ -62,6 +62,15 @@ export function encodeAudio({ target = 0, frameNumber = 0, opus, isTerminator = 
   return pkt;
 }
 
+/// UDP ping (client → server). The server echoes the timestamp, which gives the round trip.
+export function encodePing(timestampMicros, format) {
+  if (format === 'legacy') { const out = [0x20]; MumbleVarint.encode(timestampMicros, out); return Uint8Array.from(out); }
+  const body = new Writer().uint(1, timestampMicros).finish();
+  const pkt = new Uint8Array(body.length + 1);
+  pkt[0] = 1; pkt.set(body, 1);
+  return pkt;
+}
+
 /// Incoming packet from the server (via UDPTunnel). Returns { kind: 'audio'|'ping', ... } or null.
 export function decodeVoice(b, format) {
   if (!b.length) return null;

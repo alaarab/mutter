@@ -3,17 +3,31 @@
 // work machine this runs with `node server.mjs` and nothing else — no npm install, no admin.
 //
 // Browser (Windows)  ──ws://localhost:8788──▶  this (WSL)  ──TLS:64738──▶  Mumble server
+//                                                          ──UDP:64738──▶
+//
+// Voice takes the UDP lane like a native client: the browser keeps tunnelling voice frames
+// over the WebSocket (localhost never drops a packet), and this end encrypts them with the
+// server's CryptSetup key and sends them as UDP datagrams, decrypting the server's datagrams
+// back into tunnel frames. If UDP is blocked the frames pass through over TCP as before.
+// Voice over TCP stalls on every lost Wi-Fi packet; over UDP it just loses that packet.
 
 import http from 'node:http';
 import tls from 'node:tls';
+import dgram from 'node:dgram';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { FrameParser, MessageType, frame, decode } from '../src/mumble.js';
+import { Writer } from '../src/protobuf.js';
+import { CryptState } from '../src/ocb2.js';
+import { decodeVoice, encodePing, wireFormatFor } from '../src/voice.js';
 
 const PORT = Number(process.env.PORT ?? 8788);
 const OPEN = !process.argv.includes('--no-open') && !process.env.NO_OPEN;
+const UDP = !process.argv.includes('--tcp') && process.env.VOICE !== 'tcp';
+const PING_MS = 5000, UDP_TIMEOUT_MS = 10_000, RESYNC_MS = 5000;
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 // The brand faces live with the iOS app; mount them so the web client looks like Mutter.
 const FONTS = path.join(ROOT, '..', 'Mutter', 'Resources', 'Fonts');
@@ -47,30 +61,101 @@ server.on('upgrade', (req, socket) => {
 });
 
 function handleClient(ws) {
-  let upstream = null;
+  let upstream = null, udp = null, port = 64738, pingTimer = null;
   const conn = new WSConnection(ws);
+  const crypt = new CryptState();
+  const toServer = new FrameParser(), toBrowser = new FrameParser();
+  let wireFormat = 'protobuf', udpUp = false, lastReply = 0, lastResyncAsk = 0, rtt = 0, label = '';
 
   conn.onMessage = (data, isText) => {
     if (isText && !upstream) {
       // First message names the server to dial.
       let target;
       try { target = JSON.parse(data.toString()); } catch { return conn.close(); }
-      const { host, port = 64738 } = target;
+      const { host } = target;
+      port = target.port ?? 64738;
       if (!host) return conn.close();
-      console.log(`→ dialing ${host}:${port}`);
+      label = `${host}:${port}`;
+      console.log(`→ dialing ${label}`);
       upstream = tls.connect({ host, port, rejectUnauthorized: false }, () => {
-        console.log(`  connected ${host}:${port}`);
+        console.log(`  connected ${label}`);
         conn.send(JSON.stringify({ event: 'open' }), true);
       });
-      upstream.on('data', chunk => conn.send(chunk, false));
+      upstream.on('data', fromServer);
       upstream.on('error', e => { conn.send(JSON.stringify({ event: 'error', message: e.message }), true); conn.close(); });
       upstream.on('close', () => conn.close());
       return;
     }
-    if (upstream && !isText) upstream.write(data);   // raw Mumble frames, straight through
+    if (!upstream || isText) return;
+    let frames;
+    try { frames = toServer.push(new Uint8Array(data)); } catch { return conn.close(); }
+    for (const f of frames) {
+      if (f.type === MessageType.udpTunnel && udpUp && udp) { const enc = crypt.encrypt(f.payload); if (enc) { udp.send(enc, port, upstream.remoteAddress); continue; } }
+      upstream.write(frame(f.type, f.payload));
+    }
   };
 
-  conn.onClose = () => { upstream?.destroy(); upstream = null; };
+  function fromServer(chunk) {
+    let frames;
+    try { frames = toBrowser.push(new Uint8Array(chunk)); } catch { return conn.close(); }
+    for (const f of frames) {
+      if (f.type === MessageType.version) wireFormat = wireFormatFor(decode(f.type, f.payload));
+      else if (f.type === MessageType.cryptSetup && UDP) onCryptSetup(decode(f.type, f.payload));
+      conn.send(frame(f.type, f.payload), false);
+    }
+  }
+
+  function onCryptSetup(m) {
+    if (m.key && m.clientNonce && m.serverNonce) {
+      if (!crypt.setKey(m.key, m.clientNonce, m.serverNonce)) return;
+      openUdp();
+    } else if (m.serverNonce) crypt.setDecryptIV(m.serverNonce);
+    else upstream.write(frame(MessageType.cryptSetup, new Writer().bytes(2, crypt.encryptIV).finish()));   // server wants our nonce
+  }
+
+  function openUdp() {
+    if (udp) { ping(); return; }
+    udp = dgram.createSocket(upstream.remoteFamily === 'IPv6' ? 'udp6' : 'udp4');
+    udp.on('message', msg => {
+      const plain = crypt.decrypt(new Uint8Array(msg));
+      if (!plain) return;
+      const p = decodeVoice(plain, wireFormat);
+      if (p?.kind === 'ping') {
+        lastReply = Date.now();
+        const sent = Number(BigInt(p.timestamp) / 1000n);
+        if (sent > 0 && lastReply - sent < 60_000) rtt = lastReply - sent;
+        if (!udpUp) setUdp(true);
+        return;
+      }
+      conn.send(frame(MessageType.udpTunnel, plain), false);
+    });
+    udp.on('error', e => { console.log(`  udp error ${e.message}`); setUdp(false); });
+    ping();
+    pingTimer = setInterval(() => {
+      ping();
+      if (udpUp && Date.now() - lastReply > UDP_TIMEOUT_MS) setUdp(false);
+      // Decrypts stalled while UDP is up: ask the server for a fresh nonce, like a native client.
+      if (udpUp && crypt.lastGood && Date.now() - crypt.lastGood > RESYNC_MS && Date.now() - lastResyncAsk > RESYNC_MS) {
+        lastResyncAsk = Date.now();
+        upstream.write(frame(MessageType.cryptSetup, new Uint8Array(0)));
+      }
+    }, PING_MS);
+  }
+
+  function ping() {
+    if (!udp || !crypt.isValid || !upstream?.remoteAddress) return;
+    const enc = crypt.encrypt(encodePing(BigInt(Date.now()) * 1000n, wireFormat));
+    if (enc) udp.send(enc, port, upstream.remoteAddress);
+  }
+
+  function setUdp(up) {
+    if (udpUp === up) return;
+    udpUp = up;
+    console.log(`  ${label}: voice over ${up ? `UDP (${rtt} ms)` : 'TCP tunnel'}`);
+    conn.send(JSON.stringify({ event: 'udp', up, rtt }), true);
+  }
+
+  conn.onClose = () => { clearInterval(pingTimer); udp?.close(); udp = null; upstream?.destroy(); upstream = null; };
 }
 
 /// The slice of RFC 6455 this bridge needs: binary/text frames (including fragmented ones —
