@@ -1,55 +1,26 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Mutter">
-  <!-- 6 — Key On Air: the talk key with sound leaving it, in the app's own geometry.
-       The accent is one CSS variable; see the style block below to re-theme.
-       Flat single-colour silhouette: the matching cand-N-flat.svg. -->
-  <defs><linearGradient id="tint" x1="0" y1="0" x2=".78" y2="1">
-      <stop offset="0" class="ga" stop-color="#3D9BFF" stop-opacity=".22"/>
-      <stop offset=".6" class="ga" stop-color="#3D9BFF" stop-opacity=".05"/>
-      <stop offset="1" stop-color="#000" stop-opacity=".3"/>
-    </linearGradient>
-    <radialGradient id="glow" cx=".5" cy=".52" r=".6">
-      <stop offset="0" class="ga" stop-color="#3D9BFF" stop-opacity=".3"/>
-      <stop offset="1" class="ga" stop-color="#3D9BFF" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="lit" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#fff" stop-opacity=".4"/>
-      <stop offset=".52" stop-color="#fff" stop-opacity="0"/>
-      <stop offset="1" stop-color="#000" stop-opacity=".22"/>
-    </linearGradient>
-    <linearGradient id="bev" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#fff" stop-opacity=".6"/>
-      <stop offset=".4" stop-color="#fff" stop-opacity="0"/>
-    </linearGradient>
-    <linearGradient id="skirt6" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" class="ga" stop-color="#3D9BFF" stop-opacity=".55"/>
-      <stop offset="1" class="ga2" stop-color="#1C77DB" stop-opacity=".35"/>
-    </linearGradient>
-    <linearGradient id="face6" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" class="ga" stop-color="#3D9BFF"/>
-      <stop offset="1" class="ga2" stop-color="#1C77DB"/>
-    </linearGradient></defs>
-  <style>
-    /* One variable drives the whole mark. Set the custom property --accent (and --accent-2,
-       the darker "accent-active" tone) on the root element or on any ancestor to re-theme:
-       style="--accent:#A8E831;--accent-2:#7FB513" gives the Ultra palette. Nothing is
-       declared here, only read with a fallback, so an ancestor always wins. */
-    .a{fill:var(--accent,#3D9BFF)}
-    .a2{fill:var(--accent-2,#1C77DB)}
-    .sa{stroke:var(--accent,#3D9BFF)}
-    .sa2{stroke:var(--accent-2,#1C77DB)}
-    .ga{stop-color:var(--accent,#3D9BFF)}
-    .ga2{stop-color:var(--accent-2,#1C77DB)}
-    .bg{fill:var(--bg,#0B0F17)}
-    .ink{fill:var(--ink,#F7FBFF)}
-  </style>
-  <g id="mark"><rect class="bg" fill="#0B0F17" width="512" height="512" rx="114"/>
-  <rect width="512" height="512" rx="114" fill="url(#tint)"/>
-  <rect width="512" height="512" rx="114" fill="url(#glow)"/>
-  <g fill="none" stroke-linecap="round" stroke-width="46">
-    <path class="sa" stroke="#3D9BFF" d="M298 128A86 86 0 0 1 384 214L384 298A86 86 0 0 1 298 384"/>
-    <path class="sa" stroke="#3D9BFF" d="M214 128A86 86 0 0 0 128 214L128 298A86 86 0 0 0 214 384"/>
+  <desc>Dusk Glass: heavy frost over a violet to rose to gold sunset field, deliberately rimless with no bevel or edge light, deep plum ink.</desc>
+  <defs>
+    <clipPath id="tile-v6"><rect width="512" height="512" rx="114"/></clipPath>
+    <filter id="soft-v6" x="-35%" y="-35%" width="170%" height="170%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="100"/>
+    </filter>
+    <filter id="grain-v6" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="3" stitchTiles="stitch" seed="7"/>
+      <feColorMatrix type="saturate" values="0"/>
+    </filter>
+  </defs>
+  <g id="mark">
+    <g clip-path="url(#tile-v6)">
+      <rect width="512" height="512" fill="#EE5C82"/>
+      <g filter="url(#soft-v6)">
+        <circle cx="140" cy="40" r="300" fill="#8A4BE0"/>
+        <circle cx="430" cy="150" r="260" fill="#F0468A"/>
+        <circle cx="230" cy="480" r="320" fill="#FFB347"/>
+      </g>
+      <rect width="512" height="512" fill="#FFFFFF" opacity=".38"/>
+      <rect width="512" height="512" filter="url(#grain-v6)" opacity=".11" style="mix-blend-mode:overlay"/>
+    </g>
+    <path d="M142 357L142 155L256 316L370 155L370 357" fill="none" stroke-width="53" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10" stroke="#3A0F2E"/>
   </g>
-  <rect x="190" y="198" width="132" height="128" rx="42" fill="url(#skirt6)"/>
-  <rect x="196" y="194" width="120" height="116" rx="34" fill="url(#face6)"/>
-  <rect x="196" y="194" width="120" height="116" rx="34" fill="url(#lit)"/></g>
 </svg>

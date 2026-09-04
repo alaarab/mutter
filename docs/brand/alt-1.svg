@@ -1,56 +1,36 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Mutter">
-  <!-- 1 — Pressed Talk Key: the one gesture the app is built around, as an object.
-       The accent is one CSS variable; see the style block below to re-theme.
-       Flat single-colour silhouette: the matching cand-N-flat.svg. -->
-  <defs><linearGradient id="tint" x1="0" y1="0" x2=".78" y2="1">
-      <stop offset="0" class="ga" stop-color="#3D9BFF" stop-opacity=".22"/>
-      <stop offset=".6" class="ga" stop-color="#3D9BFF" stop-opacity=".05"/>
-      <stop offset="1" stop-color="#000" stop-opacity=".3"/>
+  <desc>Frosted Cyan: a cyan into magenta mesh field under a medium frost, grain instead of gloss, one hairline rim lit from the top left, deep ink mark.</desc>
+  <defs>
+    <clipPath id="tile-v1"><rect width="512" height="512" rx="114"/></clipPath>
+    <filter id="soft-v1" x="-35%" y="-35%" width="170%" height="170%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="85"/>
+    </filter>
+    <filter id="grain-v1" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" stitchTiles="stitch" seed="7"/>
+      <feColorMatrix type="saturate" values="0"/>
+    </filter>
+    <linearGradient id="veil-v1" x1="0" y1="0" x2=".25" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity=".27"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity=".42"/>
     </linearGradient>
-    <radialGradient id="glow" cx=".5" cy=".52" r=".6">
-      <stop offset="0" class="ga" stop-color="#3D9BFF" stop-opacity=".3"/>
-      <stop offset="1" class="ga" stop-color="#3D9BFF" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="lit" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#fff" stop-opacity=".4"/>
-      <stop offset=".52" stop-color="#fff" stop-opacity="0"/>
-      <stop offset="1" stop-color="#000" stop-opacity=".22"/>
+    <linearGradient id="rim-v1" x1=".05" y1="0" x2=".95" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity=".92"/>
+      <stop offset=".45" stop-color="#FFFFFF" stop-opacity=".14"/>
+      <stop offset="1" stop-color="#2A1136" stop-opacity=".30"/>
     </linearGradient>
-    <linearGradient id="bev" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#fff" stop-opacity=".6"/>
-      <stop offset=".4" stop-color="#fff" stop-opacity="0"/>
-    </linearGradient>
-    <linearGradient id="skirt" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" class="ga" stop-color="#3D9BFF" stop-opacity=".5"/>
-      <stop offset="1" class="ga2" stop-color="#1C77DB" stop-opacity=".32"/>
-    </linearGradient>
-    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" class="ga" stop-color="#3D9BFF"/>
-      <stop offset="1" class="ga2" stop-color="#1C77DB"/>
-    </linearGradient>
-    <filter id="drop" x="-40%" y="-40%" width="180%" height="180%">
-      <feDropShadow dx="0" dy="24" stdDeviation="26" flood-color="#02060F" flood-opacity=".6"/>
-    </filter></defs>
-  <style>
-    /* One variable drives the whole mark. Set the custom property --accent (and --accent-2,
-       the darker "accent-active" tone) on the root element or on any ancestor to re-theme:
-       style="--accent:#A8E831;--accent-2:#7FB513" gives the Ultra palette. Nothing is
-       declared here, only read with a fallback, so an ancestor always wins. */
-    .a{fill:var(--accent,#3D9BFF)}
-    .a2{fill:var(--accent-2,#1C77DB)}
-    .sa{stroke:var(--accent,#3D9BFF)}
-    .sa2{stroke:var(--accent-2,#1C77DB)}
-    .ga{stop-color:var(--accent,#3D9BFF)}
-    .ga2{stop-color:var(--accent-2,#1C77DB)}
-    .bg{fill:var(--bg,#0B0F17)}
-    .ink{fill:var(--ink,#F7FBFF)}
-  </style>
-  <g id="mark"><rect class="bg" fill="#0B0F17" width="512" height="512" rx="114"/>
-  <rect width="512" height="512" rx="114" fill="url(#tint)"/>
-  <rect width="512" height="512" rx="114" fill="url(#glow)"/>
-  <g filter="url(#drop)"><rect x="95" y="115" width="322" height="307" rx="90" fill="url(#skirt)"/></g>
-  <rect x="110" y="109" width="292" height="277" rx="77" fill="url(#face)"/>
-  <rect x="110" y="109" width="292" height="277" rx="77" fill="url(#lit)"/>
-  <rect x="112.5" y="111.5" width="287" height="272" rx="74.5" fill="none" stroke="url(#bev)" stroke-width="5"/>
-  <path class="ink" fill="#F7FBFF" d="M170.2 325.5L170.2 169.5L231.8 169.5L256 232.7L280.2 169.5L341.8 169.5L341.8 325.5L304.4 325.5L304.4 196L256 321.6L207.6 196L207.6 325.5Z"/></g>
+  </defs>
+  <g id="mark">
+    <g clip-path="url(#tile-v1)">
+      <rect width="512" height="512" fill="#2AA6EA"/>
+      <g filter="url(#soft-v1)">
+        <circle cx="90" cy="70" r="300" fill="#22D3F5"/>
+        <circle cx="470" cy="430" r="320" fill="#E22BB4"/>
+        <circle cx="300" cy="200" r="210" fill="#6F5BF2"/>
+      </g>
+      <rect width="512" height="512" fill="url(#veil-v1)"/>
+      <rect width="512" height="512" filter="url(#grain-v1)" opacity=".07" style="mix-blend-mode:overlay"/>
+    </g>
+    <rect x="1.5" y="1.5" width="509" height="509" rx="112.5" fill="none" stroke="url(#rim-v1)" stroke-width="3"/>
+    <path d="M142 357L142 155L256 316L370 155L370 357" fill="none" stroke-width="53" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10" stroke="#140F22"/>
+  </g>
 </svg>

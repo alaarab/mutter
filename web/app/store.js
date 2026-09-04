@@ -1,13 +1,15 @@
 // Everything that survives a reload lives in localStorage: settings, saved servers, and which
 // channels are collapsed. Plain JSON, one key each.
 
+import { DEFAULT_THEME } from './themes.js';
+
 function load(key, fallback) {
   try { return { ...fallback, ...JSON.parse(localStorage.getItem(key) ?? 'null') } ?? fallback; } catch { return fallback; }
 }
 const save = (key, value) => localStorage.setItem(key, JSON.stringify(value));
 
 export const settings = load('mutter.settings', {
-  theme: 'midnight', transmitMode: 'vad', vadThresholdDb: -38, autoSensitivity: true, bitrate: 40_000, inputDeviceId: '',
+  theme: DEFAULT_THEME, transmitMode: 'vad', vadThresholdDb: -38, autoSensitivity: true, bitrate: 40_000, inputDeviceId: '',
   shareAudio: true, turn: { url: '', username: '', credential: '' },
 });
 export const saveSettings = () => save('mutter.settings', settings);

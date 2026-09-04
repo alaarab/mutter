@@ -1,46 +1,33 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Mutter">
-  <!-- 3 — Bubble Tail Monogram: the M's centre vertex is the bubble's tail.
-       The accent is one CSS variable; see the style block below to re-theme.
-       Flat single-colour silhouette: the matching cand-N-flat.svg. -->
-  <defs><linearGradient id="tint" x1="0" y1="0" x2=".78" y2="1">
-      <stop offset="0" class="ga" stop-color="#3D9BFF" stop-opacity=".22"/>
-      <stop offset=".6" class="ga" stop-color="#3D9BFF" stop-opacity=".05"/>
-      <stop offset="1" stop-color="#000" stop-opacity=".3"/>
+  <desc>Cobalt Glass: a deep blue into violet field under a low frost with a white mark, and one hard bright rim along the top edge only.</desc>
+  <defs>
+    <clipPath id="tile-v3"><rect width="512" height="512" rx="114"/></clipPath>
+    <filter id="soft-v3" x="-35%" y="-35%" width="170%" height="170%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="90"/>
+    </filter>
+    <filter id="grain-v3" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" stitchTiles="stitch" seed="7"/>
+      <feColorMatrix type="saturate" values="0"/>
+    </filter>
+    <linearGradient id="rim-v3" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity=".95"/>
+      <stop offset=".22" stop-color="#FFFFFF" stop-opacity=".10"/>
+      <stop offset=".8" stop-color="#FFFFFF" stop-opacity=".05"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity=".30"/>
     </linearGradient>
-    <radialGradient id="glow" cx=".5" cy=".52" r=".6">
-      <stop offset="0" class="ga" stop-color="#3D9BFF" stop-opacity=".3"/>
-      <stop offset="1" class="ga" stop-color="#3D9BFF" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="lit" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#fff" stop-opacity=".4"/>
-      <stop offset=".52" stop-color="#fff" stop-opacity="0"/>
-      <stop offset="1" stop-color="#000" stop-opacity=".22"/>
-    </linearGradient>
-    <linearGradient id="bev" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#fff" stop-opacity=".6"/>
-      <stop offset=".4" stop-color="#fff" stop-opacity="0"/>
-    </linearGradient>
-    <linearGradient id="body" x1="0" y1="0" x2=".4" y2="1">
-      <stop offset="0" class="ga" stop-color="#3D9BFF"/>
-      <stop offset="1" class="ga2" stop-color="#1C77DB"/>
-    </linearGradient></defs>
-  <style>
-    /* One variable drives the whole mark. Set the custom property --accent (and --accent-2,
-       the darker "accent-active" tone) on the root element or on any ancestor to re-theme:
-       style="--accent:#A8E831;--accent-2:#7FB513" gives the Ultra palette. Nothing is
-       declared here, only read with a fallback, so an ancestor always wins. */
-    .a{fill:var(--accent,#3D9BFF)}
-    .a2{fill:var(--accent-2,#1C77DB)}
-    .sa{stroke:var(--accent,#3D9BFF)}
-    .sa2{stroke:var(--accent-2,#1C77DB)}
-    .ga{stop-color:var(--accent,#3D9BFF)}
-    .ga2{stop-color:var(--accent-2,#1C77DB)}
-    .bg{fill:var(--bg,#0B0F17)}
-    .ink{fill:var(--ink,#F7FBFF)}
-  </style>
-  <g id="mark"><rect class="bg" fill="#0B0F17" width="512" height="512" rx="114"/>
-  <rect width="512" height="512" rx="114" fill="url(#tint)"/>
-  <rect width="512" height="512" rx="114" fill="url(#glow)"/>
-  <path d="M76 168A80 80 0 0 1 156 88L356 88A80 80 0 0 1 436 168L436 338A30 30 0 0 1 406 368L364 368L364 168L262.6 391Q256 418 249.4 391L148 168L148 368L106 368A30 30 0 0 1 76 338Z" fill="url(#body)"/>
-  <path d="M76 168A80 80 0 0 1 156 88L356 88A80 80 0 0 1 436 168L436 338A30 30 0 0 1 406 368L364 368L364 168L262.6 391Q256 418 249.4 391L148 168L148 368L106 368A30 30 0 0 1 76 338Z" fill="url(#lit)"/></g>
+  </defs>
+  <g id="mark">
+    <g clip-path="url(#tile-v3)">
+      <rect width="512" height="512" fill="#1E2FD8"/>
+      <g filter="url(#soft-v3)">
+        <circle cx="110" cy="90" r="300" fill="#3358FF"/>
+        <circle cx="450" cy="420" r="330" fill="#7A2BF0"/>
+        <circle cx="60" cy="470" r="250" fill="#0B1470"/>
+      </g>
+      <rect width="512" height="512" fill="#FFFFFF" opacity=".07"/>
+      <rect width="512" height="512" filter="url(#grain-v3)" opacity=".06" style="mix-blend-mode:overlay"/>
+    </g>
+    <rect x="1.5" y="1.5" width="509" height="509" rx="112.5" fill="none" stroke="url(#rim-v3)" stroke-width="3"/>
+    <path d="M142 357L142 155L256 316L370 155L370 357" fill="none" stroke-width="53" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10" stroke="#FFFFFF"/>
+  </g>
 </svg>
