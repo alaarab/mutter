@@ -70,8 +70,10 @@ final class ScreenShareModel: NSObject {
         self.client = client
         self.sender = SignalSender(client: client)
         super.init()
+        // The sharer announces once, so shares are dropped by event, not by age: this only
+        // prunes shares whose owner has left the server.
         expiryTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.expireStale() }
+            Task { @MainActor in self?.pruneDepartedSharers() }
         }
     }
 
@@ -143,12 +145,11 @@ final class ScreenShareModel: NSObject {
         sender.reset()
     }
 
-    private func expireStale() {
-        let cutoff = Date().addingTimeInterval(-25)
-        let stale = shares.values.filter { $0.lastSeen < cutoff }
-        for s in stale {
-            shares[s.id] = nil
-            if watching?.id == s.id { stopWatching(sendLeave: false); connectionState = "Sharer went away" }
+    private func pruneDepartedSharers() {
+        let roster = client.session.users
+        for share in shares.values where roster[share.sender] == nil {
+            shares[share.id] = nil
+            if watching?.id == share.id { stopWatching(sendLeave: false); connectionState = "Sharer left" }
         }
     }
 
