@@ -404,6 +404,7 @@ async function renderSettings() {
     return b;
   }));
   $('turnUrl').value = settings.turn.url; $('turnUser').value = settings.turn.username; $('turnPass').value = settings.turn.credential;
+  $('shareAudio').checked = settings.shareAudio !== false;
   const devices = await audio.inputDevices();
   const sel = $('micSelect');
   sel.replaceChildren(el('option', { value: '', textContent: 'Default microphone' }), ...devices.map((d, i) => el('option', { value: d.deviceId, textContent: d.label || `Microphone ${i + 1}` })));
@@ -414,6 +415,7 @@ $('autoSens').onchange = () => { settings.autoSensitivity = $('autoSens').checke
 $('threshold').oninput = () => { settings.vadThresholdDb = Number($('threshold').value); saveSettings(); $('thresholdLabel').textContent = `${settings.vadThresholdDb} dB`; };
 $('micSelect').onchange = async () => { await audio.setInputDevice($('micSelect').value); saveSettings(); };
 for (const [id, key] of [['turnUrl', 'url'], ['turnUser', 'username'], ['turnPass', 'credential']]) $(id).onchange = () => { settings.turn[key] = $(id).value.trim(); saveSettings(); };
+$('shareAudio').onchange = () => { settings.shareAudio = $('shareAudio').checked; saveSettings(); };
 
 $('diagBtn').onclick = () => { const d = $('diag'); d.hidden = !d.hidden; $('diagBtn').textContent = d.hidden ? 'Show log' : 'Hide log'; renderDiag(); };
 $('diagCopy').onclick = async () => { try { await navigator.clipboard.writeText(diagText()); toast('Log copied'); } catch { toast('Could not copy', 'warn'); } };

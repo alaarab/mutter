@@ -116,10 +116,13 @@ export class ScreenShare extends EventTarget {
   async _offer(viewer, m) {
     const s = this.sharing;
     if (!s || s.id !== m.id) return;
+    s.announced.add(viewer);          // a viewer we never announced to (late joiner) still gets `stop`
     s.peers.get(viewer)?.close();
     const pc = this._pc();
     s.peers.set(viewer, pc);
-    for (const track of s.stream.getTracks()) {
+    // Video first so it carries the BUNDLE tag; a viewer can then reject audio outright (port 0)
+    // instead of only marking it inactive.
+    for (const track of [...s.stream.getVideoTracks(), ...s.stream.getAudioTracks()]) {
       const tx = pc.addTransceiver(track, { direction: 'sendonly', streams: [s.stream] });
       if (track.kind === 'video') this._tune(tx, s.contentHint);
     }
@@ -141,6 +144,9 @@ export class ScreenShare extends EventTarget {
     if (!w || w.sender !== sender || w.id !== m.id) return;
     try {
       await w.pc.setRemoteDescription({ type: 'offer', sdp: m.sdp });
+      // Declining the audio m-line is legal and the sharer must cope: iOS always does (WebRTC's
+      // audio unit would fight its AVAudioEngine), the web does when the setting is off.
+      if (this.settings.shareAudio === false) for (const tx of w.pc.getTransceivers()) if (tx.receiver.track?.kind === 'audio') tx.stop();
       await w.pc.setLocalDescription(await w.pc.createAnswer());
       await gathered(w.pc);
       this._send([sender], { t: 'answer', id: m.id, sdp: w.pc.localDescription.sdp });

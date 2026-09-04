@@ -69,6 +69,18 @@ sharer                                 viewer
 The sharer keeps one `RTCPeerConnection` per viewer (a small mesh; the typical channel has a
 handful of people). A viewer watches one share at a time.
 
+Rules both sides follow:
+
+- The sharer answers **any** `watch` that carries its current `id`, whether or not it has seen
+  an announce reach that viewer (a late joiner may have learned the id another way). It then
+  treats that viewer as announced, so it also receives `stop`.
+- A viewer may **decline the audio m-line** in its answer (port 0). iOS always does — WebRTC's
+  audio unit would fight Mutter's own audio engine — and the web does when "Play the sharer's
+  audio" is off. The sharer must keep the video going regardless; `web/test/share.test.mjs`
+  checks this.
+- A viewer sends `watch` only after it has an `announce` for that `id`; an `offer` for an
+  unknown `id` is ignored.
+
 ## Media
 
 - Capture: `getDisplayMedia` with video up to 1920×1080 @ 30 (60 max) and system/tab audio when

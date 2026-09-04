@@ -40,14 +40,17 @@ try {
   const b = await open('Bravo');
   await a.waitFor('mutter.client.users.size === 2');
 
-  await step('Alpha starts sharing a 640×360 canvas stream', async () => {
+  await step('Alpha starts sharing a 640×360 canvas stream with an audio track', async () => {
     await a.eval(`(() => {
       const c = document.createElement('canvas'); c.width = 640; c.height = 360;
       const x = c.getContext('2d'); let n = 0;
       setInterval(() => { x.fillStyle = \`hsl(\${n++ % 360} 70% 50%)\`; x.fillRect(0, 0, 640, 360); x.fillStyle = '#fff'; x.font = '48px sans-serif'; x.fillText('frame ' + n, 40, 200); }, 33);
-      return mutter.share.start({ stream: c.captureStream(30), contentHint: 'motion' });
+      const stream = c.captureStream(30);
+      const ac = new AudioContext(); const osc = new OscillatorNode(ac); const dest = new MediaStreamAudioDestinationNode(ac); osc.connect(dest); osc.start();
+      stream.addTrack(dest.stream.getAudioTracks()[0]);
+      return mutter.share.start({ stream, contentHint: 'motion' });
     })()`);
-    await a.waitFor('!!mutter.share.sharing');
+    await a.waitFor('!!mutter.share.sharing && mutter.share.sharing.audio === true');
     await a.waitFor(`document.getElementById('shareBtn').classList.contains('active') && !document.getElementById('stage').hidden`);
   });
 
@@ -61,8 +64,13 @@ try {
     // A canvas source only produces frames while its tab is visible (a real screen capture
     // doesn't care), so keep the sharer in front while we measure.
     await a.send('Page.bringToFront');
+    await b.eval('mutter.settings.shareAudio = false');          // decline the audio m-line, as the iOS viewer always does
     await b.click('.offer .watch');
     await b.waitFor(`mutter.share.watching?.state === 'connected'`, { timeout: 15_000, label: 'peer connection connected' });
+    // A declined m-section is either port 0 or a=inactive (Chrome answers a stopped transceiver
+    // with the latter). The sharer must keep video going either way.
+    const audio = await a.eval(`(() => { const sdp = [...mutter.share.sharing.peers.values()][0].remoteDescription.sdp; const sec = sdp.split(/(?=m=)/).find(s => s.startsWith('m=audio')) ?? ''; return { port: Number(sec.split(' ')[1]), inactive: /a=inactive/.test(sec), video: /m=video/.test(sdp) }; })()`);
+    if (!audio.video || !(audio.port === 0 || audio.inactive)) throw new Error(`viewer did not decline audio: ${JSON.stringify(audio)}`);
     await b.waitFor(`mutter.share.watching?.stats.w === 640 && mutter.share.watching.stats.h === 360`, { timeout: 15_000, label: 'video stats report 640×360' });
     await b.waitFor(`(() => { const v = document.querySelector('#stage video'); return v && v.videoWidth === 640 && v.getVideoPlaybackQuality().totalVideoFrames > 2; })()`, { timeout: 8000, label: 'video element decoding frames' });
     await b.waitFor(`document.getElementById('shareStats')?.textContent.includes('640×360')`);
