@@ -9,6 +9,7 @@
 // Or from a test:  const s = await startFakeServer({ port: 0 }); ... s.close();
 
 import tls from 'node:tls';
+import dgram from 'node:dgram';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -19,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { FrameParser, MessageType, frame, decode } from '../src/mumble.js';
 import { Reader, Writer } from '../src/protobuf.js';
 import { MumbleVarint, OPUS } from '../src/voice.js';
+import { CryptState } from '../src/ocb2.js';
 
 const ALL_PERMISSIONS = 0x1F07FF;
 const IDLE_DROP_MS = 30_000;
@@ -26,15 +28,17 @@ const PLUGIN_MAX_BYTES = 1000;          // murmur: msgPluginDataTransmission
 const PLUGIN_BUCKET = { rate: 4, burst: 15 };
 const DenyType = { text: 0, permission: 1, textTooLong: 4 };
 
-export async function startFakeServer({ port = 64740, version = process.env.FAKE_VERSION ?? '1.5.735', password = null, quiet = false } = {}) {
-  const server = new FakeMumbleServer({ version, password, quiet });
+export async function startFakeServer({ port = 64740, version = process.env.FAKE_VERSION ?? '1.5.735', password = null, quiet = false, udp = process.env.FAKE_UDP !== '0' } = {}) {
+  const server = new FakeMumbleServer({ version, password, quiet, udp });
   await server.listen(port);
   return server;
 }
 
 export class FakeMumbleServer extends EventEmitter {
-  constructor({ version, password, quiet }) {
+  constructor({ version, password, quiet, udp = true }) {
     super();
+    this.udpEnabled = udp;
+    this.udpAddr = new Map();          // "ip:port" → user, learned from the first datagram that decrypts
     const [major, minor, patch] = version.split('.').map(Number);
     this.version = { major, minor, patch, release: `FakeMumble ${version}` };
     this.legacyVoice = major < 1 || (major === 1 && minor < 5);
@@ -58,13 +62,21 @@ export class FakeMumbleServer extends EventEmitter {
     this.tls = tls.createServer(ensureCert(), socket => this._accept(socket));
     return new Promise((res, rej) => {
       this.tls.once('error', rej);
-      this.tls.listen(port, '127.0.0.1', () => { this.port = this.tls.address().port; this._log(`listening on 127.0.0.1:${this.port} (${this.legacyVoice ? 'legacy' : 'protobuf'} voice)`); res(); });
+      this.tls.listen(port, '127.0.0.1', () => {
+        this.port = this.tls.address().port;
+        this._log(`listening on 127.0.0.1:${this.port} (${this.legacyVoice ? 'legacy' : 'protobuf'} voice${this.udpEnabled ? ', UDP on' : ', UDP off'})`);
+        if (!this.udpEnabled) return res();
+        this.udp = dgram.createSocket('udp4');
+        this.udp.on('message', (msg, rinfo) => this._udp(new Uint8Array(msg), rinfo));
+        this.udp.bind(this.port, '127.0.0.1', () => res());
+      });
     });
   }
 
   close() {
     for (const u of this.users.values()) u.socket.destroy();
     this.users.clear();
+    this.udp?.close();
     return new Promise(res => this.tls.close(() => res()));
   }
 
@@ -109,6 +121,11 @@ export class FakeMumbleServer extends EventEmitter {
       case MessageType.userStats: return this._sendTo(u, msg.userStats({ session: m.session ?? u.session, onlineSecs: Math.round((Date.now() - (this.users.get(m.session ?? u.session)?.since ?? Date.now())) / 1000) }));
       case MessageType.pluginDataTransmission: return this._plugin(u, m);
       case MessageType.voiceTarget: return;
+      case MessageType.cryptSetup: {
+        if (m.clientNonce) u.crypt.setDecryptIV(m.clientNonce);
+        else this._sendTo(u, frame(MessageType.cryptSetup, new Writer().bytes(3, u.crypt.encryptIV).finish()));   // resync: here is my nonce
+        return;
+      }
     }
   }
 
@@ -123,7 +140,9 @@ export class FakeMumbleServer extends EventEmitter {
     this.users.set(u.session, u);
 
     this._sendTo(u, msg.version({ v1: (major << 16) | (minor << 8) | Math.min(patch, 255), v2: (BigInt(major) << 48n) | (BigInt(minor) << 32n) | (BigInt(patch) << 16n), release, os: 'Node', osVersion: process.version }));
-    this._sendTo(u, frame(MessageType.cryptSetup, new Writer().bytes(1, crypto.randomBytes(16)).bytes(2, crypto.randomBytes(16)).bytes(3, crypto.randomBytes(16)).finish()));
+    const key = crypto.randomBytes(16), clientNonce = crypto.randomBytes(16), serverNonce = crypto.randomBytes(16);
+    u.crypt = new CryptState(); u.crypt.setKey(key, serverNonce, clientNonce);       // the server encrypts with its nonce, decrypts with the client's
+    this._sendTo(u, frame(MessageType.cryptSetup, new Writer().bytes(1, key).bytes(2, clientNonce).bytes(3, serverNonce).finish()));
     this._sendTo(u, frame(MessageType.codecVersion, new Writer().uint(1, 0).uint(2, 0).bool(3, false).bool(4, true).finish()));
     for (const c of this.channels.values()) this._sendTo(u, msg.channelState(c));
     this._sendTo(u, msg.permissionQuery({ channelId: 0, permissions: ALL_PERMISSIONS }));
@@ -239,14 +258,33 @@ export class FakeMumbleServer extends EventEmitter {
 
   // ---- voice ----
 
-  _voice(u, payload) {
+  _voice(u, payload, via = 'tcp') {
     const p = parseClientAudio(payload, this.legacyVoice);
     if (!p) return;
-    this.emit('voice', { session: u.session, target: p.target, frameNumber: p.frameNumber, bytes: p.opus.length, isTerminator: p.isTerminator });
-    if (p.target === 31) return this._sendTo(u, frame(MessageType.udpTunnel, serverAudio({ ...p, session: u.session, context: 0 }, this.legacyVoice)));
+    if (via === 'tcp') u.udpRinfo = null;          // murmur: a tunnelled packet switches that client back to TCP
+    this.emit('voice', { session: u.session, target: p.target, frameNumber: p.frameNumber, bytes: p.opus.length, isTerminator: p.isTerminator, via });
+    const pkt = serverAudio({ ...p, session: u.session, context: 0 }, this.legacyVoice);
+    if (p.target === 31) return this._sendVoice(u, pkt);
     if (p.target !== 0) return;
-    const out = frame(MessageType.udpTunnel, serverAudio({ ...p, session: u.session, context: 0 }, this.legacyVoice));
-    for (const x of this.users.values()) if (x !== u && x.synced && x.channelId === u.channelId && !x.selfDeaf && !x.deaf) this._sendTo(x, out);
+    for (const x of this.users.values()) if (x !== u && x.synced && x.channelId === u.channelId && !x.selfDeaf && !x.deaf) this._sendVoice(x, pkt);
+  }
+
+  /// UDP when we've heard from that client over UDP recently, else the TCP tunnel — like murmur.
+  _sendVoice(x, pkt) {
+    if (x.udpRinfo && Date.now() - x.udpAt < 15_000) { const enc = x.crypt.encrypt(pkt); if (enc) return this.udp.send(enc, x.udpRinfo.port, x.udpRinfo.address); }
+    this._sendTo(x, frame(MessageType.udpTunnel, pkt));
+  }
+
+  _udp(msg, rinfo) {
+    const key = `${rinfo.address}:${rinfo.port}`;
+    let u = this.udpAddr.get(key), plain = null;
+    if (u) plain = u.crypt.decrypt(msg);
+    else for (const x of this.users.values()) { if (!x.synced) continue; plain = x.crypt.decrypt(msg); if (plain) { u = x; this.udpAddr.set(key, x); break; } }
+    if (!u || !plain) return;
+    u.udpRinfo = rinfo; u.udpAt = Date.now();
+    const isPing = this.legacyVoice ? plain[0] >> 5 === 1 : plain[0] === 1;
+    if (isPing) { const enc = u.crypt.encrypt(plain); if (enc) this.udp.send(enc, rinfo.port, rinfo.address); this.emit('udp-ping', u.session); return; }
+    this._voice(u, plain, 'udp');
   }
 
   // ---- plumbing ----

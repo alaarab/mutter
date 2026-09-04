@@ -45,6 +45,7 @@ export class AudioEngine extends EventTarget {
     this._mixer = new AudioWorkletNode(this._ctx, 'mutter-mixer', { outputChannelCount: [2] });
     this._mixer.connect(this._ctx.destination);
     this._mixer.port.postMessage({ type: 'master', gain: this.deafened ? 0 : 1 });
+    this._mixer.port.onmessage = ({ data }) => { if (data.type === 'health' && data.underruns) { this.stats.underruns = (this.stats.underruns ?? 0) + data.underruns; this._diag(`playback ran dry ${data.underruns}× in the last second`); } };
     this._framer = new AudioWorkletNode(this._ctx, 'mutter-framer', { numberOfInputs: 1, numberOfOutputs: 0 });
     this._framer.port.onmessage = ({ data }) => this._onFrame(data);
     this._framer.port.postMessage({ type: 'suppress', level: this.settings.noiseSuppression });
@@ -141,6 +142,10 @@ export class AudioEngine extends EventTarget {
 
   _onFrame(samples) {
     if (!this.running) return;
+    // Frames come every 20 ms; a gap means this thread was busy and the frames queued up.
+    const t = performance.now();
+    if (this._lastFrameAt && t - this._lastFrameAt > 150 && t - (this._lastStallLog ?? 0) > 2000) { this._lastStallLog = t; this.stats.captureStalls = (this.stats.captureStalls ?? 0) + 1; this._diag(`capture stalled ${Math.round(t - this._lastFrameAt)} ms — the page was busy`); }
+    this._lastFrameAt = t;
     let sum = 0;
     for (let i = 0; i < samples.length; i++) { const v = samples[i] * this.settings.inputGain; sum += v * v; }
     const db = 20 * Math.log10(Math.sqrt(sum / samples.length) + 1e-9);

@@ -32,7 +32,8 @@ export class MumbleClient extends EventTarget {
     this.me = null;
     this.serverInfo = {};
     this.wireFormat = 'protobuf';
-    this.stats = { tcpPingMs: 0, samples: [] };
+    this.stats = { tcpPingMs: 0, samples: [], udp: null, stalls: 0 };
+    this._lastPacket = new Map();
     this.log = [];
     this._ws = null;
     this._parser = null;
@@ -128,6 +129,7 @@ export class MumbleClient extends EventTarget {
         const msg = JSON.parse(ev.data);
         if (msg.event === 'open') this._handshake();
         else if (msg.event === 'error') this._fail(msg.message);
+        else if (msg.event === 'udp') { this.stats.udp = { up: msg.up, rtt: msg.rtt }; this._diag('voice', msg.up ? `voice over UDP through the bridge (${msg.rtt} ms)` : 'voice over the TCP tunnel'); this._emit('stats'); }
         return;
       }
       this._lastRx = Date.now();
@@ -152,8 +154,9 @@ export class MumbleClient extends EventTarget {
     this._timers = {};
     const ws = this._ws; this._ws = null;
     try { ws?.close(); } catch {}
-    this._talkers.clear();
+    this._talkers.clear(); this._lastPacket.clear();
     this._frameNumber = 0;
+    this.stats.udp = null;
   }
 
   _fail(message) {
@@ -272,6 +275,11 @@ export class MumbleClient extends EventTarget {
     if (!p || p.kind !== 'audio') return;
     const u = this.users.get(p.session);
     if (!u || u.localMute) return;
+    // A long arrival gap while the sender's frame counter kept climbing is a delivery stall
+    // (TCP retransmit, blocked main thread), not a pause in speech.
+    const now = Date.now(), last = this._lastPacket.get(p.session), frame = Number(p.frameNumber);
+    if (last && now - last.at > 250 && frame - last.frame >= 20) { this.stats.stalls++; this._diag('voice', `${u.name}: ${now - last.at} ms delivery stall (${frame - last.frame} frames arrived late)`); }
+    this._lastPacket.set(p.session, { at: now, frame });
     this._talkers.set(p.session, Date.now());
     if (!u.talking) this._setTalking(p.session, true);
     this.dispatchEvent(new CustomEvent('voice', { detail: p }));

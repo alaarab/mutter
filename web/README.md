@@ -20,7 +20,17 @@ Mumble server — unchanged, no plugins, nothing to install
 ```
 
 WSL2 forwards listening ports to Windows' localhost, so the browser reaches a bridge running
-in WSL at the same address. The server operator does nothing; the bridge is a byte pipe.
+in WSL at the same address. The server operator does nothing.
+
+**Voice goes over UDP, like a native client.** The browser tunnels voice frames to the bridge
+over the WebSocket (localhost never drops a packet); the bridge takes the server's `CryptSetup`
+key, encrypts each frame with Mumble's OCB2-AES128 and sends it as a UDP datagram, decrypts the
+server's datagrams back into tunnel frames, keeps the UDP pings going, asks for a nonce resync
+when decrypts stall, and falls back to the TCP tunnel by itself if UDP is blocked (`--tcp` forces
+that). This matters on Wi-Fi: voice over TCP freezes for a second or two on every lost packet
+while TCP retransmits, then dumps the backlog; over UDP a lost packet is just a lost 20 ms.
+The Server tab says which lane is in use and counts delivery stalls, playback underruns and
+capture stalls, so a choppy call can be diagnosed from the log.
 
 ## Running it
 
@@ -83,7 +93,8 @@ right. Under 880px it becomes the phone layout — one pane at a time behind a t
 | `src/mumble.js` | Framing, message types, encode/decode. Shared by browser, bridge and tests |
 | `src/voice.js` | Voice packet codec, both UDP wire formats (chosen by the server's version) |
 | `src/rtcsignal.js` | Screen-share signaling: fragmenting/compressing JSON into ≤1000-byte plugin messages |
-| `bridge/server.mjs` | Static file server + WebSocket↔TLS relay |
+| `src/ocb2.js` | Mumble's voice cipher (OCB2-AES128 with nonce recovery), Node only |
+| `bridge/server.mjs` | Static file server, WebSocket↔TLS relay, and the encrypted UDP voice lane |
 | `app/client.js` | The session: handshake, roster, chat, reconnect, talking detection |
 | `app/audio.js`, `app/worklets.js`, `app/dsp.js` | Capture → noise suppressor → gate → Opus → tunnel; tunnel → Opus → mixer |
 | `app/share.js`, `app/stage.js` | WebRTC screen share (one connection per viewer) and its UI |
@@ -102,8 +113,10 @@ drives headless Chromium over the DevTools protocol — both with Node's built-i
 
 ```sh
 node web/test/webcodecs.test.mjs                    # does this Chromium do Opus the way we assume?
-node web/test/e2e.test.mjs                          # two tabs, voice both ways, chat, images, reconnect
+node web/test/e2e.test.mjs                          # two tabs, voice both ways over UDP, chat, images, reconnect
 FAKE_VERSION=1.4.287 node web/test/e2e.test.mjs     # same, legacy voice format
+FAKE_UDP=0 node web/test/e2e.test.mjs               # same with UDP blocked: voice must stay on the TCP tunnel
+node web/test/ocb2.test.mjs                         # the cipher against Mumble's test vectors, loss/replay/resync rules
 node web/test/share.test.mjs                        # screen share between two tabs, WebRTC + signaling
 node web/test/signal.test.mjs                       # the plugin-message fragment codec, in Node
 node web/test/dsp.test.mjs                          # the noise suppressor: FFT, SNR gain, click ducking, block-size independence

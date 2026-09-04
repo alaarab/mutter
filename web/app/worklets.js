@@ -45,6 +45,7 @@ class Mixer extends AudioWorkletProcessor {
     this.master = 1;
     this.jitter = 960 * 2;       // 40 ms before a stream starts
     this.cap = 48000 / 2;        // drop to 500 ms if a stream runs ahead of us
+    this.tick = 0; this.underruns = 0;
     this.port.onmessage = ({ data }) => {
       switch (data.type) {
         case 'push': this.push(data.session, data.samples); break;
@@ -66,10 +67,11 @@ class Mixer extends AudioWorkletProcessor {
     const out = outputs[0];
     const L = out[0], R = out[1] ?? out[0];
     L.fill(0);
+    if (++this.tick >= 375) { if (this.underruns) this.port.postMessage({ type: 'health', underruns: this.underruns }); this.tick = 0; this.underruns = 0; }   // once a second
     for (const u of this.users.values()) {
       const avail = this.available(u);
       if (!u.primed) { if (avail >= this.jitter) u.primed = true; else continue; }
-      if (avail < L.length) { u.primed = false; continue; }          // underrun: go quiet, re-prime
+      if (avail < L.length) { u.primed = false; this.underruns++; continue; }          // underrun: go quiet, re-prime
       const g = u.gain * this.master;
       for (let i = 0; i < L.length; i++) { L[i] += u.buf[u.read] * g; u.read = (u.read + 1) % u.buf.length; }
     }

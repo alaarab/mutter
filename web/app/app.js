@@ -27,7 +27,7 @@ const wide = matchMedia('(min-width: 880px)');
 window.mutter = { client, audio, share, typing, settings };   // console + tests
 
 settings.pttKey ??= 'Space';
-settings.showMembers ??= true;
+settings.showMembers ??= false;
 settings.textSize ??= 14;
 applyTheme(settings.theme);
 document.documentElement.style.setProperty('--text-size', `${settings.textSize}px`);
@@ -324,7 +324,7 @@ function renderServerPane() {
     ['Server', `${v.release ?? 'Mumble'}${v.os ? ` on ${v.os}` : ''}`],
     ['People', `${client.users.size}${info.maxUsers ? ` of ${info.maxUsers}` : ''}`],
     ['Channels', String(client.channels.size)],
-    ['Voice', `${client.wireFormat === 'protobuf' ? 'Mumble 1.5 packets' : 'legacy packets'}, tunnelled over TCP`],
+    ['Voice', `${client.stats.udp?.up ? `UDP through the bridge · ${client.stats.udp.rtt} ms` : 'TCP tunnel'} · ${client.wireFormat === 'protobuf' ? 'Mumble 1.5 packets' : 'legacy packets'}${client.stats.stalls ? ` · ${client.stats.stalls} delivery stalls` : ''}${audio.stats.underruns ? ` · ${audio.stats.underruns} playback underruns` : ''}${audio.stats.captureStalls ? ` · ${audio.stats.captureStalls} capture stalls` : ''}`],
     ['Ping', client.stats.tcpPingMs ? `${client.stats.tcpPingMs} ms` : '…'],
     ['You', `${client.myUser?.name ?? ''} · session ${client.me ?? ''}`],
     ['Limits', `${info.messageLength ?? 5000} chars, images ${Math.round((info.imageMessageLength ?? 131072) / 1024)} KB${info.allowHtml === false ? ', no HTML' : ''}`],

@@ -20,8 +20,8 @@ if (shots) fs.mkdirSync(shots, { recursive: true });
 const failures = [];
 const check = (cond, msg) => { console.log(`${cond ? ' ok ' : 'FAIL'} ${msg}`); if (!cond) failures.push(msg); };
 const step = async (msg, fn) => { try { await fn(); check(true, msg); } catch (e) { check(false, `${msg} — ${e.message}`); } };
-const seen = { voice: 0, terminators: 0, plugin: 0 };
-server.on('voice', v => { seen.voice++; if (v.isTerminator) seen.terminators++; });
+const seen = { voice: 0, terminators: 0, plugin: 0, udp: 0 };
+server.on('voice', v => { seen.voice++; if (v.isTerminator) seen.terminators++; if (v.via === 'udp') seen.udp++; });
 server.on('plugin', () => seen.plugin++);
 
 const findUser = name => `[...mutter.client.users.values()].find(u => u.name === ${JSON.stringify(name)})`;
@@ -184,7 +184,9 @@ try {
     if (await b.eval('mutter.client.users.size') !== 1) throw new Error('ghost user after reconnect');
   });
 
-  check(seen.voice > 50, `server relayed voice (${seen.voice} packets)`);
+  check(seen.voice > 50, `server relayed voice (${seen.voice} packets, ${seen.udp} over UDP)`);
+  if (process.env.FAKE_UDP === '0') check(seen.udp === 0 && await b.eval('mutter.client.stats.udp?.up !== true'), 'with UDP blocked, voice stays on the TCP tunnel');
+  else check(seen.udp > 50 && await b.eval('mutter.client.stats.udp?.up === true'), 'voice travelled over UDP through the bridge and the client knows it');
   for (const [name, p] of [['Alpha', a], ['Bravo', b]]) {
     const errs = p.errors();
     check(errs.length === 0, `${name}: no page exceptions${errs.length ? `\n      ${errs.join('\n      ')}` : ''}`);
