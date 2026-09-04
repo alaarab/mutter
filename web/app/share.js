@@ -9,9 +9,47 @@ import { DATA_ID, encodeSignal, SignalAssembler } from '../src/rtcsignal.js';
 // 'stop' or the sharer leaving ends the offer. Signaling per viewer is a handful of messages.
 const GATHER_MS = 2500;          // wait this long for candidates before sending the SDP; the rest trickle
 const TRICKLE_MS = 250;          // batch late candidates so one message carries several
-const CODEC_ORDER = ['video/AV1', 'video/VP9', 'video/H264', 'video/VP8'];
+// H.264 first: it is the one codec nearly every laptop encodes in hardware. AV1 and VP9 give
+// sharper text per bit but Chrome encodes them in software, and a 1080p software encode on a
+// laptop CPU is a slideshow. Smooth beats sharp for a screen share.
+const CODEC_ORDER = ['video/H264', 'video/VP9', 'video/AV1', 'video/VP8'];
 // murmur allows a burst of 15 then 4/s; we stay under both so nothing is silently dropped.
 const BUCKET = { burst: 12, rate: 3 };
+
+/// STUN finds out what your address looks like from outside; TURN relays the media when the two
+/// ends cannot reach each other at all. Both are addresses in settings, so they can point at a
+/// coturn of our own instead of anyone else's.
+export function iceConfig(settings) {
+  const iceServers = [];
+  const stun = (settings.stun ?? '').split(/[\s,]+/).filter(Boolean);
+  if (stun.length) iceServers.push({ urls: stun });
+  const t = settings.turn;
+  if (t?.url) iceServers.push({ urls: t.url.split(/[\s,]+/).filter(Boolean), username: t.username || undefined, credential: t.credential || undefined });
+  return { iceServers, bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require' };
+}
+
+/// Gathers candidates and reports which kinds this network can produce, which is the whole
+/// question when a share will not connect: host only means same-network only, srflx means the
+/// internet can see you, relay means a blocked path still has a way through.
+export async function probeIce(settings, ms = 8000) {
+  const pc = new RTCPeerConnection(iceConfig(settings));
+  const found = new Map();
+  const started = performance.now();
+  let error = null;
+  try {
+    pc.createDataChannel('probe');
+    const finished = new Promise(resolve => {
+      pc.onicecandidate = e => { if (!e.candidate) return resolve('complete'); if (!found.has(e.candidate.type)) found.set(e.candidate.type, e.candidate.address ?? ''); };
+      pc.onicecandidateerror = e => { if (!error && e.errorCode >= 300) error = `${e.url ?? 'server'} said ${e.errorCode} ${e.errorText ?? ''}`.trim(); };
+      setTimeout(() => resolve('timed out'), ms);
+    });
+    await pc.setLocalDescription(await pc.createOffer());
+    const how = await finished;
+    return { how, seconds: ((performance.now() - started) / 1000).toFixed(1), types: Object.fromEntries(found), error, turn: !!settings.turn?.url };
+  } catch (e) {
+    return { how: 'failed', seconds: '0', types: {}, error: e.message, turn: !!settings.turn?.url };
+  } finally { pc.close(); }
+}
 
 export class ScreenShare extends EventTarget {
   constructor(client, settings) {
@@ -143,12 +181,7 @@ export class ScreenShare extends EventTarget {
 
   // ---- peers ----
 
-  _pc() {
-    const iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
-    const t = this.settings.turn;
-    if (t?.url) iceServers.push({ urls: t.url, username: t.username || undefined, credential: t.credential || undefined });
-    return new RTCPeerConnection({ iceServers, bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require' });
-  }
+  _pc() { return new RTCPeerConnection(iceConfig(this.settings)); }
 
   async _offer(viewer, m) {
     const s = this.sharing;
@@ -211,7 +244,9 @@ export class ScreenShare extends EventTarget {
         if (!p.encodings?.length) p.encodings = [{}];
         p.encodings[0].maxBitrate = 6_000_000;
         p.encodings[0].maxFramerate = hint === 'motion' ? 60 : 30;
-        p.degradationPreference = hint === 'motion' ? 'maintain-framerate' : 'maintain-resolution';
+        // 'balanced' for text rather than maintain-resolution: the latter tells the encoder to drop
+        // frame rate first when it falls behind, which reads as choppy long before text gets soft.
+        p.degradationPreference = hint === 'motion' ? 'maintain-framerate' : 'balanced';
         await tx.sender.setParameters(p);
       } catch (e) { this._diag(`sender parameters: ${e.message}`); }
     };
@@ -278,7 +313,35 @@ export class ScreenShare extends EventTarget {
     for (const v of [...this.available.keys()]) if (!this.client.users.has(v)) { this.available.delete(v); this._emit('available', { sender: v, ended: true }); }
   }
 
-  _tick() { if (this.watching) this._pollStats(); }
+  _tick() { if (this.watching) this._pollStats(); if (this.sharing) this._pollOwnStats(); }
+
+  /// What the encoder is managing and, if it is falling short, why — 'cpu' or 'bandwidth' is the
+  /// answer to "why is my share choppy" without opening webrtc-internals.
+  async _pollOwnStats() {
+    const s = this.sharing;
+    const pc = [...s.peers.values()].find(p => p.connectionState === 'connected');
+    if (!pc) { if (s.stats) { s.stats = null; this._emit('stats'); } return; }
+    try {
+      const report = await pc.getStats();
+      const codecs = new Map();
+      let out;
+      report.forEach(r => { if (r.type === 'codec') codecs.set(r.id, r.mimeType); if (r.type === 'outbound-rtp' && r.kind === 'video') out = r; });
+      if (!out || this.sharing !== s) return;
+      const now = performance.now(), dt = (now - (s._at ?? now)) / 1000;
+      const reason = out.qualityLimitationReason;
+      s.stats = {
+        fps: Math.round(out.framesPerSecond ?? 0), w: out.frameWidth ?? 0, h: out.frameHeight ?? 0,
+        kbps: dt > 0 ? Math.round((out.bytesSent - (s._bytes ?? 0)) * 8 / dt / 1000) : 0,
+        codec: (codecs.get(out.codecId) ?? '').replace('video/', ''),
+        limited: reason && reason !== 'none' ? reason : null,
+        encoder: out.encoderImplementation ?? '',
+      };
+      if (s.stats.limited && s._lastLimit !== s.stats.limited) this._diag(`encoder limited by ${s.stats.limited} (${s.stats.encoder || 'unknown encoder'})`);
+      s._lastLimit = s.stats.limited;
+      s._bytes = out.bytesSent; s._at = now;
+      this._emit('stats');
+    } catch {}
+  }
 
   async _pollStats() {
     const w = this.watching;
