@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Mutter">
+  <!-- 4 — Live Hold Ring: the speaking ring, broken like a hold gauge.
+       The accent is one CSS variable; see the style block below to re-theme.
+       Flat single-colour silhouette: the matching cand-N-flat.svg. -->
+  <defs><linearGradient id="tint" x1="0" y1="0" x2=".78" y2="1">
+      <stop offset="0" class="ga" stop-color="#3D9BFF" stop-opacity=".22"/>
+      <stop offset=".6" class="ga" stop-color="#3D9BFF" stop-opacity=".05"/>
+      <stop offset="1" stop-color="#000" stop-opacity=".3"/>
+    </linearGradient>
+    <radialGradient id="glow" cx=".5" cy=".52" r=".6">
+      <stop offset="0" class="ga" stop-color="#3D9BFF" stop-opacity=".3"/>
+      <stop offset="1" class="ga" stop-color="#3D9BFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="lit" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".4"/>
+      <stop offset=".52" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000" stop-opacity=".22"/>
+    </linearGradient>
+    <linearGradient id="bev" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".6"/>
+      <stop offset=".4" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="core" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" class="ga" stop-color="#3D9BFF"/>
+      <stop offset="1" class="ga2" stop-color="#1C77DB"/>
+    </linearGradient></defs>
+  <style>
+    /* One variable drives the whole mark. Set the custom property --accent (and --accent-2,
+       the darker "accent-active" tone) on the root element or on any ancestor to re-theme:
+       style="--accent:#A8E831;--accent-2:#7FB513" gives the Ultra palette. Nothing is
+       declared here, only read with a fallback, so an ancestor always wins. */
+    .a{fill:var(--accent,#3D9BFF)}
+    .a2{fill:var(--accent-2,#1C77DB)}
+    .sa{stroke:var(--accent,#3D9BFF)}
+    .sa2{stroke:var(--accent-2,#1C77DB)}
+    .ga{stop-color:var(--accent,#3D9BFF)}
+    .ga2{stop-color:var(--accent-2,#1C77DB)}
+    .bg{fill:var(--bg,#0B0F17)}
+    .ink{fill:var(--ink,#F7FBFF)}
+  </style>
+  <g id="mark"><rect class="bg" fill="#0B0F17" width="512" height="512" rx="114"/>
+  <rect width="512" height="512" rx="114" fill="url(#tint)"/>
+  <rect width="512" height="512" rx="114" fill="url(#glow)"/>
+  <path class="sa2" stroke="#1C77DB" d="M302.4 398.7A150 150 0 1 1 209.6 113.3" fill="none" stroke-width="54" stroke-linecap="round" opacity=".8"/>
+  <path class="sa" stroke="#3D9BFF" d="M302.4 113.3A150 150 0 0 1 377.4 344.2" fill="none" stroke-width="54" stroke-linecap="round"/>
+  <rect x="190" y="190" width="132" height="132" rx="44" fill="url(#core)"/>
+  <rect x="190" y="190" width="132" height="132" rx="44" fill="url(#lit)"/></g>
+</svg>
