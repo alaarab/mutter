@@ -1,48 +1,42 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Mutter">
-  <!-- 4 — Live Hold Ring: the speaking ring, broken like a hold gauge.
-       The accent is one CSS variable; see the style block below to re-theme.
-       Flat single-colour silhouette: the matching cand-N-flat.svg. -->
-  <defs><linearGradient id="tint" x1="0" y1="0" x2=".78" y2="1">
-      <stop offset="0" class="ga" stop-color="#3D9BFF" stop-opacity=".22"/>
-      <stop offset=".6" class="ga" stop-color="#3D9BFF" stop-opacity=".05"/>
-      <stop offset="1" stop-color="#000" stop-opacity=".3"/>
+  <desc>Mint Knockout: the mark is where the frost is not. A frosted pane over a green into teal field with the M scraped clear, so the letterform is the window.</desc>
+  <defs>
+    <clipPath id="tile-v4"><rect width="512" height="512" rx="114"/></clipPath>
+    <filter id="soft-v4" x="-35%" y="-35%" width="170%" height="170%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="85"/>
+    </filter>
+    <filter id="grain-v4" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" stitchTiles="stitch" seed="7"/>
+      <feColorMatrix type="saturate" values="0"/>
+    </filter>
+    <mask id="pane-v4">
+      <rect width="512" height="512" fill="#FFFFFF"/>
+      <path d="M142 357L142 155L256 316L370 155L370 357" fill="none" stroke-width="53" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10" stroke="#000000"/>
+    </mask>
+    <linearGradient id="deep-v4" gradientUnits="userSpaceOnUse" x1="64" y1="136" x2="448" y2="376">
+      <stop offset="0" stop-color="#00312C" stop-opacity=".40"/>
+      <stop offset="1" stop-color="#00312C" stop-opacity=".24"/>
     </linearGradient>
-    <radialGradient id="glow" cx=".5" cy=".52" r=".6">
-      <stop offset="0" class="ga" stop-color="#3D9BFF" stop-opacity=".3"/>
-      <stop offset="1" class="ga" stop-color="#3D9BFF" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="lit" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#fff" stop-opacity=".4"/>
-      <stop offset=".52" stop-color="#fff" stop-opacity="0"/>
-      <stop offset="1" stop-color="#000" stop-opacity=".22"/>
+    <linearGradient id="rim-v4" x1=".1" y1="0" x2=".9" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity=".85"/>
+      <stop offset=".5" stop-color="#FFFFFF" stop-opacity=".12"/>
+      <stop offset="1" stop-color="#03332C" stop-opacity=".24"/>
     </linearGradient>
-    <linearGradient id="bev" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#fff" stop-opacity=".6"/>
-      <stop offset=".4" stop-color="#fff" stop-opacity="0"/>
-    </linearGradient>
-    <linearGradient id="core" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" class="ga" stop-color="#3D9BFF"/>
-      <stop offset="1" class="ga2" stop-color="#1C77DB"/>
-    </linearGradient></defs>
-  <style>
-    /* One variable drives the whole mark. Set the custom property --accent (and --accent-2,
-       the darker "accent-active" tone) on the root element or on any ancestor to re-theme:
-       style="--accent:#A8E831;--accent-2:#7FB513" gives the Ultra palette. Nothing is
-       declared here, only read with a fallback, so an ancestor always wins. */
-    .a{fill:var(--accent,#3D9BFF)}
-    .a2{fill:var(--accent-2,#1C77DB)}
-    .sa{stroke:var(--accent,#3D9BFF)}
-    .sa2{stroke:var(--accent-2,#1C77DB)}
-    .ga{stop-color:var(--accent,#3D9BFF)}
-    .ga2{stop-color:var(--accent-2,#1C77DB)}
-    .bg{fill:var(--bg,#0B0F17)}
-    .ink{fill:var(--ink,#F7FBFF)}
-  </style>
-  <g id="mark"><rect class="bg" fill="#0B0F17" width="512" height="512" rx="114"/>
-  <rect width="512" height="512" rx="114" fill="url(#tint)"/>
-  <rect width="512" height="512" rx="114" fill="url(#glow)"/>
-  <path class="sa2" stroke="#1C77DB" d="M302.4 398.7A150 150 0 1 1 209.6 113.3" fill="none" stroke-width="54" stroke-linecap="round" opacity=".8"/>
-  <path class="sa" stroke="#3D9BFF" d="M302.4 113.3A150 150 0 0 1 377.4 344.2" fill="none" stroke-width="54" stroke-linecap="round"/>
-  <rect x="190" y="190" width="132" height="132" rx="44" fill="url(#core)"/>
-  <rect x="190" y="190" width="132" height="132" rx="44" fill="url(#lit)"/></g>
+  </defs>
+  <g id="mark">
+    <g clip-path="url(#tile-v4)">
+      <rect width="512" height="512" fill="#0FC79C"/>
+      <g filter="url(#soft-v4)">
+        <circle cx="100" cy="80" r="300" fill="#25E0A5"/>
+        <circle cx="440" cy="440" r="330" fill="#0479A8"/>
+        <circle cx="300" cy="180" r="190" fill="#12C8C0"/>
+      </g>
+      <g mask="url(#pane-v4)">
+        <rect width="512" height="512" fill="#FFFFFF" opacity=".58"/>
+      </g>
+      <path d="M142 357L142 155L256 316L370 155L370 357" fill="none" stroke-width="53" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10" stroke="url(#deep-v4)"/>
+      <rect width="512" height="512" filter="url(#grain-v4)" opacity=".06" style="mix-blend-mode:overlay"/>
+    </g>
+    <rect x="1.5" y="1.5" width="509" height="509" rx="112.5" fill="none" stroke="url(#rim-v4)" stroke-width="3"/>
+  </g>
 </svg>

@@ -1,9 +1,10 @@
 // Stroke icons, 24-unit grid, currentColor. Kept inline so the client stays a handful of files.
 const svg = (paths, extra = '') => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"${extra}>${paths}</svg>`;
 
-/// The brand mark: the M as one unbroken stroke, which is also an audio trace. Same path as
-/// web/app/icon.svg, drawn in currentColor so it sits on the accent tile in the UI.
-export const MARK = '<svg viewBox="0 0 512 512" fill="none" stroke="currentColor" stroke-width="64" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M96 344L156 168L256 292L356 168L416 344"/></svg>';
+/// The brand mark: a pointed M — vertical stems, flat terminals on the baseline, and a centre
+/// vertex whose tip overshoots the feet slightly, the way a drawn letterform does. Same path as
+/// web/app/icon.svg, in currentColor so it sits on the accent tile in the UI.
+export const MARK = '<svg viewBox="0 0 512 512" fill="none" stroke="currentColor" stroke-width="53" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10" aria-hidden="true"><path d="M142 357L142 155L256 316L370 155L370 357"/></svg>';
 
 export const ICON = {
   mic: svg('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>'),
