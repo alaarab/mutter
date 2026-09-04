@@ -104,3 +104,68 @@ export const REJECT_REASONS = {
   4: 'Wrong server password', 5: 'Username already in use', 6: 'Server is full',
   7: 'No certificate', 8: 'Authentication failed', 9: 'No new connections',
 };
+
+// ---- additional encoders the full client needs ----
+
+/// Move ourselves, or change mute/deaf state. Only the fields passed are sent.
+export function userStateMessage({ session, channelId, selfMute, selfDeaf, comment, pluginContext, pluginIdentity }) {
+  const w = new Writer();
+  if (session !== undefined) w.uint(1, session);
+  if (channelId !== undefined) w.uint(5, channelId);
+  if (selfMute !== undefined) w.bool(9, selfMute);
+  if (selfDeaf !== undefined) w.bool(10, selfDeaf);
+  if (comment !== undefined) w.string(14, comment);
+  if (pluginContext !== undefined) w.bytes(12, pluginContext);
+  if (pluginIdentity !== undefined) w.string(13, pluginIdentity);
+  return frame(MessageType.userState, w.finish());
+}
+
+/// Text to a channel (optionally its subtree) or directly to sessions.
+export function textMessage({ html, channelIds = [], treeIds = [], sessions = [] }) {
+  const w = new Writer();
+  for (const s of sessions) w.uint(2, s);
+  for (const c of channelIds) w.uint(3, c);
+  for (const t of treeIds) w.uint(4, t);
+  return frame(MessageType.textMessage, w.string(5, html).finish());
+}
+
+/// Raw voice packet tunnelled over TCP.
+export function udpTunnel(packet) { return frame(MessageType.udpTunnel, packet); }
+
+/// Our extension channel. The server caps `data` at 1000 bytes and rate-limits to ~4 msg/s,
+/// and delivers to NOBODY if receivers is empty — so every receiver must be listed.
+export function pluginDataMessage({ receivers, dataId, data }) {
+  if (data.length > 1000) throw new Error(`plugin data too large: ${data.length} > 1000`);
+  const w = new Writer();
+  for (const r of receivers) w.uint(2, r);
+  return frame(MessageType.pluginDataTransmission, w.bytes(3, data).string(4, dataId).finish());
+}
+
+export function createChannelMessage({ parent, name, temporary = true, description }) {
+  const w = new Writer().uint(2, parent).string(3, name).bool(8, temporary);
+  if (description) w.string(5, description);
+  return frame(MessageType.channelState, w.finish());
+}
+
+export function permissionQueryMessage(channelId) {
+  return frame(MessageType.permissionQuery, new Writer().uint(1, channelId).finish());
+}
+
+export function userStatsRequest(session) {
+  return frame(MessageType.userStats, new Writer().uint(1, session).bool(2, false).finish());
+}
+
+// Extra decoders
+Object.assign(FIELDS, {
+  [MessageType.codecVersion]: { 1: ['alpha', 'uint'], 2: ['beta', 'uint'], 3: ['preferAlpha', 'bool'], 4: ['opus', 'bool'] },
+  [MessageType.permissionQuery]: { 1: ['channelId', 'uint'], 2: ['permissions', 'uint'], 3: ['flush', 'bool'] },
+  [MessageType.ping]: { 1: ['timestamp', 'uint'], 2: ['good', 'uint'], 3: ['late', 'uint'], 4: ['lost', 'uint'], 5: ['resync', 'uint'], 6: ['udpPackets', 'uint'], 7: ['tcpPackets', 'uint'], 8: ['udpPingAvg', 'bytes'], 9: ['udpPingVar', 'bytes'], 10: ['tcpPingAvg', 'bytes'], 11: ['tcpPingVar', 'bytes'] },
+  [MessageType.suggestConfig]: { 1: ['version', 'uint'], 2: ['positional', 'bool'], 3: ['pushToTalk', 'bool'] },
+  [MessageType.userStats]: { 1: ['session', 'uint'], 6: ['udpPackets', 'uint'], 7: ['tcpPackets', 'uint'], 8: ['udpPingAvg', 'bytes'], 10: ['tcpPingAvg', 'bytes'], 14: ['address', 'bytes'], 15: ['bandwidth', 'uint'], 16: ['onlineSecs', 'uint'], 17: ['idleSecs', 'uint'], 19: ['opus', 'bool'] },
+});
+
+/// Mumble permission bits, for showing what a channel lets you do.
+export const Permission = {
+  write: 0x1, traverse: 0x2, enter: 0x4, speak: 0x8, muteDeafen: 0x10, move: 0x20,
+  makeChannel: 0x40, linkChannel: 0x80, whisper: 0x100, textMessage: 0x200, makeTempChannel: 0x400,
+};
