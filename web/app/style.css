@@ -219,10 +219,6 @@ body[data-tab="chat"] #paneChat, body[data-tab="channels"] #paneChat, body[data-
 .tools button { width: 32px; height: 32px; border-radius: 4px; display: grid; place-items: center; color: var(--muted); transition: background var(--t), color var(--t); }
 .tools button:hover { background: var(--hover); color: var(--ink); } .tools button svg { width: 18px; height: 18px; }
 
-.typing { height: 26px; padding: 0 16px 0 72px; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--body); flex: none; }
-.typing .dots { display: inline-flex; gap: 3px; } .typing .dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--body); animation: blink 1.2s infinite; }
-.typing .dots i:nth-child(2) { animation-delay: .2s; } .typing .dots i:nth-child(3) { animation-delay: .4s; }
-@keyframes blink { 0%, 60%, 100% { opacity: .25; } 30% { opacity: 1; } }
 
 .composer { display: flex; align-items: flex-end; gap: 2px; margin: 4px 16px 18px; padding: 4px 6px; background: var(--elevated); border-radius: var(--r8); flex: none; }
 .composer .icon { margin-bottom: 3px; }

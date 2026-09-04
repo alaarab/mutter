@@ -4,8 +4,9 @@
 
 import { DATA_ID, encodeSignal, SignalAssembler } from '../src/rtcsignal.js';
 
-const ANNOUNCE_MS = 10_000;      // sharer repeats its announce for late arrivals
-const EXPIRE_MS = 25_000;        // viewer forgets a share it hasn't heard about for this long
+// Nothing recurring on the plugin channel: it is someone else's server. Announce once when the
+// share starts and once to each newcomer; the control channel is TCP, so nothing gets lost, and
+// 'stop' or the sharer leaving ends the offer. Signaling per viewer is a handful of messages.
 const GATHER_MS = 2500;          // wait this long for candidates before sending the SDP; the rest trickle
 const TRICKLE_MS = 250;          // batch late candidates so one message carries several
 const CODEC_ORDER = ['video/AV1', 'video/VP9', 'video/H264', 'video/VP8'];
@@ -17,8 +18,8 @@ export class ScreenShare extends EventTarget {
     super();
     this.client = client;
     this.settings = settings;
-    this.sharing = null;           // { id, stream, title, w, h, audio, contentHint, peers, announced, lastAnnounce }
-    this.available = new Map();    // sender session → { id, title, w, h, audio, at }
+    this.sharing = null;           // { id, stream, title, w, h, audio, contentHint, peers, announced }
+    this.available = new Map();    // sender session → { id, title, w, h, audio }
     this.watching = null;          // { sender, id, pc, stream, state, stats }
     this._assembler = new SignalAssembler();
     this._msgId = 0;
@@ -47,7 +48,7 @@ export class ScreenShare extends EventTarget {
     track.contentHint = contentHint;
     const s = track.getSettings();
     this.sharing = {
-      id: crypto.randomUUID().slice(0, 8), stream, contentHint, peers: new Map(), announced: new Set(), lastAnnounce: 0,
+      id: crypto.randomUUID().slice(0, 8), stream, contentHint, peers: new Map(), announced: new Set(),
       title: prettyTitle(track.label), w: s.width ?? 0, h: s.height ?? 0, audio: stream.getAudioTracks().length > 0,
     };
     track.addEventListener('ended', () => this.stop());     // the browser's own "Stop sharing" button
@@ -226,7 +227,7 @@ export class ScreenShare extends EventTarget {
     switch (m.t) {
       case 'announce': {
         const fresh = !this.available.has(sender);
-        this.available.set(sender, { id: m.id, title: m.title, w: m.w, h: m.h, audio: !!m.audio, at: Date.now() });
+        this.available.set(sender, { id: m.id, title: m.title, w: m.w, h: m.h, audio: !!m.audio });
         this._emit('available', { sender, fresh });
         break;
       }
@@ -263,7 +264,6 @@ export class ScreenShare extends EventTarget {
     const s = this.sharing;
     if (!s || !to.length) return;
     for (const r of to) s.announced.add(r);
-    s.lastAnnounce = Date.now();
     this._send(to, { t: 'announce', id: s.id, title: s.title, w: s.w, h: s.h, audio: s.audio });
   }
 
@@ -278,12 +278,7 @@ export class ScreenShare extends EventTarget {
     for (const v of [...this.available.keys()]) if (!this.client.users.has(v)) { this.available.delete(v); this._emit('available', { sender: v, ended: true }); }
   }
 
-  _tick() {
-    const now = Date.now();
-    if (this.sharing && now - this.sharing.lastAnnounce > ANNOUNCE_MS) this._announce();
-    for (const [v, a] of this.available) if (now - a.at > EXPIRE_MS) { this.available.delete(v); this._emit('available', { sender: v, ended: true }); }
-    if (this.watching) this._pollStats();
-  }
+  _tick() { if (this.watching) this._pollStats(); }
 
   async _pollStats() {
     const w = this.watching;

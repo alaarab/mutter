@@ -6,13 +6,12 @@
 import { MumbleClient } from './client.js';
 import { AudioEngine } from './audio.js';
 import { ScreenShare } from './share.js';
-import { TypingIndicator } from './typing.js';
 import { mountStage } from './stage.js';
 import { THEMES, applyTheme } from './themes.js';
 import { settings, saveSettings, servers, rememberServer, forgetServer, collapsedFor } from './store.js';
 import { sanitize, imageToHtml, escapeHtml, plainText, openViewer } from './chat.js';
 import { renderTree, refreshUser, presence } from './tree.js';
-import { MessageList, typingText } from './messages.js';
+import { MessageList } from './messages.js';
 import { renderMembers } from './members.js';
 import { openPopover, closePopover, menuItem, profileCard, channelMenu, serverMenu } from './popovers.js';
 import { $, el, avatar, colorFor, initials } from './ui.js';
@@ -21,10 +20,9 @@ import { ICON } from './icons.js';
 const client = new MumbleClient();
 const audio = new AudioEngine(client, settings);
 const share = new ScreenShare(client, settings);
-const typing = new TypingIndicator(client);
 const ui = { scope: null, collapsed: null, target: null, statsFor: null, renderQueued: false, inSession: false, filter: '', unread: 0, recordingKey: false };
 const wide = matchMedia('(min-width: 880px)');
-window.mutter = { client, audio, share, typing, settings };   // console + tests
+window.mutter = { client, audio, share, settings };   // console + tests
 
 settings.pttKey ??= 'Space';
 if (!settings.noiseV2) { settings.noiseSuppression = 'neural'; settings.noiseV2 = true; saveSettings(); }   // Neural became the default
@@ -283,13 +281,13 @@ client.addEventListener('text-failed', e => messages.markFailed(e.detail));
 
 const ta = $('chatInput');
 function autoGrow() { ta.style.height = 'auto'; ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`; }
-ta.addEventListener('input', () => { autoGrow(); if (ta.value) typing.noteTyping(sendScope()); else typing.stopped(); });
+ta.addEventListener('input', autoGrow);
 ta.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('chatForm').requestSubmit(); } });
 $('chatForm').addEventListener('submit', e => {
   e.preventDefault();
   const text = ta.value.trim();
   if (!text) return;
-  if (client.sendText(escapeHtml(text).replace(/\n/g, '<br />'), sendScope())) { ta.value = ''; autoGrow(); typing.stopped(); }   // XHTML: murmur parses long messages strictly
+  if (client.sendText(escapeHtml(text).replace(/\n/g, '<br />'), sendScope())) { ta.value = ''; autoGrow(); }   // XHTML: murmur parses long messages strictly
 });
 $('imageBtn').onclick = () => $('imageInput').click();
 $('imageInput').onchange = () => { const f = $('imageInput').files[0]; if (f) sendImage(f); $('imageInput').value = ''; };
@@ -301,14 +299,6 @@ async function sendImage(file) {
   catch (e) { toast(e.message, 'warn'); }
 }
 $('viewer').onclick = () => { $('viewer').hidden = true; };
-
-typing.addEventListener('change', renderTyping);
-function renderTyping() {
-  const names = typing.who(sendScope());
-  const bar = $('typingBar');
-  bar.hidden = !names.length;
-  if (names.length) bar.replaceChildren(el('span', { className: 'dots' }, el('i'), el('i'), el('i')), el('span', { textContent: typingText(names) }));
-}
 
 // ---- server pane ----
 

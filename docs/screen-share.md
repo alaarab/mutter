@@ -18,7 +18,9 @@ Verified against murmur's source (`Server::msgPluginDataTransmission`):
   name many receivers. There is no version filtering; the server forwards to anyone listed.
 
 So the channel is fine for a few kilobytes of signaling and useless for video. We stay under
-the limits with a client-side token bucket (burst 12, 3/s) so nothing is ever dropped.
+the limits with a client-side token bucket (burst 12, 3/s) so nothing is ever dropped — and,
+as etiquette on a server we don't run, nothing recurring is ever sent: every message is tied to
+a user action (start, watch, join, stop), never a heartbeat.
 
 ## Framing
 
@@ -45,7 +47,7 @@ the sharer when it starts, so late or stale signals for an earlier share can be 
 
 | `t` | Direction | Fields | When |
 |---|---|---|---|
-| `announce` | sharer → channel members | `id`, `title`, `w`, `h`, `audio` | On start, to anyone who joins the channel, and every 10 s to everyone (late arrivals, lost messages). Viewers forget a share not re-announced within 25 s. |
+| `announce` | sharer → channel members | `id`, `title`, `w`, `h`, `audio` | Once on start to everyone in the channel, and once to each person who joins the channel afterwards. Never repeated: the control channel is reliable, and the plugin channel is someone else's server — nothing recurring rides on it. Viewers keep the offer until `stop`, or the sharer leaves. |
 | `stop` | sharer → everyone announced to | `id` | Sharing ended. |
 | `watch` | viewer → sharer | `id` | Please send me an offer. |
 | `offer` | sharer → viewer | `id`, `sdp` | Complete SDP offer, candidates included (vanilla ICE: gather until complete or 1.5 s). |
@@ -108,5 +110,3 @@ A sharing user gets a green screen badge in the channel tree; clicking it watche
   rule: send the SDP after `iceGatheringState == complete` or 1.5 s, whichever is first.
 - Send `watch` only after receiving `announce` for that `id`; ignore `offer` for another id.
 - Keep receivers explicit and respect the rate limit — the server drops, it does not tell you.
-
-See also docs/extensions.md for the typing indicator.
