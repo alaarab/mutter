@@ -305,7 +305,15 @@ export class MumbleClient extends EventTarget {
     if (this.messages.length > 2000) this.messages.shift();
     this.dispatchEvent(new CustomEvent('text', { detail: msg }));
   }
-  _notice(text, kind) { this.dispatchEvent(new CustomEvent('notice', { detail: { text, kind } })); }
+  /// A toast is gone in three seconds, so who came and went also goes into the timeline as a
+  /// system line and into the diagnostics log, which is where you look afterwards.
+  _notice(text, kind) {
+    this.dispatchEvent(new CustomEvent('notice', { detail: { text, kind } }));
+    if (kind === 'join' || kind === 'leave' || kind === 'move') {
+      this._diag('presence', text);
+      this._pushMessage({ senderName: 'Server', html: text.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])), scope: { system: true } });
+    }
+  }
   _note(text) { this._notice(text, 'info'); this._diag('connection', text); }
   _diag(tag, message) {
     this.log.push({ date: new Date(), tag, message });
