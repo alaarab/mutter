@@ -23,7 +23,6 @@ final class AppModel {
     let client: MumbleClient
     let audio = AudioEngine()
     let screenShare: ScreenShareModel
-    let typing: TypingIndicatorModel
 
     private(set) var identities: [ClientIdentity] = IdentityStore.shared.identities
     private(set) var activeServer: SavedServer?
@@ -54,16 +53,11 @@ final class AppModel {
     init() {
         client = MumbleClient()
         screenShare = ScreenShareModel(client: client)
-        typing = TypingIndicatorModel(client: client)
         client.voiceSink = audio
         AppModel.shared = self
         client.onPluginData = { [weak self] p in
-            guard let self else { return }
-            switch p.dataId {
-            case RTCSignal.dataId: self.screenShare.handle(p)
-            case TypingIndicatorModel.dataId: self.typing.handle(p)
-            default: break
-            }
+            guard p.dataId == RTCSignal.dataId else { return }
+            self?.screenShare.handle(p)
         }
 
         client.certificateTrust = { [weak self] question in
@@ -169,7 +163,6 @@ final class AppModel {
         case .disconnected:
             audio.stop()
             screenShare.reset()
-            typing.reset()
             UIApplication.shared.isIdleTimerDisabled = false
             stopPresence()
         default:

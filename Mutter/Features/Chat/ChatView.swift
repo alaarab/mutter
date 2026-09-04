@@ -70,9 +70,6 @@ struct ChatView: View {
             guard let item else { return }
             Task { await loadPhoto(item) }
         }
-        .onChange(of: draft) { _, text in model.typing.draftChanged(text, scope: scope) }
-        .onChange(of: customScope) { _, _ in model.typing.draftChanged(draft, scope: scope) }
-        .animation(.easeInOut(duration: 0.15), value: model.typing.typers(in: scope).map(\.session))
         .sheet(item: $pendingPhoto) { photo in
             PhotoConfirmSheet(image: photo.image, destination: scopeTitle) {
                 Task { await sendPhoto(photo.image) }
@@ -110,14 +107,6 @@ struct ChatView: View {
     private var composer: some View {
         VStack(spacing: 6) {
             Divider().overlay(Theme.separator)
-            let typers = model.typing.typers(in: scope)
-            if !typers.isEmpty {
-                Text(typingLine(typers))
-                    .font(.caption).foregroundStyle(Theme.muted)
-                    .padding(.horizontal, 12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .transition(.opacity)
-            }
             if let imageError {
                 Text(imageError).font(.caption).foregroundStyle(Theme.danger).padding(.horizontal, 12)
             }
@@ -210,15 +199,6 @@ struct ChatView: View {
         guard !text.isEmpty else { return }
         model.client.sendText(html: HTMLText.htmlFromPlain(text), to: scope)
         draft = ""
-        model.typing.sent()
-    }
-
-    private func typingLine(_ users: [User]) -> String {
-        switch users.count {
-        case 1: return "\(users[0].name) is typing…"
-        case 2: return "\(users[0].name) and \(users[1].name) are typing…"
-        default: return "Several people are typing…"
-        }
     }
 }
 
