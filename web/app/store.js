@@ -10,7 +10,7 @@ const save = (key, value) => localStorage.setItem(key, JSON.stringify(value));
 
 export const settings = load('mutter.settings', {
   theme: DEFAULT_THEME, transmitMode: 'vad', vadThresholdDb: -38, autoSensitivity: true, bitrate: 40_000, inputDeviceId: '',
-  shareAudio: true, turn: { url: '', username: '', credential: '' },
+  shareAudio: true, stun: 'stun:stun.l.google.com:19302', turn: { url: '', username: '', credential: '' },
 });
 export const saveSettings = () => save('mutter.settings', settings);
 

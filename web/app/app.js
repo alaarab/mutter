@@ -5,7 +5,7 @@
 
 import { MumbleClient } from './client.js';
 import { AudioEngine } from './audio.js';
-import { ScreenShare } from './share.js';
+import { ScreenShare, probeIce } from './share.js';
 import { mountStage } from './stage.js';
 import { THEMES, DEFAULT_THEME, applyTheme } from './themes.js';
 import { settings, saveSettings, servers, rememberServer, forgetServer, collapsedFor } from './store.js';
@@ -494,7 +494,7 @@ function renderSettings() {
     b.onclick = () => { settings.theme = name; saveSettings(); applyTheme(name); renderSettings(); };
     return b;
   }));
-  $('turnUrl').value = settings.turn.url; $('turnUser').value = settings.turn.username; $('turnPass').value = settings.turn.credential;
+  $('stunUrl').value = settings.stun ?? ''; $('turnUrl').value = settings.turn.url; $('turnUser').value = settings.turn.username; $('turnPass').value = settings.turn.credential;
   $('shareAudio').checked = settings.shareAudio !== false;
   renderDevices();
   renderPanels();
@@ -524,6 +524,28 @@ $('threshold').oninput = () => { settings.vadThresholdDb = Number($('threshold')
 $('micSelect').onchange = async () => { await audio.setInputDevice($('micSelect').value); saveSettings(); };
 $('outSelect').onchange = async () => { await audio.setOutputDevice($('outSelect').value); saveSettings(); };
 for (const [id, key] of [['turnUrl', 'url'], ['turnUser', 'username'], ['turnPass', 'credential']]) $(id).onchange = () => { settings.turn[key] = $(id).value.trim(); saveSettings(); };
+$('stunUrl').onchange = () => { settings.stun = $('stunUrl').value.trim(); saveSettings(); };
+$('iceTest').onclick = async () => {
+  const out = $('iceResult');
+  out.hidden = false; out.textContent = 'Gathering…'; $('iceTest').disabled = true;
+  const r = await probeIce(settings);
+  const has = t => t in r.types;
+  const lines = [
+    `local address        ${has('host') ? 'yes' : 'no'}`,
+    `public address       ${has('srflx') ? `yes — ${r.types.srflx}` : 'no'}`,
+    `relay                ${has('relay') ? 'yes' : r.turn ? 'no — the relay did not answer' : 'not configured'}`,
+    `gathering            ${r.how} in ${r.seconds}s`,
+    ...(r.error ? [`error                ${r.error}`] : []),
+    '',
+    !has('host') ? 'Something is blocking WebRTC entirely in this browser.'
+      : !has('srflx') && !has('relay') ? 'No public address: UDP to the STUN server is blocked here, so you can only reach people on the same network. A relay on port 443 would get through.'
+      : has('relay') ? 'Fine. Even a network that blocks direct connections has the relay to fall back on.'
+      : 'Direct connections should work unless the other end is also behind a strict NAT. Without a relay there is no fallback if they are.',
+  ];
+  out.textContent = lines.join('\n');
+  client._diag('share', `connection test — ${Object.keys(r.types).join(', ') || 'nothing gathered'}`);
+  $('iceTest').disabled = false;
+};
 $('shareAudio').onchange = () => { settings.shareAudio = $('shareAudio').checked; saveSettings(); };
 $('diagBtn').onclick = () => { const d = $('diag'); d.hidden = !d.hidden; $('diagBtn').textContent = d.hidden ? 'Show log' : 'Hide log'; renderDiag(); };
 $('diagCopy').onclick = async () => { try { await navigator.clipboard.writeText(diagText()); toast('Log copied'); } catch { toast('Could not copy', 'warn'); } };

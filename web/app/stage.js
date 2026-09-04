@@ -47,6 +47,7 @@ export function mountStage({ share, client, stage, tabs, showTab, toast, applySi
       const n = share.viewerCount;
       const bar = el('div', { className: 'stage-bar own' },
         el('span', { className: 'title' }, el('strong', {}, 'You’re sharing'), el('span', { className: 'sub', textContent: `${s.title} · ${n ? `${n} watching` : 'nobody watching yet'}` })),
+        el('span', { className: 'stats', id: 'shareOwnStats' }),
         el('span', { className: 'spacer' }),
         segmented(s.contentHint, v => share.setContentHint(v)),
         el('button', { type: 'button', className: 'ghost danger', textContent: 'Stop', onclick: () => share.stop() }));
@@ -69,9 +70,19 @@ export function mountStage({ share, client, stage, tabs, showTab, toast, applySi
 
   function renderStats() {
     const w = share.watching, out = document.getElementById('shareStats');
-    if (!w || !out) return;
-    const { fps, kbps, w: vw, h: vh, codec } = w.stats;
-    out.textContent = vw ? `${vw}×${vh} · ${fps} fps · ${fmtKbps(kbps)}${codec ? ` · ${codec}` : ''}` : '';
+    if (w && out) {
+      const { fps, kbps, w: vw, h: vh, codec } = w.stats;
+      out.textContent = vw ? `${vw}×${vh} · ${fps} fps · ${fmtKbps(kbps)}${codec ? ` · ${codec}` : ''}` : '';
+    }
+    const s = share.sharing, own = document.getElementById('shareOwnStats');
+    if (s && own) {
+      const st = s.stats;
+      own.replaceChildren();
+      if (st?.w) {
+        own.append(`${st.w}×${st.h} · ${st.fps} fps · ${fmtKbps(st.kbps)}${st.codec ? ` · ${st.codec}` : ''}`);
+        if (st.limited) own.append(el('span', { className: 'limited', textContent: ` · limited by ${st.limited === 'cpu' ? 'CPU' : st.limited}` }));
+      }
+    }
   }
 
   share.addEventListener('state', render);
