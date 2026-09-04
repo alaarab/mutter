@@ -7,7 +7,7 @@ import { MumbleClient } from './client.js';
 import { AudioEngine } from './audio.js';
 import { ScreenShare } from './share.js';
 import { mountStage } from './stage.js';
-import { THEMES, applyTheme } from './themes.js';
+import { THEMES, DEFAULT_THEME, applyTheme } from './themes.js';
 import { settings, saveSettings, servers, rememberServer, forgetServer, collapsedFor } from './store.js';
 import { sanitize, imageToHtml, escapeHtml, plainText, openViewer } from './chat.js';
 import { renderTree, refreshUser, presence } from './tree.js';
@@ -28,6 +28,7 @@ settings.pttKey ??= 'Space';
 if (!settings.noiseV2) { settings.noiseSuppression = 'neural'; settings.noiseV2 = true; saveSettings(); }   // Neural became the default
 settings.showMembers ??= false;
 settings.textSize ??= 14;
+if (!THEMES[settings.theme]) { settings.theme = DEFAULT_THEME; saveSettings(); }   // the palettes were redrawn
 applyTheme(settings.theme);
 document.documentElement.style.setProperty('--text-size', `${settings.textSize}px`);
 for (const [id, icon] of Object.entries({ railAdd: 'plus', railSettings: 'settings', newChannelBtn: 'plus', screenBtn: 'screen', serverBtn: 'info', membersBtn: 'users', imageBtn: 'plus', sendBtn: 'send', leaveBtn: 'leave', shareBtn: 'screen', muteBtn: 'mic', deafBtn: 'headphones', settingsBtn: 'settings', settingsClose: 'close', connectClose: 'close', vsLeave: 'leave' })) $(id).innerHTML = ICON[icon];
