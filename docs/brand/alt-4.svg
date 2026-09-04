@@ -11,7 +11,7 @@
     </filter>
     <mask id="pane-v4">
       <rect width="512" height="512" fill="#FFFFFF"/>
-      <path d="M142 357L142 155L256 316L370 155L370 357" fill="none" stroke-width="53" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10" stroke="#000000"/>
+      <path d="M90 380L90 128L154 128L256 288.4L358 128L422 128L422 380L360 380L360 225.5L256 389L152 225.5L152 380Z" fill="#000000"/>
     </mask>
     <linearGradient id="deep-v4" gradientUnits="userSpaceOnUse" x1="64" y1="136" x2="448" y2="376">
       <stop offset="0" stop-color="#00312C" stop-opacity=".40"/>
@@ -34,7 +34,7 @@
       <g mask="url(#pane-v4)">
         <rect width="512" height="512" fill="#FFFFFF" opacity=".58"/>
       </g>
-      <path d="M142 357L142 155L256 316L370 155L370 357" fill="none" stroke-width="53" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10" stroke="url(#deep-v4)"/>
+      <path d="M90 380L90 128L154 128L256 288.4L358 128L422 128L422 380L360 380L360 225.5L256 389L152 225.5L152 380Z" fill="url(#deep-v4)"/>
       <rect width="512" height="512" filter="url(#grain-v4)" opacity=".06" style="mix-blend-mode:overlay"/>
     </g>
     <rect x="1.5" y="1.5" width="509" height="509" rx="112.5" fill="none" stroke="url(#rim-v4)" stroke-width="3"/>
