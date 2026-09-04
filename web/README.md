@@ -34,8 +34,14 @@ capture stalls, so a choppy call can be diagnosed from the log.
 
 ## Running it
 
-Node 18+ is the only requirement. There are **no dependencies** — the WebSocket server is
-hand-rolled precisely so a locked-down machine needs no `npm install`.
+**As a desktop app** — download a build from the releases page and run it; no install, no
+admin, no browser. It is the same client and bridge wrapped in Electron, which matters on a
+managed laptop: the browser's enterprise policy can block WebRTC, and the app's own Chromium
+doesn't read it. See [`desktop/`](../desktop/README.md).
+
+**From source in a browser** — Node 18+ is the only requirement. There are **no dependencies**
+here in `web/`: the WebSocket server is hand-rolled precisely so a locked-down machine needs no
+`npm install`.
 
 ```sh
 node web/bridge/server.mjs

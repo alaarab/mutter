@@ -216,11 +216,15 @@ class WSConnection {
   close() { if (!this.socket.destroyed) { this._frame(Buffer.alloc(0), 0x8); this.socket.end(); } }
 }
 
-server.listen(PORT, () => {
-  const url = `http://localhost:${PORT}`;
+/// Resolves with the URL once the port is bound. PORT=0 asks the OS for a free one, which is what
+/// the desktop shell does so two copies never fight over 8788.
+export const ready = new Promise(resolve => server.listen(PORT, () => {
+  const url = `http://localhost:${server.address().port}`;
   console.log(`Mutter  →  ${url}`);
-  if (OPEN) openAppWindow(url); else console.log('(running in WSL? Windows reaches this at the same localhost address)');
-});
+  if (OPEN) openAppWindow(url); else if (!process.versions.electron) console.log('(running in WSL? Windows reaches this at the same localhost address)');
+  resolve(url);
+}));
+export { server };
 
 /// Opens Mutter as its own window — Chrome/Edge "app mode": no tabs, no address bar, remembers
 /// its size, its own taskbar entry. From WSL this launches the Windows browser. `--no-open` skips it.
