@@ -1,4 +1,5 @@
 import { NoiseSuppressor, feedBlocks } from './dsp.js';
+import { JitterPolicy } from './jitter.js';
 
 const FRAME_SAMPLES = 960;
 const RNNOISE_BLOCK = 480;
@@ -6,16 +7,19 @@ const RNNOISE_SCALE = 32768;
 const NO_VAD = -1;
 
 const SAMPLE_RATE = 48000;
+const SAMPLES_PER_MILLISECOND = SAMPLE_RATE / 1000;
 const RING_SAMPLES = SAMPLE_RATE;
 const MIN_JITTER = FRAME_SAMPLES * 3;
 const MAX_JITTER = FRAME_SAMPLES * 10;
 const JITTER_GROW = FRAME_SAMPLES;
 const JITTER_SHRINK = FRAME_SAMPLES / 2;
+const JITTER_DANGER = FRAME_SAMPLES;
+const JITTER_CUSHION = FRAME_SAMPLES;
 const RUN_AHEAD_CAP = SAMPLE_RATE / 2;
 const FADE_SAMPLES = 96;
 const RENDER_QUANTUM = 128;
 const TICKS_PER_SECOND = SAMPLE_RATE / RENDER_QUANTUM;
-const STABLE_SECONDS_BEFORE_SHRINK = 15;
+const CALM_SECONDS_BEFORE_SHRINK = 15;
 
 class Framer extends AudioWorkletProcessor {
   constructor() {
@@ -124,10 +128,19 @@ class Mixer extends AudioWorkletProcessor {
     super();
     this.users = new Map();
     this.master = 1;
-    this.jitter = MIN_JITTER;
+    this.policy = new JitterPolicy({
+      minSamples: MIN_JITTER,
+      maxSamples: MAX_JITTER,
+      growSamples: JITTER_GROW,
+      shrinkSamples: JITTER_SHRINK,
+      dangerSamples: JITTER_DANGER,
+      cushionSamples: JITTER_CUSHION,
+      calmSecondsBeforeShrink: CALM_SECONDS_BEFORE_SHRINK,
+    });
     this.tick = 0;
     this.underruns = 0;
-    this.stableSeconds = 0;
+    this.lowWater = Infinity;
+    this.playedThisSecond = false;
     this.capture = null;
     this.port.onmessage = ({ data }) => {
       switch (data.type) {
@@ -187,7 +200,7 @@ class Mixer extends AudioWorkletProcessor {
     }
     user.ending = false;
     if (this.available(user) + samples.length > RUN_AHEAD_CAP) {
-      user.read = (user.write - this.jitter + RING_SAMPLES) % RING_SAMPLES;
+      user.read = (user.write - this.policy.target + RING_SAMPLES) % RING_SAMPLES;
     }
     for (let i = 0; i < samples.length; i++) {
       user.ring[user.write] = samples[i];
@@ -196,15 +209,23 @@ class Mixer extends AudioWorkletProcessor {
   }
 
   reportHealth() {
-    if (this.underruns) {
-      this.port.postMessage({ type: 'health', underruns: this.underruns, jitterMs: this.jitter / 48 });
-      this.stableSeconds = 0;
-    } else if (++this.stableSeconds >= STABLE_SECONDS_BEFORE_SHRINK && this.jitter > MIN_JITTER) {
-      this.jitter -= JITTER_SHRINK;
-      this.stableSeconds = 0;
+    const decision = this.policy.observe({
+      underruns: this.underruns,
+      lowWater: this.lowWater === Infinity ? null : this.lowWater,
+      active: this.playedThisSecond,
+    });
+    if (this.underruns || decision.changed) {
+      this.port.postMessage({
+        type: 'health',
+        underruns: this.underruns,
+        jitterMs: Math.round(this.policy.target / SAMPLES_PER_MILLISECOND),
+        reason: decision.reason,
+      });
     }
     this.tick = 0;
     this.underruns = 0;
+    this.lowWater = Infinity;
+    this.playedThisSecond = false;
   }
 
   process(_inputs, outputs) {
@@ -217,8 +238,12 @@ class Mixer extends AudioWorkletProcessor {
     }
     for (const user of this.users.values()) {
       const available = this.available(user);
+      if (user.primed) {
+        this.playedThisSecond = true;
+        this.lowWater = Math.min(this.lowWater, available);
+      }
       if (!user.primed) {
-        const ready = available >= this.jitter || (user.ending && available > 0);
+        const ready = available >= this.policy.target || (user.ending && available > 0);
         if (!ready) {
           this.rampOut(user, left, 0);
           continue;
@@ -230,19 +255,14 @@ class Mixer extends AudioWorkletProcessor {
         this.mixInto(left, user, 0, left.length);
         continue;
       }
-      if (user.ending) {
-        this.mixInto(left, user, 0, available);
-        this.rampOut(user, left, available);
-        user.primed = false;
-        user.ending = false;
-        continue;
-      }
+      this.mixInto(left, user, 0, available);
+      this.rampOut(user, left, available);
       user.primed = false;
-      this.underruns++;
-      if (this.jitter < MAX_JITTER) {
-        this.jitter += JITTER_GROW;
+      if (user.ending) {
+        user.ending = false;
+      } else {
+        this.underruns++;
       }
-      this.rampOut(user, left, 0);
     }
     for (let i = 0; i < left.length; i++) {
       left[i] = Math.max(-1, Math.min(1, left[i]));

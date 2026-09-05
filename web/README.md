@@ -100,7 +100,7 @@ right. Under 880px it becomes the phone layout — one pane at a time behind a t
   disconnect. Cameras play inside the tiles (640×360, capped at 900 kbit/s, peer to peer like
   screen share) and only stream to people who have the voice view open; a switch button appears
   when you have more than one camera.
-- Voice both ways over the TCP tunnel: 20 ms Opus at 16–96 kbit/s, per-user jitter buffer that reorders by sequence number and conceals lost packets with a mirrored, decaying copy of the last one.
+- Voice both ways over the TCP tunnel: 20 ms Opus at 16–96 kbit/s, per-user jitter buffer that reorders by sequence number, conceals lost packets with a mirrored decaying copy of the last one, and sizes itself from what it actually saw: it grows on a near miss before anyone hears a gap, and only trims latency after a stretch of real audio with real cushion.
   Cleaning: the browser's echo cancellation and gain control, then **RNNoise** — the neural
   denoiser Mumble desktop uses, compiled to WebAssembly and run in the worklet (−22 dB on
   realistic background noise, voice within 1 dB; `web/vendor/rnnoise`) — or the iOS app's
@@ -159,6 +159,7 @@ node web/test/signal.test.mjs                       # the plugin-message fragmen
 node web/test/dsp.test.mjs                          # the spectral suppressor: FFT, SNR gain, click ducking, block-size independence
 node web/test/rnnoise.test.mjs                      # the RNNoise wasm: loads without imports, −22 dB on noise, voice kept, speed
 node web/test/voice.test.mjs                        # voice packet codec round-trips and missing-packet arithmetic, in Node
+node web/test/jitter.test.mjs                       # the playout buffer's grow/trim policy: quiet calls, near misses, damping
 node web/test/quality.test.mjs                      # a tone through two tabs: SNR, clicks, dropouts, underruns; FAKE_LOSS=0.05 FAKE_JITTER=40 to impair
 node web/test/fake-server.mjs                       # keep one running to click around against
 node web/probe.mjs <host> [port] [username]         # handshake against any server, read-only
