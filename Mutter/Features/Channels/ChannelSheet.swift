@@ -40,8 +40,8 @@ struct ChannelSheet: View {
                             }
                         }
                         .padding(.vertical, 4)
-                        if let d = channel.description, !d.isEmpty {
-                            Text(HTMLText.render(d).text)
+                        if let description = channel.description, !description.isEmpty {
+                            Text(HTMLText.render(description).text)
                                 .font(.subheadline)
                                 .foregroundStyle(Theme.body)
                         }
@@ -54,7 +54,10 @@ struct ChannelSheet: View {
 
                     Section {
                         if !isMine {
-                            Button { model.join(channel); dismiss() } label: {
+                            Button {
+                                model.join(channel)
+                                dismiss()
+                            } label: {
                                 Label("Join channel", systemImage: "arrow.right.circle.fill")
                             }
                             .disabled(!channel.canEnter)
@@ -63,11 +66,17 @@ struct ChannelSheet: View {
                             Label("Listen without joining", systemImage: "ear")
                         }
                         .disabled(!perms.contains(.listen) && !isListening)
-                        Button { model.pendingChatScope = .channel(channelID); dismiss() } label: {
+                        Button {
+                            model.pendingChatScope = .channel(channelID)
+                            dismiss()
+                        } label: {
                             Label("Message this channel", systemImage: "bubble.left")
                         }
                         if !session.children(of: channelID).isEmpty {
-                            Button { model.pendingChatScope = .tree(channelID); dismiss() } label: {
+                            Button {
+                                model.pendingChatScope = .tree(channelID)
+                                dismiss()
+                            } label: {
                                 Label("Message channel and sub-channels", systemImage: "bubble.left.and.text.bubble.right")
                             }
                         }
@@ -81,7 +90,10 @@ struct ChannelSheet: View {
                                 }
                             }
                             if perms.contains(.write) && channelID != Channel.rootID {
-                                Button { renameText = channel.name; showRename = true } label: {
+                                Button {
+                                    renameText = channel.name
+                                    showRename = true
+                                } label: {
                                     Label("Rename…", systemImage: "pencil")
                                 }
                                 Button(role: .destructive) { showDelete = true } label: {
@@ -91,10 +103,9 @@ struct ChannelSheet: View {
                         } header: { SectionLabel(text: "Manage") }
                     }
                 }
-                .scrollContentBackground(.hidden)
-                .background(Theme.background)
+                .themedList()
                 .navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+                .doneToolbar(dismiss)
                 .onAppear { model.client.requestPermissions(channel: channelID) }
                 .alert("New sub-channel", isPresented: $showCreate) {
                     TextField("Name", text: $newName)
@@ -115,7 +126,7 @@ struct ChannelSheet: View {
                 }
             } else {
                 EmptyState(symbol: "number", title: "Channel removed", message: "This channel no longer exists.")
-                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+                    .doneToolbar(dismiss)
             }
         }
         .presentationDetents([.medium, .large])

@@ -12,10 +12,10 @@ struct PublicServersView: View {
     @State private var pings: [String: ServerPingResult] = [:]
 
     private var filtered: [PublicServer] {
-        let q = search.trimmingCharacters(in: .whitespaces)
-        guard !q.isEmpty else { return servers }
+        let query = search.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return servers }
         return servers.filter {
-            $0.name.localizedCaseInsensitiveContains(q) || $0.country.localizedCaseInsensitiveContains(q) || $0.host.localizedCaseInsensitiveContains(q)
+            $0.name.localizedCaseInsensitiveContains(query) || $0.country.localizedCaseInsensitiveContains(query) || $0.host.localizedCaseInsensitiveContains(query)
         }
     }
 
@@ -44,8 +44,7 @@ struct PublicServersView: View {
                         }
                     }
                     .listStyle(.insetGrouped)
-                    .scrollContentBackground(.hidden)
-                    .background(Theme.background)
+                    .themedList()
                     .searchable(text: $search, prompt: "Search by name, country or host")
                 }
             }
@@ -73,8 +72,8 @@ struct PublicServersView: View {
                 .foregroundStyle(Theme.muted)
             }
             Spacer()
-            if let p = pings[server.id] {
-                Pill(text: "\(p.users)/\(p.maxUsers)", symbol: "person.2.fill", color: p.users > 0 ? Theme.speaking : Theme.muted)
+            if let ping = pings[server.id] {
+                Pill(text: "\(ping.users)/\(ping.maxUsers)", symbol: "person.2.fill", color: ping.users > 0 ? Theme.speaking : Theme.muted)
             }
         }
     }

@@ -1,6 +1,5 @@
 import SwiftUI
 
-/// Read-only view of the in-app event log, with a share button for sending it along.
 struct DiagnosticsView: View {
     private var log: DiagnosticsLog { DiagnosticsLog.shared }
 
@@ -28,8 +27,7 @@ struct DiagnosticsView: View {
                 .listRowBackground(Theme.surface)
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(Theme.background)
+        .themedList()
         .navigationTitle("Diagnostics")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

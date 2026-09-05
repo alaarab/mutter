@@ -8,9 +8,7 @@ let package = Package(
         .macOS(.v14),
     ],
     products: [
-        // Pure Swift: wire codec, messages, voice packets, OCB2 crypto. Portable, fully unit tested.
         .library(name: "MumbleProtocol", targets: ["MumbleProtocol"]),
-        // Apple platforms only: Network.framework transport, session model, identity, discovery.
         .library(name: "MumbleClient", targets: ["MumbleClient"]),
     ],
     targets: [

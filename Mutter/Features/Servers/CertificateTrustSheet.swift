@@ -92,7 +92,6 @@ struct CertificateTrustSheet: View {
 }
 
 extension ServerCertificateInfo {
-    /// Hex in groups of four, eight groups per line, so it wraps instead of overflowing.
     var wrappedFingerprint: String {
         let hex = sha256Fingerprint.map { String(format: "%02X", $0) }.joined()
         var groups: [String] = []

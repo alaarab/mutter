@@ -21,16 +21,39 @@
 
   <aside id="sidebar">
     <button id="serverHead" class="server-head" type="button">
-      <span class="titles"><h1 id="title">Mutter</h1><span class="sub"><span id="dot" class="dot"></span><span id="subtitle">Not connected</span></span></span>
+      <span class="titles">
+        <h1 id="title">Mutter</h1>
+        <span class="sub">
+          <span id="dot" class="dot"></span>
+          <span id="subtitle">Not connected</span>
+        </span>
+      </span>
       <span class="chev"></span>
     </button>
-    <div class="search"><span class="search-icon"></span><input id="search" placeholder="Find a channel or person" autocomplete="off" spellcheck="false"><button id="newChannelBtn" class="icon small" type="button" data-tip="New channel" aria-label="New channel"></button></div>
+    <div class="search">
+      <span class="search-icon"></span>
+      <input id="search" placeholder="Find a channel or person" autocomplete="off" spellcheck="false">
+      <button id="newChannelBtn" class="icon small" type="button" data-tip="New channel" aria-label="New channel"></button>
+    </div>
     <div id="tree" class="tree" role="tree"></div>
 
     <div id="voicePanel" class="voice-panel">
-      <div class="vp-top"><span class="vp-state"><span class="dot on"></span><span id="vpState">Voice connected</span></span><span id="pingPill" class="ping" hidden></span></div>
-      <div class="vp-chan"><span class="hash">#</span><span id="meChannel">—</span><span id="talkers" class="talkers"></span></div>
-      <div id="meter" class="meter" title="Input level"><span id="meterFill"></span><span id="meterMark"></span></div>
+      <div class="vp-top">
+        <span class="vp-state">
+          <span class="dot on"></span>
+          <span id="vpState">Voice connected</span>
+        </span>
+        <span id="pingPill" class="ping" hidden></span>
+      </div>
+      <div class="vp-chan">
+        <span class="hash">#</span>
+        <span id="meChannel">—</span>
+        <span id="talkers" class="talkers"></span>
+      </div>
+      <div id="meter" class="meter" title="Input level">
+        <span id="meterFill"></span>
+        <span id="meterMark"></span>
+      </div>
       <button id="pttBtn" class="talk" type="button" hidden>Hold to talk</button>
       <div class="vp-actions">
         <button id="shareBtn" class="pill-btn" type="button" data-tip="Share your screen" hidden></button>
@@ -39,7 +62,10 @@
     </div>
     <div id="userPanel" class="user-panel">
       <span id="meAvatar" class="avatar l"></span>
-      <span class="who"><span id="meName" class="name">—</span><span id="meStatus" class="sub"></span></span>
+      <span class="who">
+        <span id="meName" class="name">—</span>
+        <span id="meStatus" class="sub"></span>
+      </span>
       <button id="muteBtn" class="icon" type="button" data-tip="Mute" aria-label="Mute"></button>
       <button id="deafBtn" class="icon" type="button" data-tip="Deafen" aria-label="Deafen"></button>
       <button id="settingsBtn" class="icon" type="button" data-tip="Settings" aria-label="Settings"></button>
@@ -48,9 +74,15 @@
 
   <main id="main">
     <header id="chanHead" class="chan-head">
-      <button id="backBtn" class="icon back" type="button" aria-label="Channels" hidden><span id="backBadge" class="badge" hidden></span></button>
+      <button id="backBtn" class="icon back" type="button" aria-label="Channels" hidden>
+        <span id="backBadge" class="badge" hidden></span>
+      </button>
       <button id="titleBtn" class="chan-title" type="button">
-        <span class="line"><span class="hash">#</span><h2 id="chatTitle">Chat</h2><span class="chev"></span></span>
+        <span class="line">
+          <span class="hash">#</span>
+          <h2 id="chatTitle">Chat</h2>
+          <span class="chev"></span>
+        </span>
         <span id="chanSub" class="sub"></span>
       </button>
       <span id="chanDesc" class="desc"></span>
@@ -64,31 +96,51 @@
     <section id="paneChat" class="pane">
       <div id="messages" class="messages"></div>
       <div id="voiceStrip" class="voice-strip" hidden>
-        <button id="vsGo" class="vs-go" type="button"><span class="dot on"></span><span class="hash">#</span><span id="vsChan"></span><span id="vsTalkers" class="talkers"></span></button>
+        <button id="vsGo" class="vs-go" type="button">
+          <span class="dot on"></span>
+          <span class="hash">#</span>
+          <span id="vsChan"></span>
+          <span id="vsTalkers" class="talkers"></span>
+        </button>
         <button id="vsMute" class="icon" type="button" aria-label="Mute"></button>
         <button id="vsLeave" class="icon" type="button" aria-label="Disconnect"></button>
       </div>
       <form id="chatForm" class="composer">
         <button id="imageBtn" class="icon" type="button" data-tip="Attach an image" aria-label="Attach an image"></button>
         <input id="imageInput" type="file" accept="image/*" hidden>
-        <button id="scopePill" class="scope" type="button" data-tip="Where this goes" hidden><span class="hash">#</span><span id="scopeName">Chat</span><span class="chev"></span></button>
+        <button id="scopePill" class="scope" type="button" data-tip="Where this goes" hidden>
+          <span class="hash">#</span>
+          <span id="scopeName">Chat</span>
+          <span class="chev"></span>
+        </button>
         <textarea id="chatInput" placeholder="Message" rows="1" autocomplete="off" maxlength="5000"></textarea>
         <button id="sendBtn" class="icon primary" type="submit" data-tip="Send" aria-label="Send"></button>
       </form>
     </section>
     <section id="stage" class="pane stage"></section>
-    <section id="paneServer" class="pane"><div id="serverPane" class="server-pane"></div></section>
+    <section id="paneServer" class="pane">
+      <div id="serverPane" class="server-pane"></div>
+    </section>
   </main>
 
   <aside id="members">
-    <header class="side-head"><h2>Members <span id="memberCount" class="count"></span></h2></header>
+    <header class="side-head">
+      <h2>Members <span id="memberCount" class="count"></span></h2>
+    </header>
     <div id="memberList" class="member-list"></div>
   </aside>
 </div>
 
   <section id="connect" class="connect">
     <div class="card">
-      <div class="card-head"><span class="cap"></span><div><h1>Mutter</h1><p class="sub">Connect to a Mumble server</p></div><button id="connectClose" class="icon" type="button" aria-label="Close" hidden></button></div>
+      <div class="card-head">
+        <span class="cap"></span>
+        <div>
+          <h1>Mutter</h1>
+          <p class="sub">Connect to a Mumble server</p>
+        </div>
+        <button id="connectClose" class="icon" type="button" aria-label="Close" hidden></button>
+      </div>
       <ul id="savedServers" class="saved"></ul>
       <form id="connectForm">
         <div class="row">
@@ -111,7 +163,10 @@
   <p id="unsupported" class="banner" hidden>Voice needs Chrome or Edge. Chat still works.</p>
 
   <aside id="settings" class="sheet" hidden>
-    <div class="sheet-head"><h2>Settings</h2><button id="settingsClose" class="icon" type="button" aria-label="Close"></button></div>
+    <div class="sheet-head">
+      <h2>Settings</h2>
+      <button id="settingsClose" class="icon" type="button" aria-label="Close"></button>
+    </div>
 
     <h3>How you talk</h3>
     <div id="transmitMode" class="segmented" role="radiogroup">
@@ -122,7 +177,10 @@
     <p class="hint" id="transmitHint"></p>
 
     <h3>Voice activity</h3>
-    <div class="meter settings-meter"><span id="sMeterFill"></span><span id="sMeterMark"></span></div>
+    <div class="meter settings-meter">
+      <span id="sMeterFill"></span>
+      <span id="sMeterMark"></span>
+    </div>
     <div class="row between">
       <label class="check"><input id="autoSens" type="checkbox"> Automatic sensitivity</label>
       <span id="thresholdLabel" class="hint"></span>
@@ -138,9 +196,15 @@
       <button type="button" data-value="neural">Neural</button>
     </div>
     <p class="hint" id="noiseHint"></p>
-    <div class="row between" style="margin-top:10px"><label class="check"><input id="procEcho" type="checkbox"> Echo cancellation</label></div>
-    <div class="row between"><label class="check"><input id="procNoise" type="checkbox"> Browser noise suppression</label></div>
-    <div class="row between"><label class="check"><input id="procGain" type="checkbox"> Auto gain</label></div>
+    <div class="row between" style="margin-top:10px">
+      <label class="check"><input id="procEcho" type="checkbox"> Echo cancellation</label>
+    </div>
+    <div class="row between">
+      <label class="check"><input id="procNoise" type="checkbox"> Browser noise suppression</label>
+    </div>
+    <div class="row between">
+      <label class="check"><input id="procGain" type="checkbox"> Auto gain</label>
+    </div>
     <p class="hint">The browser's own stages, ahead of Mutter's. Keep echo cancellation on with speakers. Browser noise suppression on top of Neural tends to smear speech — try it both ways.</p>
 
     <h3>Quality</h3>
@@ -164,7 +228,11 @@
     <div id="themes" class="swatches"></div>
     <div class="row between" style="margin-top:10px">
       <span class="hint">Message text</span>
-      <div id="textSize" class="segmented mini"><button type="button" data-value="13">S</button><button type="button" data-value="14">M</button><button type="button" data-value="15">L</button></div>
+      <div id="textSize" class="segmented mini">
+        <button type="button" data-value="13">S</button>
+        <button type="button" data-value="14">M</button>
+        <button type="button" data-value="15">L</button>
+      </div>
     </div>
 
     <h3>Screen share</h3>
@@ -176,7 +244,9 @@
       <input id="turnUser" placeholder="username" spellcheck="false">
       <input id="turnPass" placeholder="credential" type="password">
     </div>
-    <div class="row" style="margin-top:10px"><button id="iceTest" class="ghost" type="button">Test my connection</button></div>
+    <div class="row" style="margin-top:10px">
+      <button id="iceTest" class="ghost" type="button">Test my connection</button>
+    </div>
     <pre id="iceResult" class="diag" hidden></pre>
 
     <h3>Diagnostics</h3>

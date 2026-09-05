@@ -1,9 +1,6 @@
 import Foundation
 import MediaPlayer
 
-/// Headset and lock-screen media controls. The play/pause button on AirPods, car kits and
-/// Bluetooth headsets toggles mute (or talk, in push-to-talk mode), and Now Playing shows
-/// the server and channel so the session is visible on the lock screen even without a Live Activity.
 @MainActor
 final class RemoteCommands {
     var onToggle: (@MainActor () -> Void)?

@@ -1,9 +1,5 @@
 import AppIntents
 
-// These conform to LiveActivityIntent so the system runs them in the app process when
-// tapped on the lock screen or in the Dynamic Island. They also work as plain App Intents
-// for Shortcuts, Siri and the Action button.
-
 struct ToggleMuteIntent: LiveActivityIntent {
     static var title: LocalizedStringResource = "Toggle mute"
     static var description = IntentDescription("Mute or unmute your microphone in Mutter.")

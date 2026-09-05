@@ -2,7 +2,6 @@
 import Foundation
 import Network
 
-/// UDP socket to the server's voice port (same port as the control channel).
 final class VoiceConnection {
     private let connection: NWConnection
     private let queue: DispatchQueue

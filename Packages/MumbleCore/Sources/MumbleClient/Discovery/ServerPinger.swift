@@ -11,17 +11,14 @@ public struct ServerPingResult: Hashable, Sendable {
     public var latencyMs: Double
 }
 
-/// Sends the unencrypted UDP probe that Mumble servers answer with user counts and version.
-/// Used by the server list so favourites show live occupancy and latency.
 public enum ServerPinger {
-
     public static func ping(_ endpoint: ServerEndpoint, timeout: TimeInterval = 2.5) async -> ServerPingResult? {
         await withCheckedContinuation { continuation in
             let queue = DispatchQueue(label: "mutter.ping.\(endpoint.host)")
             let port = NWEndpoint.Port(rawValue: endpoint.port) ?? 64738
             let params = NWParameters.udp
             let connection = NWConnection(host: NWEndpoint.Host(endpoint.host), port: port, using: params)
-            let ident = UInt64.random(in: 1...UInt64.max)
+            let identifier = UInt64.random(in: 1...UInt64.max)
             var finished = false
             var sentAt = DispatchTime.now()
 
@@ -36,18 +33,18 @@ public enum ServerPinger {
                 switch state {
                 case .ready:
                     sentAt = DispatchTime.now()
-                    connection.send(content: ServerProbe.request(identifier: ident), completion: .contentProcessed { _ in })
+                    connection.send(content: ServerProbe.request(identifier: identifier), completion: .contentProcessed { _ in })
                     connection.receiveMessage { data, _, _, _ in
-                        guard let data, let resp = ServerProbe.parse(data), resp.identifier == ident else {
+                        guard let data, let response = ServerProbe.parse(data), response.identifier == identifier else {
                             finish(nil)
                             return
                         }
                         let elapsed = Double(DispatchTime.now().uptimeNanoseconds - sentAt.uptimeNanoseconds) / 1_000_000
                         finish(ServerPingResult(
-                            version: resp.version,
-                            users: resp.users,
-                            maxUsers: resp.maxUsers,
-                            bandwidth: resp.bandwidth,
+                            version: response.version,
+                            users: response.users,
+                            maxUsers: response.maxUsers,
+                            bandwidth: response.bandwidth,
                             latencyMs: elapsed
                         ))
                     }

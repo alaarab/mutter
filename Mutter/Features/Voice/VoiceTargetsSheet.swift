@@ -2,7 +2,6 @@ import SwiftUI
 import MumbleProtocol
 import MumbleClient
 
-/// Who a whisper goes to: specific people, or a channel (optionally with its sub-channels and links).
 struct WhisperTarget: Hashable {
     var sessions: Set<UInt32> = []
     var channelID: UInt32?
@@ -34,7 +33,7 @@ struct VoiceTargetsSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var draft = WhisperTarget()
-    @State private var mode = 0 // 0 people, 1 channel
+    @State private var mode = 0
 
     private var session: ServerSession { model.session }
 
@@ -50,8 +49,8 @@ struct VoiceTargetsSheet: View {
                         Text("A channel").tag(1)
                     }
                     .pickerStyle(.segmented)
-                    .onChange(of: mode) { _, m in
-                        if m == 0 { draft.channelID = nil } else { draft.sessions = [] }
+                    .onChange(of: mode) { _, selected in
+                        if selected == 0 { draft.channelID = nil } else { draft.sessions = [] }
                     }
                 }
 
@@ -77,8 +76,8 @@ struct VoiceTargetsSheet: View {
                     } header: { SectionLabel(text: "Whisper to") }
                 } else {
                     Section {
-                        let channels = session.channels.values.sorted { a, b in
-                            session.path(to: a.id).map(\.name).joined(separator: "/") < session.path(to: b.id).map(\.name).joined(separator: "/")
+                        let channels = session.channels.values.sorted { left, right in
+                            session.path(to: left.id).map(\.name).joined(separator: "/") < session.path(to: right.id).map(\.name).joined(separator: "/")
                         }
                         ForEach(channels) { channel in
                             Button { draft.channelID = channel.id } label: {
@@ -109,8 +108,7 @@ struct VoiceTargetsSheet: View {
                     }
                 }
             }
-            .scrollContentBackground(.hidden)
-            .background(Theme.background)
+            .themedList()
             .navigationTitle("Whisper & shout")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

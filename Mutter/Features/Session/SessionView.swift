@@ -22,7 +22,6 @@ enum SessionTab: String, CaseIterable, Identifiable {
 }
 
 extension ServerSession {
-    /// Effective permissions in a channel: the queried value if we have it, else the root permissions.
     func permissions(in channelID: UInt32) -> Permissions {
         channels[channelID]?.permissions ?? serverInfo.permissions
     }
@@ -59,16 +58,14 @@ struct SessionView: View {
             get: { model.screenShare.watching != nil },
             set: { if !$0 { model.screenShare.stopWatching() } }
         )) { ScreenShareViewer() }
-        .onChange(of: tab, initial: true) { _, new in
-            session.isChatVisible = (new == .chat)
+        .onChange(of: tab, initial: true) { _, selected in
+            session.isChatVisible = (selected == .chat)
         }
         .onChange(of: model.pendingChatScope) { _, scope in
             if scope != nil { tab = .chat }
         }
         .onDisappear { session.isChatVisible = false }
     }
-
-    // MARK: Header
 
     private var header: some View {
         HStack(spacing: 12) {
@@ -98,7 +95,7 @@ struct SessionView: View {
             Spacer()
             if session.isConnected {
                 let ping = session.stats.isUsingUDP ? session.stats.udpPingAverageMs : session.stats.tcpPingAverageMs
-                Pill(text: ping > 0 ? "\(Int(ping)) ms" : "…", symbol: session.stats.isUsingUDP ? "bolt.fill" : "arrow.triangle.2.circlepath", color: pingColor(ping))
+                Pill(text: ping > 0 ? "\(Int(ping)) ms" : "…", symbol: session.stats.isUsingUDP ? "bolt.fill" : "arrow.triangle.2.circlepath", color: Theme.latencyColor(ping))
             }
         }
         .padding(.horizontal, 16)
@@ -131,15 +128,6 @@ struct SessionView: View {
         }
     }
 
-    private func pingColor(_ ms: Double) -> Color {
-        if ms == 0 { return Theme.muted }
-        if ms < 90 { return Theme.speaking }
-        if ms < 200 { return Theme.warning }
-        return Theme.danger
-    }
-
-    // MARK: Content
-
     @ViewBuilder
     private var content: some View {
         if !session.isConnected {
@@ -169,20 +157,18 @@ struct SessionView: View {
         }
     }
 
-    // MARK: Dock
-
     private var dock: some View {
         VStack(spacing: 0) {
             Divider().overlay(Theme.separator)
             VoiceBar()
             HStack(spacing: 0) {
-                ForEach(SessionTab.allCases) { t in
-                    Button { tab = t } label: {
+                ForEach(SessionTab.allCases) { item in
+                    Button { tab = item } label: {
                         VStack(spacing: 3) {
                             ZStack(alignment: .topTrailing) {
-                                Image(systemName: t.symbol)
-                                    .font(.icon(20, tab == t ? .semibold : .regular))
-                                if t == .chat && session.unreadCount > 0 {
+                                Image(systemName: item.symbol)
+                                    .font(.icon(20, tab == item ? .semibold : .regular))
+                                if item == .chat && session.unreadCount > 0 {
                                     Text(session.unreadCount > 99 ? "99+" : "\(session.unreadCount)")
                                         .font(.ui(10, .bold))
                                         .foregroundStyle(.white)
@@ -192,9 +178,9 @@ struct SessionView: View {
                                         .offset(x: 12, y: -8)
                                 }
                             }
-                            Text(t.title).font(.ui(10, .medium))
+                            Text(item.title).font(.ui(10, .medium))
                         }
-                        .foregroundStyle(tab == t ? Theme.accent : Theme.muted)
+                        .foregroundStyle(tab == item ? Theme.accent : Theme.muted)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
                         .contentShape(Rectangle())
@@ -208,7 +194,6 @@ struct SessionView: View {
     }
 }
 
-/// Wrapper so a plain session/channel id can drive `.sheet(item:)`.
 struct SheetID: Identifiable, Hashable {
     let id: UInt32
 }

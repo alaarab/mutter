@@ -1,23 +1,205 @@
-// Mumble control-channel protocol: framing, message types, and the subset of messages the
-// web client needs. Field numbers mirror MumbleProtocol on iOS so both clients speak
-// identically — including our PluginDataTransmission extension.
-
 import { Reader, Writer } from './protobuf.js';
 
 export const MessageType = {
-  version: 0, udpTunnel: 1, authenticate: 2, ping: 3, reject: 4, serverSync: 5,
-  channelRemove: 6, channelState: 7, userRemove: 8, userState: 9, banList: 10,
-  textMessage: 11, permissionDenied: 12, acl: 13, queryUsers: 14, cryptSetup: 15,
-  contextActionModify: 16, contextAction: 17, userList: 18, voiceTarget: 19,
-  permissionQuery: 20, codecVersion: 21, userStats: 22, requestBlob: 23,
-  serverConfig: 24, suggestConfig: 25, pluginDataTransmission: 26,
+  version: 0,
+  udpTunnel: 1,
+  authenticate: 2,
+  ping: 3,
+  reject: 4,
+  serverSync: 5,
+  channelRemove: 6,
+  channelState: 7,
+  userRemove: 8,
+  userState: 9,
+  banList: 10,
+  textMessage: 11,
+  permissionDenied: 12,
+  acl: 13,
+  queryUsers: 14,
+  cryptSetup: 15,
+  contextActionModify: 16,
+  contextAction: 17,
+  userList: 18,
+  voiceTarget: 19,
+  permissionQuery: 20,
+  codecVersion: 21,
+  userStats: 22,
+  requestBlob: 23,
+  serverConfig: 24,
+  suggestConfig: 25,
+  pluginDataTransmission: 26,
 };
-export const TypeName = Object.fromEntries(Object.entries(MessageType).map(([k, v]) => [v, k]));
 
-export const HEADER_SIZE = 6;
-export const MAX_PAYLOAD = 8 * 1024 * 1024;
+export const REJECT_REASONS = {
+  0: 'None',
+  1: 'Wrong version',
+  2: 'Invalid username',
+  3: 'Wrong user password',
+  4: 'Wrong server password',
+  5: 'Username already in use',
+  6: 'Server is full',
+  7: 'No certificate',
+  8: 'Authentication failed',
+  9: 'No new connections',
+};
 
-/// 2-byte big-endian type, 4-byte big-endian length, then payload.
+export const DEFAULT_PORT = 64738;
+const HEADER_SIZE = 6;
+const MAX_PAYLOAD = 8 * 1024 * 1024;
+const MAX_PLUGIN_DATA = 1000;
+
+export function versionFields(major, minor, patch) {
+  return {
+    v1: (major << 16) | (minor << 8) | Math.min(patch, 255),
+    v2: (BigInt(major) << 48n) | (BigInt(minor) << 32n) | (BigInt(patch) << 16n),
+  };
+}
+
+export const CLIENT_VERSION = versionFields(1, 5, 0);
+
+const uint = (name) => [name, 'uint'];
+const string = (name) => [name, 'string'];
+const bool = (name) => [name, 'bool'];
+const bytes = (name) => [name, 'bytes'];
+const repeated = ([name, kind]) => [name, kind, true];
+
+const FIELDS = {
+  [MessageType.version]: {
+    1: uint('v1'),
+    2: string('release'),
+    3: string('os'),
+    4: string('osVersion'),
+    5: uint('v2'),
+  },
+  [MessageType.authenticate]: {
+    1: string('username'),
+    2: string('password'),
+    3: repeated(string('tokens')),
+    5: bool('opus'),
+    6: uint('clientType'),
+  },
+  [MessageType.ping]: {
+    1: uint('timestamp'),
+    2: uint('good'),
+    3: uint('late'),
+    4: uint('lost'),
+    5: uint('resync'),
+    6: uint('udpPackets'),
+    7: uint('tcpPackets'),
+    8: bytes('udpPingAvg'),
+    9: bytes('udpPingVar'),
+    10: bytes('tcpPingAvg'),
+    11: bytes('tcpPingVar'),
+  },
+  [MessageType.reject]: {
+    1: uint('type'),
+    2: string('reason'),
+  },
+  [MessageType.serverSync]: {
+    1: uint('session'),
+    2: uint('maxBandwidth'),
+    3: string('welcomeText'),
+    4: uint('permissions'),
+  },
+  [MessageType.channelRemove]: {
+    1: uint('channelId'),
+  },
+  [MessageType.channelState]: {
+    1: uint('channelId'),
+    2: uint('parent'),
+    3: string('name'),
+    5: string('description'),
+    8: bool('temporary'),
+    9: uint('position'),
+    11: uint('maxUsers'),
+  },
+  [MessageType.userRemove]: {
+    1: uint('session'),
+    2: uint('actor'),
+    3: string('reason'),
+    4: bool('ban'),
+  },
+  [MessageType.userState]: {
+    1: uint('session'),
+    2: uint('actor'),
+    3: string('name'),
+    4: uint('userId'),
+    5: uint('channelId'),
+    6: bool('mute'),
+    7: bool('deaf'),
+    8: bool('suppress'),
+    9: bool('selfMute'),
+    10: bool('selfDeaf'),
+    12: bytes('pluginContext'),
+    13: string('pluginIdentity'),
+    14: string('comment'),
+    15: string('hash'),
+    18: bool('prioritySpeaker'),
+    19: bool('recording'),
+  },
+  [MessageType.textMessage]: {
+    1: uint('actor'),
+    2: repeated(uint('sessions')),
+    3: repeated(uint('channelIds')),
+    4: repeated(uint('treeIds')),
+    5: string('message'),
+  },
+  [MessageType.permissionDenied]: {
+    1: uint('permission'),
+    2: uint('channelId'),
+    3: uint('session'),
+    4: string('reason'),
+    5: uint('type'),
+    6: string('name'),
+  },
+  [MessageType.cryptSetup]: {
+    1: bytes('key'),
+    2: bytes('clientNonce'),
+    3: bytes('serverNonce'),
+  },
+  [MessageType.permissionQuery]: {
+    1: uint('channelId'),
+    2: uint('permissions'),
+    3: bool('flush'),
+  },
+  [MessageType.codecVersion]: {
+    1: uint('alpha'),
+    2: uint('beta'),
+    3: bool('preferAlpha'),
+    4: bool('opus'),
+  },
+  [MessageType.userStats]: {
+    1: uint('session'),
+    6: uint('udpPackets'),
+    7: uint('tcpPackets'),
+    8: bytes('udpPingAvg'),
+    10: bytes('tcpPingAvg'),
+    14: bytes('address'),
+    15: uint('bandwidth'),
+    16: uint('onlineSecs'),
+    17: uint('idleSecs'),
+    19: bool('opus'),
+  },
+  [MessageType.serverConfig]: {
+    2: string('welcomeText'),
+    3: bool('allowHtml'),
+    4: uint('messageLength'),
+    5: uint('imageMessageLength'),
+    6: uint('maxUsers'),
+  },
+  [MessageType.suggestConfig]: {
+    1: uint('version'),
+    2: bool('positional'),
+    3: bool('pushToTalk'),
+  },
+  [MessageType.pluginDataTransmission]: {
+    1: uint('senderSession'),
+    2: repeated(uint('receiverSessions')),
+    3: bytes('data'),
+    4: string('dataId'),
+  },
+};
+
 export function frame(type, payload) {
   const out = new Uint8Array(HEADER_SIZE + payload.length);
   const view = new DataView(out.buffer);
@@ -27,147 +209,160 @@ export function frame(type, payload) {
   return out;
 }
 
-/// Accumulates bytes and yields whole frames; the TCP stream splits them arbitrarily.
 export class FrameParser {
-  constructor() { this.buf = new Uint8Array(0); }
+  constructor() {
+    this.buffer = new Uint8Array(0);
+  }
+
   push(chunk) {
-    const merged = new Uint8Array(this.buf.length + chunk.length);
-    merged.set(this.buf); merged.set(chunk, this.buf.length);
-    this.buf = merged;
+    const merged = new Uint8Array(this.buffer.length + chunk.length);
+    merged.set(this.buffer);
+    merged.set(chunk, this.buffer.length);
+    this.buffer = merged;
     const frames = [];
-    while (this.buf.length >= HEADER_SIZE) {
-      const view = new DataView(this.buf.buffer, this.buf.byteOffset);
+    while (this.buffer.length >= HEADER_SIZE) {
+      const view = new DataView(this.buffer.buffer, this.buffer.byteOffset);
       const type = view.getUint16(0, false);
-      const len = view.getUint32(2, false);
-      if (len > MAX_PAYLOAD) throw new Error(`payload too large: ${len}`);
-      if (this.buf.length < HEADER_SIZE + len) break;
-      frames.push({ type, payload: this.buf.subarray(HEADER_SIZE, HEADER_SIZE + len) });
-      this.buf = this.buf.subarray(HEADER_SIZE + len);
+      const length = view.getUint32(2, false);
+      if (length > MAX_PAYLOAD) {
+        throw new Error(`payload too large: ${length}`);
+      }
+      if (this.buffer.length < HEADER_SIZE + length) {
+        break;
+      }
+      frames.push({ type, payload: this.buffer.subarray(HEADER_SIZE, HEADER_SIZE + length) });
+      this.buffer = this.buffer.subarray(HEADER_SIZE + length);
     }
     return frames;
   }
 }
 
-// ---- encode ----
+function fieldValue(field, kind) {
+  switch (kind) {
+    case 'string':
+      return field.string;
+    case 'bool':
+      return field.bool;
+    case 'bytes':
+      return field.payload;
+    default:
+      return field.uint;
+  }
+}
+
+export function decode(type, payload) {
+  const message = {};
+  const fields = FIELDS[type];
+  if (!fields) {
+    return message;
+  }
+  new Reader(payload).forEachField((field) => {
+    const spec = fields[field.number];
+    if (!spec) {
+      return;
+    }
+    const [name, kind, isRepeated] = spec;
+    const value = fieldValue(field, kind);
+    if (isRepeated) {
+      (message[name] ??= []).push(value);
+    } else {
+      message[name] = value;
+    }
+  });
+  return message;
+}
 
 export function versionMessage({ v1, v2, release, os, osVersion }) {
-  return frame(MessageType.version, new Writer()
-    .uint(1, v1).string(2, release).string(3, os).string(4, osVersion).uint(5, v2).finish());
+  const payload = new Writer().uint(1, v1).string(2, release).string(3, os).string(4, osVersion).uint(5, v2).finish();
+  return frame(MessageType.version, payload);
 }
 
 export function authenticateMessage({ username, password, tokens = [], opus = true }) {
-  const w = new Writer().string(1, username);
-  if (password) w.string(2, password);
-  for (const t of tokens) w.string(3, t);
-  return frame(MessageType.authenticate, w.bool(5, opus).uint(6, 0).finish());
+  const writer = new Writer().string(1, username);
+  if (password) {
+    writer.string(2, password);
+  }
+  for (const token of tokens) {
+    writer.string(3, token);
+  }
+  return frame(MessageType.authenticate, writer.bool(5, opus).uint(6, 0).finish());
 }
 
 export function pingMessage(timestampMicros) {
   return frame(MessageType.ping, new Writer().uint(1, timestampMicros).finish());
 }
 
-// ---- decode ----
-
-export function decode(type, payload) {
-  const r = new Reader(payload);
-  const out = { _type: TypeName[type] ?? type };
-  const map = FIELDS[type];
-  if (!map) return out;
-  r.forEachField(f => {
-    const spec = map[f.number];
-    if (!spec) return;
-    const [name, kind, repeated] = spec;
-    const value = kind === 'string' ? f.string : kind === 'bool' ? f.bool
-      : kind === 'bytes' ? f.payload : f.uint;
-    if (repeated) (out[name] ??= []).push(value);
-    else out[name] = value;
-  });
-  return out;
-}
-
-const FIELDS = {
-  [MessageType.version]: { 1: ['v1', 'uint'], 2: ['release', 'string'], 3: ['os', 'string'], 4: ['osVersion', 'string'], 5: ['v2', 'uint'] },
-  [MessageType.reject]: { 1: ['type', 'uint'], 2: ['reason', 'string'] },
-  [MessageType.serverSync]: { 1: ['session', 'uint'], 2: ['maxBandwidth', 'uint'], 3: ['welcomeText', 'string'], 4: ['permissions', 'uint'] },
-  [MessageType.channelState]: { 1: ['channelId', 'uint'], 2: ['parent', 'uint'], 3: ['name', 'string'], 5: ['description', 'string'], 8: ['temporary', 'bool'], 9: ['position', 'uint'], 11: ['maxUsers', 'uint'] },
-  [MessageType.channelRemove]: { 1: ['channelId', 'uint'] },
-  [MessageType.authenticate]: { 1: ['username', 'string'], 2: ['password', 'string'], 3: ['tokens', 'string', true], 5: ['opus', 'bool'], 6: ['clientType', 'uint'] },
-  [MessageType.userState]: { 1: ['session', 'uint'], 2: ['actor', 'uint'], 3: ['name', 'string'], 4: ['userId', 'uint'], 5: ['channelId', 'uint'], 6: ['mute', 'bool'], 7: ['deaf', 'bool'], 8: ['suppress', 'bool'], 9: ['selfMute', 'bool'], 10: ['selfDeaf', 'bool'], 12: ['pluginContext', 'bytes'], 13: ['pluginIdentity', 'string'], 14: ['comment', 'string'], 15: ['hash', 'string'], 18: ['prioritySpeaker', 'bool'], 19: ['recording', 'bool'] },
-  [MessageType.userRemove]: { 1: ['session', 'uint'], 2: ['actor', 'uint'], 3: ['reason', 'string'], 4: ['ban', 'bool'] },
-  [MessageType.textMessage]: { 1: ['actor', 'uint'], 2: ['sessions', 'uint', true], 3: ['channelIds', 'uint', true], 4: ['treeIds', 'uint', true], 5: ['message', 'string'] },
-  [MessageType.permissionDenied]: { 1: ['permission', 'uint'], 2: ['channelId', 'uint'], 3: ['session', 'uint'], 4: ['reason', 'string'], 5: ['type', 'uint'], 6: ['name', 'string'] },
-  [MessageType.serverConfig]: { 2: ['welcomeText', 'string'], 3: ['allowHtml', 'bool'], 4: ['messageLength', 'uint'], 5: ['imageMessageLength', 'uint'], 6: ['maxUsers', 'uint'] },
-  [MessageType.pluginDataTransmission]: { 1: ['senderSession', 'uint'], 2: ['receiverSessions', 'uint', true], 3: ['data', 'bytes'], 4: ['dataId', 'string'] },
-};
-
-export const REJECT_REASONS = {
-  0: 'None', 1: 'Wrong version', 2: 'Invalid username', 3: 'Wrong user password',
-  4: 'Wrong server password', 5: 'Username already in use', 6: 'Server is full',
-  7: 'No certificate', 8: 'Authentication failed', 9: 'No new connections',
-};
-
-// ---- additional encoders the full client needs ----
-
-/// Move ourselves, or change mute/deaf state. Only the fields passed are sent.
 export function userStateMessage({ session, channelId, selfMute, selfDeaf, comment, pluginContext, pluginIdentity }) {
-  const w = new Writer();
-  if (session !== undefined) w.uint(1, session);
-  if (channelId !== undefined) w.uint(5, channelId);
-  if (selfMute !== undefined) w.bool(9, selfMute);
-  if (selfDeaf !== undefined) w.bool(10, selfDeaf);
-  if (comment !== undefined) w.string(14, comment);
-  if (pluginContext !== undefined) w.bytes(12, pluginContext);
-  if (pluginIdentity !== undefined) w.string(13, pluginIdentity);
-  return frame(MessageType.userState, w.finish());
+  const writer = new Writer();
+  if (session !== undefined) {
+    writer.uint(1, session);
+  }
+  if (channelId !== undefined) {
+    writer.uint(5, channelId);
+  }
+  if (selfMute !== undefined) {
+    writer.bool(9, selfMute);
+  }
+  if (selfDeaf !== undefined) {
+    writer.bool(10, selfDeaf);
+  }
+  if (comment !== undefined) {
+    writer.string(14, comment);
+  }
+  if (pluginContext !== undefined) {
+    writer.bytes(12, pluginContext);
+  }
+  if (pluginIdentity !== undefined) {
+    writer.string(13, pluginIdentity);
+  }
+  return frame(MessageType.userState, writer.finish());
 }
 
-/// Text to a channel (optionally its subtree) or directly to sessions.
-export function textMessage({ html, channelIds = [], treeIds = [], sessions = [] }) {
-  const w = new Writer();
-  for (const s of sessions) w.uint(2, s);
-  for (const c of channelIds) w.uint(3, c);
-  for (const t of treeIds) w.uint(4, t);
-  return frame(MessageType.textMessage, w.string(5, html).finish());
+export function textMessage({ actor, html, channelIds = [], treeIds = [], sessions = [] }) {
+  const writer = new Writer().uint(1, actor);
+  for (const session of sessions) {
+    writer.uint(2, session);
+  }
+  for (const channelId of channelIds) {
+    writer.uint(3, channelId);
+  }
+  for (const treeId of treeIds) {
+    writer.uint(4, treeId);
+  }
+  return frame(MessageType.textMessage, writer.string(5, html).finish());
 }
 
-/// Raw voice packet tunnelled over TCP.
-export function udpTunnel(packet) { return frame(MessageType.udpTunnel, packet); }
+export function udpTunnel(packet) {
+  return frame(MessageType.udpTunnel, packet);
+}
 
-/// Our extension channel. The server caps `data` at 1000 bytes and rate-limits to ~4 msg/s,
-/// and delivers to NOBODY if receivers is empty — so every receiver must be listed.
-export function pluginDataMessage({ receivers, dataId, data }) {
-  if (data.length > 1000) throw new Error(`plugin data too large: ${data.length} > 1000`);
-  const w = new Writer();
-  for (const r of receivers) w.uint(2, r);
-  return frame(MessageType.pluginDataTransmission, w.bytes(3, data).string(4, dataId).finish());
+export function pluginDataMessage({ sender, receivers, dataId, data }) {
+  if (data.length > MAX_PLUGIN_DATA) {
+    throw new Error(`plugin data too large: ${data.length} > ${MAX_PLUGIN_DATA}`);
+  }
+  const writer = new Writer().uint(1, sender);
+  for (const receiver of receivers) {
+    writer.uint(2, receiver);
+  }
+  return frame(MessageType.pluginDataTransmission, writer.bytes(3, data).string(4, dataId).finish());
 }
 
 export function createChannelMessage({ parent, name, temporary = true, description }) {
-  const w = new Writer().uint(2, parent).string(3, name).bool(8, temporary);
-  if (description) w.string(5, description);
-  return frame(MessageType.channelState, w.finish());
+  const writer = new Writer().uint(2, parent).string(3, name).bool(8, temporary);
+  if (description) {
+    writer.string(5, description);
+  }
+  return frame(MessageType.channelState, writer.finish());
 }
 
-export function permissionQueryMessage(channelId) {
-  return frame(MessageType.permissionQuery, new Writer().uint(1, channelId).finish());
+export function permissionQueryMessage(channelId, permissions) {
+  return frame(MessageType.permissionQuery, new Writer().uint(1, channelId).uint(2, permissions).finish());
+}
+
+export function channelRemoveMessage(channelId) {
+  return frame(MessageType.channelRemove, new Writer().uint(1, channelId).finish());
 }
 
 export function userStatsRequest(session) {
   return frame(MessageType.userStats, new Writer().uint(1, session).bool(2, false).finish());
 }
-
-// Extra decoders
-Object.assign(FIELDS, {
-  [MessageType.codecVersion]: { 1: ['alpha', 'uint'], 2: ['beta', 'uint'], 3: ['preferAlpha', 'bool'], 4: ['opus', 'bool'] },
-  [MessageType.cryptSetup]: { 1: ['key', 'bytes'], 2: ['clientNonce', 'bytes'], 3: ['serverNonce', 'bytes'] },
-  [MessageType.permissionQuery]: { 1: ['channelId', 'uint'], 2: ['permissions', 'uint'], 3: ['flush', 'bool'] },
-  [MessageType.ping]: { 1: ['timestamp', 'uint'], 2: ['good', 'uint'], 3: ['late', 'uint'], 4: ['lost', 'uint'], 5: ['resync', 'uint'], 6: ['udpPackets', 'uint'], 7: ['tcpPackets', 'uint'], 8: ['udpPingAvg', 'bytes'], 9: ['udpPingVar', 'bytes'], 10: ['tcpPingAvg', 'bytes'], 11: ['tcpPingVar', 'bytes'] },
-  [MessageType.suggestConfig]: { 1: ['version', 'uint'], 2: ['positional', 'bool'], 3: ['pushToTalk', 'bool'] },
-  [MessageType.userStats]: { 1: ['session', 'uint'], 6: ['udpPackets', 'uint'], 7: ['tcpPackets', 'uint'], 8: ['udpPingAvg', 'bytes'], 10: ['tcpPingAvg', 'bytes'], 14: ['address', 'bytes'], 15: ['bandwidth', 'uint'], 16: ['onlineSecs', 'uint'], 17: ['idleSecs', 'uint'], 19: ['opus', 'bool'] },
-});
-
-/// Mumble permission bits, for showing what a channel lets you do.
-export const Permission = {
-  write: 0x1, traverse: 0x2, enter: 0x4, speak: 0x8, muteDeafen: 0x10, move: 0x20,
-  makeChannel: 0x40, linkChannel: 0x80, whisper: 0x100, textMessage: 0x200, makeTempChannel: 0x400,
-};

@@ -3,8 +3,6 @@ import Foundation
 import Observation
 import MumbleProtocol
 
-/// Observable snapshot of everything the UI needs to render a connected server.
-/// Mutated only on the main actor by `MumbleClient`.
 @MainActor
 @Observable
 public final class ServerSession {
@@ -21,20 +19,16 @@ public final class ServerSession {
     public internal(set) var registeredUsers: [RegisteredUser] = []
     public internal(set) var isTransmitting = false
     public internal(set) var unreadCount = 0
-    /// The certificate the server presented on this connection, once the TLS handshake completed.
     public internal(set) var serverCertificate: ServerCertificateInfo?
-    /// Number of messages that arrived while the chat view was not visible; the app resets it.
     public var isChatVisible = false {
         didSet { if isChatVisible { unreadCount = 0 } }
     }
 
     public init() {}
 
-    // MARK: Derived state
-
     public var me: User? {
-        guard let s = mySession else { return nil }
-        return users[s]
+        guard let sessionID = mySession else { return nil }
+        return users[sessionID]
     }
 
     public var myChannel: Channel? {
@@ -49,35 +43,34 @@ public final class ServerSession {
     public func children(of channelID: UInt32) -> [Channel] {
         channels.values
             .filter { $0.parentID == channelID && $0.id != channelID }
-            .sorted { a, b in
-                if a.position != b.position { return a.position < b.position }
-                return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+            .sorted { left, right in
+                if left.position != right.position { return left.position < right.position }
+                return left.name.localizedCaseInsensitiveCompare(right.name) == .orderedAscending
             }
     }
 
     public func users(in channelID: UInt32) -> [User] {
         users.values
             .filter { $0.channelID == channelID }
-            .sorted { a, b in
-                if a.isPrioritySpeaker != b.isPrioritySpeaker { return a.isPrioritySpeaker }
-                return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+            .sorted { left, right in
+                if left.isPrioritySpeaker != right.isPrioritySpeaker { return left.isPrioritySpeaker }
+                return left.name.localizedCaseInsensitiveCompare(right.name) == .orderedAscending
             }
     }
 
-    /// Total users in a channel and all of its descendants.
     public func userCount(inTree channelID: UInt32) -> Int {
         var count = users.values.filter { $0.channelID == channelID }.count
-        for c in children(of: channelID) { count += userCount(inTree: c.id) }
+        for child in children(of: channelID) { count += userCount(inTree: child.id) }
         return count
     }
 
     public func path(to channelID: UInt32) -> [Channel] {
         var out: [Channel] = []
         var current = channels[channelID]
-        while let c = current {
-            out.insert(c, at: 0)
-            guard let p = c.parentID, p != c.id else { break }
-            current = channels[p]
+        while let channel = current {
+            out.insert(channel, at: 0)
+            guard let parentID = channel.parentID, parentID != channel.id else { break }
+            current = channels[parentID]
         }
         return out
     }
@@ -90,8 +83,6 @@ public final class ServerSession {
         guard let scope else { return messages }
         return messages.filter { $0.scope == scope || $0.scope == .system }
     }
-
-    // MARK: Internal mutation helpers
 
     func reset() {
         channels = [:]

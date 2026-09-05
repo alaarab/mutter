@@ -3,37 +3,45 @@ import Compression
 import MumbleClient
 import MumbleProtocol
 
-// Screen-share signaling over Mumble's plugin-data channel. Byte-for-byte the format in
-// docs/screen-share.md, which Mutter Web implements in web/src/rtcsignal.js:
-//
-//   dataId "mutter/rtc"; data = [version=1][msgId][index][count][flags] + fragment (≤990 bytes)
-//   flags bit 0: payload is raw deflate. Payload is the UTF-8 JSON of one SignalMessage.
-//
-// The server caps each message at 1000 bytes and rate-limits per client (burst 15, then 4/s,
-// dropping silently), so sends go through a token bucket that stays under that.
-
 enum RTCSignal {
     static let dataId = "mutter/rtc"
     static let version: UInt8 = 1
+    static let headerSize = 5
     static let fragmentSize = 990
     static let compressFrom = 160
+    static let maxFragments = 255
     static let reassemblyTimeout: TimeInterval = 10
+    static let deflateFlag: UInt8 = 1
 }
 
-/// One signaling message. `t` selects the kind; the other fields are used per kind.
+enum SignalKind: String, Codable {
+    case announce, stop, watch, offer, answer, ice, leave
+}
+
 struct SignalMessage: Codable {
-    var t: String
+    var kind: SignalKind
     var id: String
     var title: String?
-    var w: Int?
-    var h: Int?
+    var width: Int?
+    var height: Int?
     var audio: Bool?
     var sdp: String?
-    var c: [ICECandidateInit]?
+    var candidates: [ICECandidateInit]?
 
-    static func watch(_ id: String) -> SignalMessage { SignalMessage(t: "watch", id: id) }
-    static func leave(_ id: String) -> SignalMessage { SignalMessage(t: "leave", id: id) }
-    static func answer(_ id: String, sdp: String) -> SignalMessage { SignalMessage(t: "answer", id: id, sdp: sdp) }
+    enum CodingKeys: String, CodingKey {
+        case kind = "t"
+        case id
+        case title
+        case width = "w"
+        case height = "h"
+        case audio
+        case sdp
+        case candidates = "c"
+    }
+
+    static func watch(_ id: String) -> SignalMessage { SignalMessage(kind: .watch, id: id) }
+    static func leave(_ id: String) -> SignalMessage { SignalMessage(kind: .leave, id: id) }
+    static func answer(_ id: String, sdp: String) -> SignalMessage { SignalMessage(kind: .answer, id: id, sdp: sdp) }
 }
 
 struct ICECandidateInit: Codable {
@@ -42,54 +50,74 @@ struct ICECandidateInit: Codable {
     var sdpMLineIndex: Int32?
 }
 
-// MARK: - Fragmentation
+enum SignalError: Error {
+    case tooLarge
+}
 
 struct SignalFragmenter {
-    private var nextMsgId: UInt8 = 0
+    private var nextMessageId: UInt8 = 0
 
     mutating func fragments(for message: SignalMessage) throws -> [Data] {
         var payload = try JSONEncoder().encode(message)
         var flags: UInt8 = 0
-        if payload.count >= RTCSignal.compressFrom, let z = Deflate.compress(payload), z.count < payload.count {
-            payload = z
-            flags |= 1
+        if payload.count >= RTCSignal.compressFrom,
+           let compressed = Deflate.compress(payload),
+           compressed.count < payload.count {
+            payload = compressed
+            flags |= RTCSignal.deflateFlag
         }
         let count = max(1, (payload.count + RTCSignal.fragmentSize - 1) / RTCSignal.fragmentSize)
-        guard count <= 255 else { throw SignalError.tooLarge }
-        let id = nextMsgId
-        nextMsgId &+= 1
-        return (0..<count).map { i in
-            var d = Data([RTCSignal.version, id, UInt8(i), UInt8(count), flags])
-            let lo = i * RTCSignal.fragmentSize
-            d.append(payload.subdata(in: lo..<min(payload.count, lo + RTCSignal.fragmentSize)))
-            return d
+        guard count <= RTCSignal.maxFragments else { throw SignalError.tooLarge }
+        let messageId = nextMessageId
+        nextMessageId &+= 1
+        return (0..<count).map { index in
+            var fragment = Data([RTCSignal.version, messageId, UInt8(index), UInt8(count), flags])
+            let start = index * RTCSignal.fragmentSize
+            let end = min(payload.count, start + RTCSignal.fragmentSize)
+            fragment.append(payload.subdata(in: start..<end))
+            return fragment
         }
     }
 }
 
-enum SignalError: Error { case tooLarge }
-
 final class SignalReassembler {
-    private struct Key: Hashable { let sender: UInt32; let msgId: UInt8 }
-    private struct Partial { var parts: [Int: Data]; let count: Int; let flags: UInt8; let started: Date }
+    private struct Key: Hashable {
+        let sender: UInt32
+        let messageId: UInt8
+    }
+
+    private struct Partial {
+        var parts: [Int: Data]
+        let count: Int
+        let flags: UInt8
+        let startedAt: Date
+    }
+
     private var pending: [Key: Partial] = [:]
 
-    /// Feed one plugin-data payload; returns the message once every fragment has arrived.
     func receive(from sender: UInt32, data: Data) -> SignalMessage? {
-        guard data.count >= 5, data[data.startIndex] == RTCSignal.version else { return nil }
+        guard data.count >= RTCSignal.headerSize, data[data.startIndex] == RTCSignal.version else { return nil }
         let now = Date()
-        pending = pending.filter { now.timeIntervalSince($0.value.started) < RTCSignal.reassemblyTimeout }
-        let b = data.startIndex
-        let key = Key(sender: sender, msgId: data[b + 1])
-        let index = Int(data[b + 2]), count = Int(data[b + 3]), flags = data[b + 4]
+        pending = pending.filter { now.timeIntervalSince($0.value.startedAt) < RTCSignal.reassemblyTimeout }
+        let base = data.startIndex
+        let key = Key(sender: sender, messageId: data[base + 1])
+        let index = Int(data[base + 2])
+        let count = Int(data[base + 3])
+        let flags = data[base + 4]
         guard count >= 1, index < count else { return nil }
-        var partial = pending[key] ?? Partial(parts: [:], count: count, flags: flags, started: now)
-        partial.parts[index] = data.subdata(in: (b + 5)..<data.endIndex)
-        if partial.parts.count < count { pending[key] = partial; return nil }
+        var partial = pending[key] ?? Partial(parts: [:], count: count, flags: flags, startedAt: now)
+        partial.parts[index] = data.subdata(in: (base + RTCSignal.headerSize)..<data.endIndex)
+        if partial.parts.count < count {
+            pending[key] = partial
+            return nil
+        }
         pending[key] = nil
         var payload = Data()
-        for i in 0..<count { guard let part = partial.parts[i] else { return nil }; payload.append(part) }
-        if flags & 1 != 0 {
+        for position in 0..<count {
+            guard let part = partial.parts[position] else { return nil }
+            payload.append(part)
+        }
+        if flags & RTCSignal.deflateFlag != 0 {
             guard let inflated = Deflate.decompress(payload) else { return nil }
             payload = inflated
         }
@@ -97,62 +125,71 @@ final class SignalReassembler {
     }
 }
 
-/// Raw deflate (RFC 1951). On Apple platforms COMPRESSION_ZLIB is exactly that — no zlib header.
 enum Deflate {
     static func compress(_ data: Data) -> Data? {
-        data.withUnsafeBytes { src -> Data? in
-            guard let base = src.bindMemory(to: UInt8.self).baseAddress else { return nil }
-            let cap = data.count + 64
-            let dst = UnsafeMutablePointer<UInt8>.allocate(capacity: cap)
-            defer { dst.deallocate() }
-            let n = compression_encode_buffer(dst, cap, base, data.count, nil, COMPRESSION_ZLIB)
-            return n > 0 ? Data(bytes: dst, count: n) : nil
+        data.withUnsafeBytes { source -> Data? in
+            guard let base = source.bindMemory(to: UInt8.self).baseAddress else { return nil }
+            let capacity = data.count + 64
+            let destination = UnsafeMutablePointer<UInt8>.allocate(capacity: capacity)
+            defer { destination.deallocate() }
+            let written = compression_encode_buffer(destination, capacity, base, data.count, nil, COMPRESSION_ZLIB)
+            return written > 0 ? Data(bytes: destination, count: written) : nil
         }
     }
 
     static func decompress(_ data: Data) -> Data? {
-        var cap = max(4096, data.count * 8)
-        while cap <= (1 << 22) {
-            let out: Data? = data.withUnsafeBytes { src in
-                guard let base = src.bindMemory(to: UInt8.self).baseAddress else { return nil }
-                let dst = UnsafeMutablePointer<UInt8>.allocate(capacity: cap)
-                defer { dst.deallocate() }
-                let n = compression_decode_buffer(dst, cap, base, data.count, nil, COMPRESSION_ZLIB)
-                return (n > 0 && n < cap) ? Data(bytes: dst, count: n) : nil   // n == cap: buffer too small
+        var capacity = max(4096, data.count * 8)
+        while capacity <= (1 << 22) {
+            let output: Data? = data.withUnsafeBytes { source in
+                guard let base = source.bindMemory(to: UInt8.self).baseAddress else { return nil }
+                let destination = UnsafeMutablePointer<UInt8>.allocate(capacity: capacity)
+                defer { destination.deallocate() }
+                let written = compression_decode_buffer(destination, capacity, base, data.count, nil, COMPRESSION_ZLIB)
+                let fitted = written > 0 && written < capacity
+                return fitted ? Data(bytes: destination, count: written) : nil
             }
-            if let out { return out }
-            cap *= 4
+            if let output { return output }
+            capacity *= 4
         }
         return nil
     }
 }
 
-// MARK: - Rate-limited sending
-
-/// Feeds fragments to the client under the server's leaky bucket (we use burst 12, 3/s — a
-/// little inside its 15 / 4/s) so nothing is ever dropped without us knowing.
 @MainActor
 final class SignalSender {
+    private static let burst = 12.0
+    private static let ratePerSecond = 3.0
+    private static let retryDelayNanoseconds: UInt64 = 350_000_000
+
     private let client: MumbleClient
     private var fragmenter = SignalFragmenter()
-    private var tokens = 12.0
+    private var tokens = SignalSender.burst
     private var lastRefill = Date()
     private var queue: [(receivers: [UInt32], data: Data)] = []
     private var drainTask: Task<Void, Never>?
 
-    init(client: MumbleClient) { self.client = client }
+    init(client: MumbleClient) {
+        self.client = client
+    }
 
     func send(_ message: SignalMessage, to receivers: [UInt32]) {
-        guard !receivers.isEmpty, let frags = try? fragmenter.fragments(for: message) else { return }
-        for f in frags { queue.append((receivers, f)) }
+        guard !receivers.isEmpty, let fragments = try? fragmenter.fragments(for: message) else { return }
+        for fragment in fragments {
+            queue.append((receivers, fragment))
+        }
         drain()
     }
 
-    func reset() { queue.removeAll(); drainTask?.cancel(); drainTask = nil; tokens = 12 }
+    func reset() {
+        queue.removeAll()
+        drainTask?.cancel()
+        drainTask = nil
+        tokens = Self.burst
+    }
 
     private func drain() {
         let now = Date()
-        tokens = min(12, tokens + now.timeIntervalSince(lastRefill) * 3)
+        tokens = min(Self.burst, tokens + now.timeIntervalSince(lastRefill) * Self.ratePerSecond)
         lastRefill = now
         while tokens >= 1, !queue.isEmpty {
             let item = queue.removeFirst()
@@ -161,7 +198,7 @@ final class SignalSender {
         }
         guard !queue.isEmpty, drainTask == nil else { return }
         drainTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 350_000_000)
+            try? await Task.sleep(nanoseconds: Self.retryDelayNanoseconds)
             guard let self, !Task.isCancelled else { return }
             self.drainTask = nil
             self.drain()

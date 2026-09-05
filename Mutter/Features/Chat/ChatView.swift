@@ -22,8 +22,8 @@ struct ChatView: View {
         return .channel(session.me?.channelID ?? Channel.rootID)
     }
 
-    private func isValid(_ s: MessageScope) -> Bool {
-        switch s {
+    private func isValid(_ candidate: MessageScope) -> Bool {
+        switch candidate {
         case .channel(let id), .tree(let id): return session.channels[id] != nil
         case .user(let id): return session.users[id] != nil
         case .system: return false
@@ -79,7 +79,10 @@ struct ChatView: View {
 
     private func loadPhoto(_ item: PhotosPickerItem) async {
         sendingImage = true
-        defer { sendingImage = false; photoItem = nil }
+        defer {
+            sendingImage = false
+            photoItem = nil
+        }
         guard let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data) else {
             imageError = "Couldn't read that photo."
             return
@@ -102,8 +105,6 @@ struct ChatView: View {
         model.client.sendText(html: html, to: target)
     }
 
-    // MARK: Composer
-
     private var composer: some View {
         VStack(spacing: 6) {
             Divider().overlay(Theme.separator)
@@ -124,8 +125,8 @@ struct ChatView: View {
                         let others = session.users.values.filter { $0.session != session.mySession }.sorted { $0.name < $1.name }
                         if !others.isEmpty {
                             Menu("Direct message") {
-                                ForEach(others) { u in
-                                    Button { customScope = .user(u.session) } label: { Text(u.name) }
+                                ForEach(others) { user in
+                                    Button { customScope = .user(user.session) } label: { Text(user.name) }
                                 }
                             }
                         }
@@ -207,7 +208,6 @@ struct PendingPhoto: Identifiable {
     let image: UIImage
 }
 
-/// Preview shown after picking a photo, so nothing sends until you confirm.
 struct PhotoConfirmSheet: View {
     let image: UIImage
     let destination: String
@@ -277,7 +277,7 @@ struct MessageRow: View {
         } else {
             HStack(alignment: .top, spacing: 8) {
                 if message.isOwn { Spacer(minLength: 40) } else {
-                    Button { if let s = message.senderSession { onUser(s) } } label: {
+                    Button { if let sender = message.senderSession { onUser(sender) } } label: {
                         Avatar(name: message.senderName, texture: model.session.users[message.senderSession ?? 0]?.texture, size: 30)
                     }
                     .buttonStyle(.plain)

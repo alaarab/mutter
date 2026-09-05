@@ -1,36 +1,83 @@
-// Everything that survives a reload lives in localStorage: settings, saved servers, and which
-// channels are collapsed. Plain JSON, one key each.
-
 import { DEFAULT_THEME } from './themes.js';
 
-function load(key, fallback) {
-  try { return { ...fallback, ...JSON.parse(localStorage.getItem(key) ?? 'null') } ?? fallback; } catch { return fallback; }
-}
-const save = (key, value) => localStorage.setItem(key, JSON.stringify(value));
+const SETTINGS_KEY = 'mutter.settings';
+const SERVERS_KEY = 'mutter.servers';
+const COLLAPSED_KEY = 'mutter.collapsed';
+const MAX_SAVED_SERVERS = 12;
 
-export const settings = load('mutter.settings', {
-  theme: DEFAULT_THEME, transmitMode: 'vad', vadThresholdDb: -38, autoSensitivity: true, bitrate: 40_000, inputDeviceId: '',
-  shareAudio: true, stun: 'stun:stun.l.google.com:19302', turn: { url: '', username: '', credential: '' },
+function loadJson(key, fallback) {
+  try {
+    const stored = JSON.parse(localStorage.getItem(key) ?? 'null');
+    return stored ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function loadObject(key, defaults) {
+  return { ...defaults, ...loadJson(key, {}) };
+}
+
+function saveJson(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+export const settings = loadObject(SETTINGS_KEY, {
+  theme: DEFAULT_THEME,
+  transmitMode: 'vad',
+  vadThresholdDb: -38,
+  autoSensitivity: true,
+  bitrate: 40_000,
+  inputDeviceId: '',
+  shareAudio: true,
+  stun: 'stun:stun.l.google.com:19302',
+  turn: { url: '', username: '', credential: '' },
 });
-export const saveSettings = () => save('mutter.settings', settings);
 
-/// Saved servers, most recently used first. `password` is kept only if the user asked.
-export const servers = (() => { try { return JSON.parse(localStorage.getItem('mutter.servers') ?? '[]'); } catch { return []; } })();
-export function rememberServer(target) {
-  const key = s => `${s.host}:${s.port}`;
-  const i = servers.findIndex(s => key(s) === key(target));
-  if (i >= 0) servers.splice(i, 1);
-  servers.unshift({ host: target.host, port: target.port, username: target.username, password: target.remember ? target.password : undefined, lastUsed: Date.now() });
-  if (servers.length > 12) servers.length = 12;
-  save('mutter.servers', servers);
+export function saveSettings() {
+  saveJson(SETTINGS_KEY, settings);
 }
+
+export const servers = loadJson(SERVERS_KEY, []);
+
+function serverKey(server) {
+  return `${server.host}:${server.port}`;
+}
+
+export function rememberServer(target) {
+  const existing = servers.findIndex((server) => serverKey(server) === serverKey(target));
+  if (existing >= 0) {
+    servers.splice(existing, 1);
+  }
+  servers.unshift({
+    host: target.host,
+    port: target.port,
+    username: target.username,
+    password: target.remember ? target.password : undefined,
+    lastUsed: Date.now(),
+  });
+  if (servers.length > MAX_SAVED_SERVERS) {
+    servers.length = MAX_SAVED_SERVERS;
+  }
+  saveJson(SERVERS_KEY, servers);
+}
+
 export function forgetServer(host, port) {
-  const i = servers.findIndex(s => s.host === host && s.port === port);
-  if (i >= 0) { servers.splice(i, 1); save('mutter.servers', servers); }
+  const index = servers.findIndex((server) => server.host === host && server.port === port);
+  if (index >= 0) {
+    servers.splice(index, 1);
+    saveJson(SERVERS_KEY, servers);
+  }
 }
 
 export function collapsedFor(host) {
-  const all = load('mutter.collapsed', {});
+  const all = loadJson(COLLAPSED_KEY, {});
   const set = new Set(all[host] ?? []);
-  return { set, save() { all[host] = [...set]; save('mutter.collapsed', all); } };
+  return {
+    set,
+    save() {
+      all[host] = [...set];
+      saveJson(COLLAPSED_KEY, all);
+    },
+  };
 }

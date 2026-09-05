@@ -3,7 +3,6 @@ import Foundation
 import Security
 import CryptoKit
 
-/// A client certificate identity the user can connect with. The private key never leaves the keychain.
 public struct ClientIdentity: Identifiable, Codable, Hashable, Sendable {
     public var id: UUID
     public var name: String
@@ -17,7 +16,6 @@ public struct ClientIdentity: Identifiable, Codable, Hashable, Sendable {
     var keychainLabel: String { "com.alaarab.mutter.identity.\(id.uuidString)" }
 }
 
-/// Persists identities: metadata in a JSON file, certificate + key in the keychain.
 public final class IdentityStore {
     public static let shared = IdentityStore()
 
@@ -26,8 +24,7 @@ public final class IdentityStore {
     private var cache: [ClientIdentity]
 
     public init(directory: URL? = nil) {
-        let dir = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Mutter", isDirectory: true)
+        let dir = directory ?? AppDirectories.support
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         fileURL = dir.appendingPathComponent("identities.json")
         if let data = try? Data(contentsOf: fileURL),
@@ -39,7 +36,8 @@ public final class IdentityStore {
     }
 
     public var identities: [ClientIdentity] {
-        lock.lock(); defer { lock.unlock() }
+        lock.lock()
+        defer { lock.unlock() }
         return cache
     }
 
@@ -48,8 +46,6 @@ public final class IdentityStore {
             try? data.write(to: fileURL, options: .atomic)
         }
     }
-
-    // MARK: Create / import / delete
 
     public func create(name: String, commonName: String, email: String?) throws -> ClientIdentity {
         let id = UUID()
@@ -86,10 +82,10 @@ public final class IdentityStore {
         guard status == errSecSuccess,
               let array = items as? [[String: Any]],
               let first = array.first,
-              let identityRef = first[kSecImportItemIdentity as String] else {
+              let identityRef = first[kSecImportItemIdentity as String],
+              CFGetTypeID(identityRef as AnyObject) == SecIdentityGetTypeID() else {
             throw CertificateError.importFailed(status)
         }
-        // swiftlint:disable:next force_cast
         let secIdentity = identityRef as! SecIdentity
         var certRef: SecCertificate?
         SecIdentityCopyCertificate(secIdentity, &certRef)
@@ -119,9 +115,10 @@ public final class IdentityStore {
     }
 
     public func rename(_ identity: ClientIdentity, to name: String) {
-        lock.lock(); defer { lock.unlock() }
-        guard let idx = cache.firstIndex(where: { $0.id == identity.id }) else { return }
-        cache[idx].name = name
+        lock.lock()
+        defer { lock.unlock() }
+        guard let index = cache.firstIndex(where: { $0.id == identity.id }) else { return }
+        cache[index].name = name
         save()
     }
 
@@ -142,8 +139,6 @@ public final class IdentityStore {
         lock.unlock()
     }
 
-    // MARK: Lookup
-
     public func secIdentity(for identity: ClientIdentity) -> SecIdentity? {
         let query: [CFString: Any] = [
             kSecClass: kSecClassIdentity,
@@ -153,8 +148,7 @@ public final class IdentityStore {
         ]
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess, let result else { return nil }
-        // swiftlint:disable:next force_cast
+        guard status == errSecSuccess, let result, CFGetTypeID(result) == SecIdentityGetTypeID() else { return nil }
         return (result as! SecIdentity)
     }
 

@@ -1,123 +1,227 @@
-// The message list, laid out the way Revolt and Discord do it: a 62 px gutter with the avatar,
-// author and time on the first line of a group, plain text lines underneath, later messages
-// from the same person within seven minutes folded into the group with the time on hover.
-// Day dividers, a "New messages" divider, system lines, and a hover toolbar per message.
-
 import { sanitize, plainText } from './chat.js';
 import { ICON } from './icons.js';
-import { el, avatar } from './ui.js';
+import { el, avatar, clickWithoutBubbling } from './ui.js';
 
-const GROUP_MS = 7 * 60_000;
+const GROUP_WINDOW_MS = 7 * 60_000;
+const MAX_ROWS = 600;
+const BOTTOM_THRESHOLD_PX = 40;
 
 export class MessageList {
-  /// `ctx`: { client, onImage, onQuote, onMessageUser, onMuteFor }
   constructor(container, ctx) {
     this.box = container;
     this.ctx = ctx;
-    this.prev = null;
+    this.previous = null;
     this.pendingUnread = false;
-    this.box.addEventListener('scroll', () => { this.atBottom = this.box.scrollHeight - this.box.scrollTop - this.box.clientHeight < 40; }, { passive: true });
+    this.atBottom = true;
+    this.box.addEventListener(
+      'scroll',
+      () => {
+        const distance = this.box.scrollHeight - this.box.scrollTop - this.box.clientHeight;
+        this.atBottom = distance < BOTTOM_THRESHOLD_PX;
+      },
+      { passive: true }
+    );
+  }
+
+  reset() {
+    this.box.replaceChildren();
+    this.previous = null;
+    this.pendingUnread = false;
     this.atBottom = true;
   }
 
-  reset() { this.box.replaceChildren(); this.prev = null; this.pendingUnread = false; this.atBottom = true; }
-
-  /// Call before appending messages that arrived while the chat wasn't visible.
-  markUnreadFromHere() { this.pendingUnread = true; }
-  clearUnread() { this.box.querySelector('.newmsgs')?.remove(); this.pendingUnread = false; }
-
-  append(m) {
-    const stick = this.atBottom || m.own;
-    const p = this.prev;
-    if (!p || dayKey(p.date) !== dayKey(m.date)) this.box.append(divider(dayLabel(m.date), 'day'));
-    if (this.pendingUnread && !m.own && !m.scope?.system) { this.clearUnread(); this.box.append(divider('New messages', 'newmsgs')); this.pendingUnread = false; }
-    this.box.append(m.scope?.system ? systemRow(m) : this.row(m, p));
-    this.prev = m;
-    while (this.box.children.length > 600) this.box.firstChild.remove();
-    if (stick) this.box.scrollTop = this.box.scrollHeight;
+  markUnreadFromHere() {
+    this.pendingUnread = true;
   }
 
-  row(m, p) {
-    const { client } = this.ctx;
-    const cont = p && !p.scope?.system && p.senderSession === m.senderSession && scopeKey(p.scope) === scopeKey(m.scope) && m.date - p.date < GROUP_MS && dayKey(p.date) === dayKey(m.date);
-    const row = el('div', { className: `row${cont ? ' cont' : ''}${m.own ? ' own' : ''}` });
-    row.dataset.id = m.id;
-    if (m.senderSession !== undefined) row.dataset.session = m.senderSession;
+  clearUnread() {
+    this.box.querySelector('.newmsgs')?.remove();
+    this.pendingUnread = false;
+  }
+
+  append(message) {
+    const stick = this.atBottom || message.own;
+    const previous = this.previous;
+    if (!previous || dayKey(previous.date) !== dayKey(message.date)) {
+      this.box.append(divider(dayLabel(message.date), 'day'));
+    }
+    if (this.pendingUnread && !message.own && !message.scope?.system) {
+      this.clearUnread();
+      this.box.append(divider('New messages', 'newmsgs'));
+    }
+    this.box.append(message.scope?.system ? systemRow(message) : this.row(message, previous));
+    this.previous = message;
+    while (this.box.children.length > MAX_ROWS) {
+      this.box.firstChild.remove();
+    }
+    if (stick) {
+      this.box.scrollTop = this.box.scrollHeight;
+    }
+  }
+
+  row(message, previous) {
+    const continues = continuesGroup(message, previous);
+    const row = el('div', { className: `row${continues ? ' cont' : ''}${message.own ? ' own' : ''}` });
+    row.dataset.id = message.id;
+    if (message.senderSession !== undefined) {
+      row.dataset.session = message.senderSession;
+    }
     const gutter = el('div', { className: 'gutter' });
     const body = el('div', { className: 'body' });
-    if (cont) gutter.append(el('time', { className: 'hover-time', textContent: shortTime(m.date) }));
-    else {
-      gutter.append(avatar(m.senderName, 'm'));
-      // The avatar carries who said it; a tinted name on top of that is one colour too many.
-      const meta = el('div', { className: 'meta' }, el('span', { className: 'author', textContent: m.senderName ?? '…' }));
-      const tag = scopeTag(m.scope, client);
-      if (tag) meta.append(el('span', { className: `tag${m.scope?.sessions?.length ? ' dm' : ''}`, textContent: tag }));
-      meta.append(el('time', { textContent: longTime(m.date), title: m.date.toLocaleString() }));
-      body.append(meta);
+    if (continues) {
+      gutter.append(el('time', { className: 'hover-time', textContent: shortTime(message.date) }));
+    } else {
+      gutter.append(avatar(message.senderName, 'm'));
+      body.append(this.meta(message));
     }
     const content = el('div', { className: 'content' });
-    content.append(sanitize(m.html));
-    for (const img of content.querySelectorAll('img')) img.addEventListener('click', () => this.ctx.onImage?.(img.src));
+    content.append(sanitize(message.html));
+    for (const image of content.querySelectorAll('img')) {
+      image.addEventListener('click', () => this.ctx.onImage?.(image.src));
+    }
     body.append(content);
-    if (m.failed) body.append(el('div', { className: 'failed-note', textContent: `Not delivered · ${m.failed}` }));
-    row.append(gutter, body, this.tools(m));
+    if (message.failed) {
+      body.append(failedNote(message));
+    }
+    row.append(gutter, body, this.tools(message));
     return row;
   }
 
-  tools(m) {
+  meta(message) {
+    const meta = el('div', { className: 'meta' }, el('span', { className: 'author', textContent: message.senderName ?? '…' }));
+    const tag = scopeTag(message.scope, this.ctx.client);
+    if (tag) {
+      meta.append(el('span', { className: `tag${message.scope?.sessions?.length ? ' dm' : ''}`, textContent: tag }));
+    }
+    meta.append(el('time', { textContent: longTime(message.date), title: message.date.toLocaleString() }));
+    return meta;
+  }
+
+  tools(message) {
     const bar = el('div', { className: 'tools' });
-    const tool = (icon, tip, fn) => { const b = el('button', { type: 'button', innerHTML: ICON[icon] }); b.dataset.tip = tip; b.onclick = e => { e.stopPropagation(); fn(); }; return b; };
-    bar.append(tool('quote', 'Quote', () => this.ctx.onQuote?.(m)));
-    bar.append(tool('copy', 'Copy text', () => navigator.clipboard?.writeText(plainText(m.html)).catch(() => {})));
-    if (!m.own && m.senderSession !== undefined && this.ctx.client.users.has(m.senderSession)) {
-      bar.append(tool('message', 'Message them', () => this.ctx.onMessageUser?.(m.senderSession)));
-      bar.append(tool('volumeOff', 'Mute for me', () => this.ctx.onMuteFor?.(m.senderSession)));
+    const tool = (icon, tip, action) => {
+      const button = el('button', { type: 'button', innerHTML: ICON[icon] });
+      button.dataset.tip = tip;
+      clickWithoutBubbling(button, action);
+      return button;
+    };
+    bar.append(tool('quote', 'Quote', () => this.ctx.onQuote?.(message)));
+    bar.append(tool('copy', 'Copy text', () => navigator.clipboard?.writeText(plainText(message.html)).catch(() => {})));
+    const senderOnline = message.senderSession !== undefined && this.ctx.client.users.has(message.senderSession);
+    if (!message.own && senderOnline) {
+      bar.append(tool('message', 'Message them', () => this.ctx.onMessageUser?.(message.senderSession)));
+      bar.append(tool('volumeOff', 'Mute for me', () => this.ctx.onMuteFor?.(message.senderSession)));
     }
     return bar;
   }
 
-  markFailed(m) {
-    const row = this.box.querySelector(`[data-id="${m.id}"]`);
-    if (!row || row.classList.contains('failed')) return;
+  markFailed(message) {
+    const row = this.box.querySelector(`[data-id="${message.id}"]`);
+    if (!row || row.classList.contains('failed')) {
+      return;
+    }
     row.classList.add('failed');
-    row.querySelector('.body')?.append(el('div', { className: 'failed-note', textContent: `Not delivered · ${m.failed}` }));
+    row.querySelector('.body')?.append(failedNote(message));
   }
 }
 
-function systemRow(m) {
+function continuesGroup(message, previous) {
+  if (!previous || previous.scope?.system) {
+    return false;
+  }
+  return (
+    previous.senderSession === message.senderSession &&
+    scopeKey(previous.scope) === scopeKey(message.scope) &&
+    message.date - previous.date < GROUP_WINDOW_MS &&
+    dayKey(previous.date) === dayKey(message.date)
+  );
+}
+
+function failedNote(message) {
+  return el('div', { className: 'failed-note', textContent: `Not delivered · ${message.failed}` });
+}
+
+function systemIcon(html) {
+  if (/connected|joined/i.test(html) && !/disconnected/i.test(html)) {
+    return 'userPlus';
+  }
+  if (/disconnected|left|kicked|banned/i.test(html)) {
+    return 'userMinus';
+  }
+  if (/moved/i.test(html)) {
+    return 'join';
+  }
+  return 'info';
+}
+
+function systemRow(message) {
   const row = el('div', { className: 'row system' });
-  row.dataset.id = m.id;
-  const icon = /connected|joined/i.test(m.html) && !/disconnected/i.test(m.html) ? 'userPlus' : /disconnected|left|kicked|banned/i.test(m.html) ? 'userMinus' : /moved/i.test(m.html) ? 'join' : 'info';
-  const gutter = el('div', { className: 'gutter', innerHTML: ICON[icon] });
-  const body = el('div', { className: 'body' });
+  row.dataset.id = message.id;
+  const gutter = el('div', { className: 'gutter', innerHTML: ICON[systemIcon(message.html)] });
   const content = el('div', { className: 'content' });
-  content.append(sanitize(m.html));
-  body.append(content);
-  row.append(gutter, body, el('time', { textContent: shortTime(m.date) }));
+  content.append(sanitize(message.html));
+  const body = el('div', { className: 'body' }, content);
+  row.append(gutter, body, el('time', { textContent: shortTime(message.date) }));
   return row;
 }
 
-const divider = (text, cls) => el('div', { className: `divider ${cls}` }, el('span', { textContent: text }));
-const scopeKey = s => s?.sessions?.length ? `dm:${s.sessions.join(',')}` : s?.treeId !== undefined ? `tree:${s.treeId}` : `ch:${s?.channelId ?? 0}`;
+function divider(text, kind) {
+  return el('div', { className: `divider ${kind}` }, el('span', { textContent: text }));
+}
+
+function scopeKey(scope) {
+  if (scope?.sessions?.length) {
+    return `dm:${scope.sessions.join(',')}`;
+  }
+  if (scope?.treeId !== undefined) {
+    return `tree:${scope.treeId}`;
+  }
+  return `ch:${scope?.channelId ?? 0}`;
+}
+
 function scopeTag(scope, client) {
-  if (!scope) return null;
-  if (scope.sessions?.length) return 'DM';
-  if (scope.treeId !== undefined) return `#${client.channels.get(scope.treeId)?.name ?? 'channel'} +`;
-  if (scope.channelId !== undefined && scope.channelId !== client.myChannel?.channelId) return `#${client.channels.get(scope.channelId)?.name ?? 'channel'}`;
+  if (!scope) {
+    return null;
+  }
+  if (scope.sessions?.length) {
+    return 'DM';
+  }
+  if (scope.treeId !== undefined) {
+    return `#${client.channels.get(scope.treeId)?.name ?? 'channel'} +`;
+  }
+  if (scope.channelId !== undefined && scope.channelId !== client.myChannel?.channelId) {
+    return `#${client.channels.get(scope.channelId)?.name ?? 'channel'}`;
+  }
   return null;
 }
-const dayKey = d => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-function dayLabel(d) {
-  const today = new Date(), yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
-  if (dayKey(d) === dayKey(today)) return 'Today';
-  if (dayKey(d) === dayKey(yesterday)) return 'Yesterday';
-  return d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+
+function dayKey(date) {
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 }
-const shortTime = d => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-function longTime(d) {
-  const today = new Date(), yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
-  const t = shortTime(d);
-  if (dayKey(d) === dayKey(today)) return `Today at ${t}`;
-  if (dayKey(d) === dayKey(yesterday)) return `Yesterday at ${t}`;
-  return `${d.toLocaleDateString()} ${t}`;
+
+function relativeDay(date) {
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  if (dayKey(date) === dayKey(today)) {
+    return 'Today';
+  }
+  if (dayKey(date) === dayKey(yesterday)) {
+    return 'Yesterday';
+  }
+  return null;
+}
+
+function dayLabel(date) {
+  return relativeDay(date) ?? date.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+}
+
+function shortTime(date) {
+  return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+function longTime(date) {
+  const time = shortTime(date);
+  const day = relativeDay(date);
+  return day ? `${day} at ${time}` : `${date.toLocaleDateString()} ${time}`;
 }

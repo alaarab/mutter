@@ -2,10 +2,7 @@ import SwiftUI
 import PhotosUI
 import UIKit
 
-/// Mumble images travel inline as `<img src="data:image/...;base64,...">` inside the text
-/// message, capped by the server's `image_message_length`. This shrinks a photo until it fits.
 enum ImageMessageEncoder {
-    /// Mumble's default when the server doesn't say otherwise.
     static let defaultLimit = 131_072
 
     static func html(for image: UIImage, limit: Int) -> String? {

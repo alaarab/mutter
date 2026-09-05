@@ -1,15 +1,14 @@
 import SwiftUI
 import WebRTC
 
-/// Metal-backed video surface for a WebRTC track.
 struct RTCVideoSurface: UIViewRepresentable {
     var track: RTCVideoTrack?
 
     func makeUIView(context: Context) -> RTCMTLVideoView {
-        let v = RTCMTLVideoView(frame: .zero)
-        v.videoContentMode = .scaleAspectFit
-        v.backgroundColor = .black
-        return v
+        let view = RTCMTLVideoView(frame: .zero)
+        view.videoContentMode = .scaleAspectFit
+        view.backgroundColor = .black
+        return view
     }
 
     func updateUIView(_ view: RTCMTLVideoView, context: Context) {
@@ -25,7 +24,6 @@ struct RTCVideoSurface: UIViewRepresentable {
     final class Coordinator { var track: RTCVideoTrack? }
 }
 
-/// "Someone is sharing" strip shown above the session content while a share is available.
 struct ShareBanner: View {
     @Environment(AppModel.self) private var model
 
@@ -55,7 +53,6 @@ struct ShareBanner: View {
     }
 }
 
-/// Full-screen viewer with a live stats pill and a way out.
 struct ScreenShareViewer: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -74,12 +71,15 @@ struct ScreenShareViewer: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             HStack(spacing: 10) {
-                Button { share.stopWatching(); dismiss() } label: {
+                Button {
+                    share.stopWatching()
+                    dismiss()
+                } label: {
                     Image(systemName: "xmark").font(.icon(15, .bold)).foregroundStyle(.white)
                         .frame(width: 36, height: 36).background(.white.opacity(0.15), in: Circle())
                 }
-                if let w = share.watching {
-                    Text(model.session.users[w.sender]?.name ?? w.title).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                if let current = share.watching {
+                    Text(model.session.users[current.sender]?.name ?? current.title).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
                 }
                 Spacer()
                 HStack(spacing: 6) {

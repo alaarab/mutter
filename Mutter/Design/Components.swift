@@ -1,8 +1,6 @@
 import SwiftUI
 import MumbleClient
 
-// MARK: - Avatar
-
 struct Avatar: View {
     var name: String
     var texture: Data?
@@ -34,7 +32,6 @@ struct Avatar: View {
     }
 }
 
-/// Avatar with the speaking ring and status badges used throughout the channel tree.
 struct UserAvatar: View {
     var user: User
     var size: CGFloat = 36
@@ -49,11 +46,11 @@ struct UserAvatar: View {
                 )
                 .animation(.easeOut(duration: 0.12), value: user.isTalking)
             if let badge = badgeSymbol {
-                Image(systemName: badge.0)
+                Image(systemName: badge.symbol)
                     .font(.icon(size * 0.3, .bold))
                     .foregroundStyle(.white)
                     .padding(3)
-                    .background(badge.1, in: Circle())
+                    .background(badge.color, in: Circle())
                     .overlay(Circle().strokeBorder(Theme.background, lineWidth: 1.5))
                     .offset(x: 3, y: 3)
             }
@@ -67,15 +64,13 @@ struct UserAvatar: View {
         }
     }
 
-    private var badgeSymbol: (String, Color)? {
+    private var badgeSymbol: (symbol: String, color: Color)? {
         if user.isSelfDeafened || user.isDeafened { return ("speaker.slash.fill", user.isDeafened ? Theme.danger : Theme.muted) }
         if user.isSelfMuted || user.isMuted || user.isSuppressed { return ("mic.slash.fill", user.isMuted ? Theme.danger : Theme.muted) }
         if user.isLocallyMuted { return ("ear.trianglebadge.exclamationmark", Theme.warning) }
         return nil
     }
 }
-
-// MARK: - Small pieces
 
 struct StatusDot: View {
     var color: Color
@@ -113,7 +108,6 @@ struct Pill: View {
 struct SectionLabel: View {
     var text: String
     var body: some View {
-        // All-caps needs more air between letters than lowercase to stay readable.
         Text(text.uppercased())
             .font(.ui(11, .bold, relativeTo: .caption))
             .tracking(1.4)
@@ -141,7 +135,6 @@ struct EmptyState: View {
     }
 }
 
-/// Live input level bar. `level` in dB (-80...0), `threshold` marks the gate.
 struct LevelMeter: View {
     var level: Float
     var threshold: Float?
@@ -230,5 +223,62 @@ struct RoundIconButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
+    }
+}
+
+struct HoldGesture: ViewModifier {
+    var onPress: () -> Void
+    var onRelease: () -> Void
+    @State private var pressed = false
+
+    func body(content: Content) -> some View {
+        content.gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    if !pressed {
+                        pressed = true
+                        onPress()
+                    }
+                }
+                .onEnded { _ in
+                    pressed = false
+                    onRelease()
+                }
+        )
+    }
+}
+
+extension View {
+    func themedList() -> some View {
+        scrollContentBackground(.hidden).background(Theme.background)
+    }
+
+    func doneToolbar(_ dismiss: DismissAction) -> some View {
+        toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+    }
+
+    func onHold(onPress: @escaping () -> Void, onRelease: @escaping () -> Void) -> some View {
+        modifier(HoldGesture(onPress: onPress, onRelease: onRelease))
+    }
+}
+
+extension Binding where Value == Bool {
+    init<Wrapped>(isPresent source: Binding<Wrapped?>) {
+        self.init(
+            get: { source.wrappedValue != nil },
+            set: { presented in
+                if !presented { source.wrappedValue = nil }
+            }
+        )
+    }
+}
+
+enum Haptics {
+    static func impact(_ style: UIImpactFeedbackGenerator.FeedbackStyle) {
+        UIImpactFeedbackGenerator(style: style).impactOccurred()
+    }
+
+    static func selection() {
+        Haptics.selection()
     }
 }

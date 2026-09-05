@@ -1,38 +1,54 @@
-// The member list on the right, grouped the way Revolt groups by role: your channel first,
-// then every other channel with people in it. Rows carry the status-dot avatar.
-
-import { el } from './ui.js';
+import { el, activate } from './ui.js';
 import { presence, statusAvatar } from './tree.js';
+import { compareChannels } from './client.js';
 
-/// `ctx`: { client, audio, share, onUser }
-export function renderMembers(container, countEl, ctx) {
+export function renderMembers(container, countElement, ctx) {
   const { client } = ctx;
-  const frag = document.createDocumentFragment();
-  const mine = client.myChannel?.channelId ?? 0;
-  const groups = [];
-  const channels = [...client.channels.values()].sort((a, b) => (a.channelId === mine ? -1 : b.channelId === mine ? 1 : (a.position ?? 0) - (b.position ?? 0) || (a.name ?? '').localeCompare(b.name ?? '')));
-  for (const c of channels) {
-    const users = client.usersIn(c.channelId);
-    if (users.length) groups.push({ channel: c, users });
+  const fragment = document.createDocumentFragment();
+  const myChannelId = client.myChannel?.channelId ?? 0;
+  const channels = [...client.channels.values()].sort((a, b) => {
+    if (a.channelId === myChannelId) {
+      return -1;
+    }
+    if (b.channelId === myChannelId) {
+      return 1;
+    }
+    return compareChannels(a, b);
+  });
+  for (const channel of channels) {
+    const users = client.usersIn(channel.channelId);
+    if (!users.length) {
+      continue;
+    }
+    const heading = channel.channelId === myChannelId ? `In #${channel.name}` : `#${channel.name}`;
+    fragment.append(
+      el(
+        'div',
+        { className: 'mcat' },
+        el('span', { textContent: heading }),
+        el('span', { className: 'n', textContent: String(users.length) })
+      )
+    );
+    for (const user of users) {
+      fragment.append(memberRow(user, ctx));
+    }
   }
-  for (const g of groups) {
-    frag.append(el('div', { className: 'mcat' }, el('span', { textContent: g.channel.channelId === mine ? `In #${g.channel.name}` : `#${g.channel.name}` }), el('span', { className: 'n', textContent: String(g.users.length) })));
-    for (const u of g.users) frag.append(memberRow(u, ctx));
+  container.replaceChildren(fragment);
+  if (countElement) {
+    countElement.textContent = String(client.users.size);
   }
-  container.replaceChildren(frag);
-  if (countEl) countEl.textContent = String(client.users.size);
 }
 
-function memberRow(u, ctx) {
-  const me = u.session === ctx.client.me;
-  const [text, cls] = presence(u, ctx);
-  const row = el('div', { className: `member${me ? ' me' : ''}${cls === 'speaking' ? ' talking' : ''}` });
-  row.dataset.session = u.session;
-  const name = el('span', { className: 'name', textContent: u.name ?? '…' });
-  const col = el('span', { className: 'col' }, name);
-  if (text) col.append(el('span', { className: `status ${cls}`, textContent: text }));
-  row.append(statusAvatar(u, ctx, 'm'), col);
-  row.onclick = () => ctx.onUser(row, u);
-  row.oncontextmenu = e => { e.preventDefault(); ctx.onUser(row, u); };
+function memberRow(user, ctx) {
+  const isMe = user.session === ctx.client.me;
+  const [statusText, statusClass] = presence(user, ctx);
+  const row = el('div', { className: `member${isMe ? ' me' : ''}${statusClass === 'speaking' ? ' talking' : ''}` });
+  row.dataset.session = user.session;
+  const column = el('span', { className: 'col' }, el('span', { className: 'name', textContent: user.name ?? '…' }));
+  if (statusText) {
+    column.append(el('span', { className: `status ${statusClass}`, textContent: statusText }));
+  }
+  row.append(statusAvatar(user, ctx, 'm'), column);
+  activate(row, () => ctx.onUser(row, user));
   return row;
 }

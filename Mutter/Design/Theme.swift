@@ -1,7 +1,6 @@
 import SwiftUI
 import UIKit
 
-/// A complete color scheme. Every token has a light and dark variant; the accent pair is shared.
 struct ThemePalette {
     var accent: UInt32
     var accentActive: UInt32
@@ -9,8 +8,6 @@ struct ThemePalette {
     var ink, body, muted: (light: UInt32, dark: UInt32)
 }
 
-/// Each theme is a point of view, not a hue swap: a near-black ground tinted toward the
-/// accent's temperature, and one vivid accent bright enough to clear 4.5:1 on it.
 enum ThemeStyle: String, CaseIterable, Codable, Identifiable {
     case midnight
     case ultra
@@ -66,37 +63,28 @@ enum ThemeStyle: String, CaseIterable, Codable, Identifiable {
     }
 }
 
-/// Design tokens, resolved through the active theme. Set `Theme.style` at launch and on change;
-/// the root view re-renders the tree via `.id(theme)`.
 enum Theme {
     static var style: ThemeStyle = .midnight
-    private static var p: ThemePalette { style.palette }
+    private static var activePalette: ThemePalette { style.palette }
 
-    // Brand
-    static var accent: Color { Color(hex: p.accent) }
-    static var accentActive: Color { Color(hex: p.accentActive) }
+    static var accent: Color { Color(hex: activePalette.accent) }
+    static var accentActive: Color { Color(hex: activePalette.accentActive) }
 
-    // Semantic (shared across themes, tuned to sit at the same brightness as the accents)
     static let speaking = Color(hex: 0x3DDC84)
     static let warning = Color(hex: 0xFFC53D)
     static let danger = Color(hex: 0xFF5A5A)
     static let whisper = Color(hex: 0x9C8CFF)
 
-    // Adaptive surfaces
-    static var background: Color { adaptive(p.background) }
-    static var surface: Color { adaptive(p.surface) }
-    static var surfaceElevated: Color { adaptive(p.surfaceElevated) }
-    static var surfaceSunken: Color { adaptive(p.surfaceSunken) }
-    static var separator: Color { adaptive(p.separator) }
+    static var background: Color { adaptive(activePalette.background) }
+    static var surface: Color { adaptive(activePalette.surface) }
+    static var surfaceElevated: Color { adaptive(activePalette.surfaceElevated) }
+    static var surfaceSunken: Color { adaptive(activePalette.surfaceSunken) }
+    static var separator: Color { adaptive(activePalette.separator) }
 
-    // Text
-    static var ink: Color { adaptive(p.ink) }
-    static var body: Color { adaptive(p.body) }
-    static var muted: Color { adaptive(p.muted) }
+    static var ink: Color { adaptive(activePalette.ink) }
+    static var body: Color { adaptive(activePalette.body) }
+    static var muted: Color { adaptive(activePalette.muted) }
 
-    // Stable per-server / per-user colours
-    /// Avatar/user colours: evenly spaced around the wheel at one saturation and lightness,
-    /// so no single person's bubble shouts louder than the rest.
     static let palette: [Color] = [
         Color(hex: 0x3D9BFF), Color(hex: 0x3DDC84), Color(hex: 0xFF6B35), Color(hex: 0xC084FC),
         Color(hex: 0x2DD4A7), Color(hex: 0xFFC53D), Color(hex: 0xFF7AA2), Color(hex: 0xA8E831),
@@ -104,7 +92,7 @@ enum Theme {
 
     static func color(for name: String) -> Color {
         var hash: UInt32 = 5381
-        for b in name.utf8 { hash = (hash &* 33) &+ UInt32(b) }
+        for byte in name.utf8 { hash = (hash &* 33) &+ UInt32(byte) }
         return palette[Int(hash % UInt32(palette.count))]
     }
 
@@ -112,7 +100,13 @@ enum Theme {
         palette[((index % palette.count) + palette.count) % palette.count]
     }
 
-    // Radii & spacing
+    static func latencyColor(_ milliseconds: Double) -> Color {
+        if milliseconds <= 0 { return muted }
+        if milliseconds < 90 { return speaking }
+        if milliseconds < 200 { return warning }
+        return danger
+    }
+
     static let radiusSmall: CGFloat = 8
     static let radiusMedium: CGFloat = 12
     static let radiusLarge: CGFloat = 16
@@ -124,57 +118,41 @@ enum Theme {
     }
 }
 
-extension Color {
-    init(hex: UInt32, alpha: Double = 1) {
-        self.init(
-            .sRGB,
-            red: Double((hex >> 16) & 0xFF) / 255,
-            green: Double((hex >> 8) & 0xFF) / 255,
-            blue: Double(hex & 0xFF) / 255,
-            opacity: alpha
-        )
-    }
-}
-
 extension UIColor {
-    convenience init(hex: UInt32) {
+    convenience init(hex: UInt32, alpha: CGFloat = 1) {
         self.init(
             red: CGFloat((hex >> 16) & 0xFF) / 255,
             green: CGFloat((hex >> 8) & 0xFF) / 255,
             blue: CGFloat(hex & 0xFF) / 255,
-            alpha: 1
+            alpha: alpha
         )
     }
 }
 
-/// The two bundled families that carry the brand. Bricolage Display is a custom cut
-/// (narrowed to 94%, pinned to a display optical size) so headings have a tighter,
-/// more editorial rhythm than any stock weight ships with.
+extension Color {
+    init(hex: UInt32, alpha: Double = 1) {
+        self.init(uiColor: UIColor(hex: hex, alpha: CGFloat(alpha)))
+    }
+}
+
 enum BrandFont {
     static let display = "Bricolage Display"
     static let text = "Plus Jakarta Sans"
 }
 
 extension Font {
-    /// Plus Jakarta Sans — everything the user reads.
     static func ui(_ size: CGFloat, _ weight: Font.Weight = .regular, relativeTo style: Font.TextStyle = .body) -> Font {
         .custom(BrandFont.text, size: size, relativeTo: style).weight(weight)
     }
 
-    /// Bricolage Display — names, headings, anything with a voice.
     static func display(_ size: CGFloat, weight: Font.Weight = .bold) -> Font {
         .custom(BrandFont.display, size: size, relativeTo: .title).weight(weight)
     }
 
-    /// SF Symbols only: their stroke weight is derived from the system font, so icons
-    /// keep system metrics while all text uses the brand faces.
     static func icon(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
         .system(size: size, weight: weight)
     }
 
-    // The tokens below deliberately shadow SwiftUI's built-ins. Unqualified lookup inside
-    // this module prefers ours, so every existing `.font(.caption)` picks up the brand face.
-    // Sizes follow a 1.18 ratio rather than +2 steps, so the scale has rhythm.
     static let displayTitle = Font.display(27, weight: .heavy)
     static let displayHeadline = Font.display(20)
     static let headline = Font.ui(17, .semibold, relativeTo: .headline)

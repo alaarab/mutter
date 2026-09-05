@@ -53,8 +53,8 @@ struct ServerEditView: View {
                     SecureField("Password (optional)", text: $password)
                     Picker("Certificate", selection: $identityID) {
                         Text("Default").tag(UUID?.none)
-                        ForEach(model.identities) { id in
-                            Text(id.name).tag(UUID?.some(id.id))
+                        ForEach(model.identities) { identity in
+                            Text(identity.name).tag(UUID?.some(identity.id))
                         }
                     }
                 } header: { SectionLabel(text: "You") } footer: {
@@ -74,12 +74,12 @@ struct ServerEditView: View {
                     HStack {
                         Text("Colour")
                         Spacer()
-                        ForEach(0..<Theme.palette.count, id: \.self) { i in
+                        ForEach(0..<Theme.palette.count, id: \.self) { index in
                             Circle()
-                                .fill(Theme.color(index: i))
+                                .fill(Theme.color(index: index))
                                 .frame(width: 22, height: 22)
-                                .overlay(Circle().strokeBorder(Theme.ink, lineWidth: accentIndex == i ? 2 : 0))
-                                .onTapGesture { accentIndex = i }
+                                .overlay(Circle().strokeBorder(Theme.ink, lineWidth: accentIndex == index ? 2 : 0))
+                                .onTapGesture { accentIndex = index }
                         }
                     }
                 }
@@ -93,8 +93,7 @@ struct ServerEditView: View {
                     }
                 }
             }
-            .scrollContentBackground(.hidden)
-            .background(Theme.background)
+            .themedList()
             .navigationTitle(original == nil ? "Add server" : "Edit server")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

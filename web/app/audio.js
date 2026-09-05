@@ -1,317 +1,646 @@
-// Voice: capture → Opus → Mumble packets, and Mumble packets → Opus → speakers.
-// The browser gives us echo cancellation, noise suppression and AGC for free via getUserMedia
-// constraints — the same job Apple's voice processing does on iOS.
-
+const SAMPLE_RATE = 48_000;
 const FRAME_MS = 20;
-const FRAME_SAMPLES = 960;                 // 20 ms at 48 kHz
-const FRAMES_PER_PACKET = FRAME_MS / 10;   // Mumble sequence numbers count 10 ms units
+const FRAME_SAMPLES = 960;
+const FRAMES_PER_PACKET = FRAME_MS / 10;
+const MICROS_PER_SEQUENCE_UNIT = 10_000;
 const HANGOVER_MS = 400;
+const OPEN_FRAMES = 2;
+const VAD_OPEN = 0.5;
+const VAD_HOLD = 0.3;
+const NO_VAD = -1;
+const FLOOR_RISE_DB_PER_FRAME = (0.5 * FRAME_MS) / 1000;
+const THRESHOLD_ABOVE_FLOOR_DB = 12;
+const VAD_LEVEL_ABOVE_FLOOR_DB = 6;
+const SILENCE_DB = -90;
+const LEVEL_EVENT_EVERY_FRAMES = 3;
+const CAPTURE_STALL_MS = 150;
+const STALL_LOG_INTERVAL_MS = 2000;
+const DEVICE_LIST_TIMEOUT_MS = 2000;
+const MAX_CONCEALED_PACKETS = 3;
+const CONCEAL_DECAY = 0.6;
+const OPUS_COMPLEXITY = 10;
+const EXPECTED_PACKET_LOSS_PERCENT = 10;
 
-const DEFAULTS = { transmitMode: 'vad', vadThresholdDb: -38, autoSensitivity: true, bitrate: 40_000, inputGain: 1, inputDeviceId: '', outputDeviceId: '', noiseSuppression: 'neural', processing: { echo: true, noise: false, gain: true } };
-const VAD_OPEN = 0.5, VAD_HOLD = 0.3;   // RNNoise voice probability: open above, stay open above
-const OPEN_FRAMES = 2;             // consecutive frames above threshold before the gate opens
+const DEFAULTS = {
+  transmitMode: 'vad',
+  vadThresholdDb: -38,
+  autoSensitivity: true,
+  bitrate: 40_000,
+  inputGain: 1,
+  inputDeviceId: '',
+  outputDeviceId: '',
+  noiseSuppression: 'neural',
+  processing: { echo: true, noise: false, gain: true },
+};
+
+function rmsDb(samples, gain) {
+  let sum = 0;
+  for (let i = 0; i < samples.length; i++) {
+    const value = samples[i] * gain;
+    sum += value * value;
+  }
+  return 20 * Math.log10(Math.sqrt(sum / samples.length) + 1e-9);
+}
+
+function captureErrorText(error) {
+  if (error.name === 'NotAllowedError') {
+    return 'Microphone blocked';
+  }
+  if (error.name === 'NotFoundError') {
+    return 'No microphone';
+  }
+  return error.message;
+}
 
 export class AudioEngine extends EventTarget {
-  /// `settings` is kept by reference so the app can persist it; missing keys get defaults.
+  inputLevelDb = -80;
+  noiseFloorDb = -60;
+  effectiveThresholdDb = -38;
+  isTransmitting = false;
+  pttPressed = false;
+  muted = false;
+  deafened = false;
+  running = false;
+  captureError = null;
+  neural = undefined;
+  vadProb = NO_VAD;
+  stats = { packetsOut: 0, packetsIn: 0, samplesOut: 0, concealed: 0, underruns: 0, captureStalls: 0 };
+
+  #context = null;
+  #mixer = null;
+  #framer = null;
+  #stream = null;
+  #source = null;
+  #encoder = null;
+  #decoders = new Map();
+  #receivers = new Map();
+  #gateOpen = false;
+  #closing = false;
+  #lastVoiceAt = 0;
+  #pendingTerminators = [];
+  #timestamp = 0;
+  #levelTick = 0;
+  #openFrames = 0;
+  #lastFrameAt = 0;
+  #lastStallLogAt = 0;
+  #rnnoiseBytes = null;
+
   constructor(client, settings = {}) {
     super();
     this.client = client;
-    for (const [k, v] of Object.entries(DEFAULTS)) settings[k] ??= v;
-    this.settings = settings;
-    this.inputLevelDb = -80;
-    this.noiseFloorDb = -60;
-    this.effectiveThresholdDb = -38;
-    this.isTransmitting = false;
-    this.pttPressed = false;
-    this.muted = false;
-    this.deafened = false;
-    this.running = false;
-    this.captureError = null;
-    this.stats = { packetsOut: 0, packetsIn: 0, samplesOut: 0, concealed: 0 };
-    this._rx = new Map();          // session -> { last: frameNumber, pcm: last decoded frame } for loss concealment
-    this._ctx = null; this._mixer = null; this._framer = null; this._stream = null; this._source = null;
-    this._encoder = null; this._decoders = new Map(); this._gateOpen = false; this._lastVoiceAt = 0; this._closing = false;
-    this._pending = []; this._ts = 0; this._levelTick = 0; this._openFrames = 0;
-    client.addEventListener('voice', e => this._onVoice(e.detail));
-    client.addEventListener('users', () => this._pruneDecoders());
-  }
-
-  static get supported() { return typeof AudioEncoder !== 'undefined' && typeof AudioDecoder !== 'undefined' && 'audioWorklet' in AudioContext.prototype; }
-
-  /// `source`: omit for the microphone; pass 'tone' for a built-in test signal (no permission needed).
-  /// If the microphone is unavailable the engine still runs for playback and sets `captureError`.
-  async start({ source } = {}) {
-    if (this.running) return;
-    this._ctx = new AudioContext({ sampleRate: 48_000, latencyHint: 'interactive' });
-    await this._ctx.audioWorklet.addModule('/app/worklets.js');
-    this._mixer = new AudioWorkletNode(this._ctx, 'mutter-mixer', { outputChannelCount: [2] });
-    this._mixer.connect(this._ctx.destination);
-    this._mixer.port.postMessage({ type: 'master', gain: this.deafened ? 0 : 1 });
-    this._mixer.port.onmessage = ({ data }) => { if (data.type === 'health' && data.underruns) { this.stats.underruns = (this.stats.underruns ?? 0) + data.underruns; this._diag(`playback ran dry ${data.underruns}× in the last second; buffer now ${data.jitterMs} ms`); } };
-    this._framer = new AudioWorkletNode(this._ctx, 'mutter-framer', { numberOfInputs: 1, numberOfOutputs: 0 });
-    this._framer.port.onmessage = ({ data }) => {
-      if (data.type === 'rnnoise') { this.neural = data.ready; this._diag(data.ready ? 'RNNoise ready' : `RNNoise failed: ${data.error}`); if (!data.ready && this.settings.noiseSuppression === 'neural') this.setNoiseSuppression('strong'); this._emit('state'); return; }
-      this._onFrame(data.samples, data.vad);
-    };
-    this._framer.port.postMessage({ type: 'suppress', level: this.settings.noiseSuppression });
-    this._loadRnnoise();
-
-    this._encoder = new AudioEncoder({
-      output: (chunk) => {
-        const bytes = new Uint8Array(chunk.byteLength);
-        chunk.copyTo(bytes);
-        // One Opus packet per frame, in order, so the flag queued at encode() time is this chunk's.
-        const terminator = this._pending.shift() ?? false;
-        this.client.sendAudio(bytes, FRAMES_PER_PACKET, terminator);
-        this.stats.packetsOut++;
-        if (terminator) this._setTransmitting(false);
-      },
-      error: e => this._diag(`encoder error: ${e.message}`),
-    });
-    this._encoder.configure(this._encoderConfig());
-    this.running = true;
-    await this._applySink();
-    await this._ctx.resume();
-
-    if (source === 'tone') {
-      const osc = new OscillatorNode(this._ctx, { frequency: 440 });
-      const g = new GainNode(this._ctx, { gain: 0.2 });
-      osc.connect(g); osc.start(); this._source = g;
-      this._source.connect(this._framer);
-      this._diag('voice started (test tone)');
-    } else {
-      await this._openMicrophone();
+    for (const [key, value] of Object.entries(DEFAULTS)) {
+      settings[key] ??= value;
     }
-    this._emit('state');
+    this.settings = settings;
+    client.addEventListener('voice', (event) => this.#onVoice(event.detail));
+    client.addEventListener('users', () => this.#pruneDecoders());
   }
 
-  async _openMicrophone() {
-    this._source?.disconnect(); this._stream?.getTracks().forEach(t => t.stop());
-    this._source = this._stream = null; this.captureError = null;
-    const id = this.settings.inputDeviceId;
-    try {
-      // The browser's own stages run ahead of ours and are the user's to switch. Browser noise
-      // suppression defaults off: RNNoise already does that job, and two suppressors in series smear
-      // consonants. voiceIsolation is the platform's ML isolation where Chrome exposes it; it rides
-      // with the noise switch.
-      const proc = this.settings.processing ?? DEFAULTS.processing;
-      this._stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: proc.echo !== false, noiseSuppression: !!proc.noise, autoGainControl: proc.gain !== false, voiceIsolation: !!proc.noise, channelCount: 1, sampleRate: 48_000, ...(id ? { deviceId: { exact: id } } : {}) },
-      });
-    } catch (e) {
-      if (id) { this.settings.inputDeviceId = ''; return this._openMicrophone(); }   // the remembered device is gone
-      this.captureError = e.name === 'NotAllowedError' ? 'Microphone blocked' : e.name === 'NotFoundError' ? 'No microphone' : e.message;
-      this._diag(`microphone unavailable: ${e.name} ${e.message} — playback only`);
-      this._emit('state');
+  static get supported() {
+    return (
+      typeof AudioEncoder !== 'undefined' &&
+      typeof AudioDecoder !== 'undefined' &&
+      'audioWorklet' in AudioContext.prototype
+    );
+  }
+
+  static get canPickOutput() {
+    return typeof AudioContext !== 'undefined' && 'setSinkId' in AudioContext.prototype;
+  }
+
+  get thresholdDb() {
+    return this.settings.autoSensitivity ? this.effectiveThresholdDb : this.settings.vadThresholdDb;
+  }
+
+  async start({ source } = {}) {
+    if (this.running) {
       return;
     }
-    this._source = new MediaStreamAudioSourceNode(this._ctx, { mediaStream: this._stream });
-    this._source.connect(this._framer);
-    this._stream.getAudioTracks()[0].onended = () => { this._diag('microphone track ended'); this.captureError = 'Microphone lost'; this._emit('state'); };
-    this._diag(`voice started (${this._stream.getAudioTracks()[0].label || 'microphone'})`);
-    this._emit('state');
-  }
-
-  /// RNNoise (WebAssembly) lives inside the worklet; the main thread only fetches the bytes.
-  async _loadRnnoise() {
-    if (this.neural === false) return;
-    try {
-      this._rnnBytes ??= await (await fetch('/app/rnnoise.wasm')).arrayBuffer();
-      const copy = this._rnnBytes.slice(0);                       // each worklet gets its own; transferred
-      this._framer?.port.postMessage({ type: 'rnnoise', bytes: copy }, [copy]);
-    } catch (e) { this.neural = false; this._diag(`RNNoise unavailable: ${e.message}`); if (this.settings.noiseSuppression === 'neural') this.setNoiseSuppression('strong'); }
-  }
-
-  /// Flip one of the browser's processing stages; the microphone is reopened with the new constraints.
-  async setProcessing(patch) {
-    this.settings.processing = { ...(this.settings.processing ?? DEFAULTS.processing), ...patch };
-    if (this.running) await this._openMicrophone();
-  }
-
-  /// Switch microphones without touching playback.
-  async setInputDevice(deviceId) {
-    this.settings.inputDeviceId = deviceId;
-    if (this.running) await this._openMicrophone();
-  }
-
-  /// Device lists, or [] if the browser doesn't answer. The timeout is not paranoia: an
-  /// enumerateDevices() that never settles would otherwise hang whoever awaited it.
-  async devices(kind) {
-    try {
-      const all = await Promise.race([navigator.mediaDevices.enumerateDevices(), new Promise(r => setTimeout(() => r(null), 2000))]);
-      if (!all) { this._diag('the browser did not answer enumerateDevices()'); return []; }
-      return all.filter(d => d.kind === kind);
-    } catch { return []; }
-  }
-  inputDevices() { return this.devices('audioinput'); }
-  outputDevices() { return this.devices('audiooutput'); }
-
-  /// Chrome can point an AudioContext at a chosen output since 110; without it we're stuck with
-  /// whatever the system picked.
-  static get canPickOutput() { return typeof AudioContext !== 'undefined' && 'setSinkId' in AudioContext.prototype; }
-
-  async setOutputDevice(deviceId) {
-    this.settings.outputDeviceId = deviceId;
-    await this._applySink();
-    this._emit('state');
-  }
-
-  async _applySink() {
-    const id = this.settings.outputDeviceId;
-    if (!this._ctx?.setSinkId) return;
-    try { await this._ctx.setSinkId(id || ''); this._diag(`output → ${id ? id.slice(0, 8) : 'system default'}`); }
-    catch (e) { this._diag(`output device rejected: ${e.message}`); this.settings.outputDeviceId = ''; }
-  }
-
-  /// Point a media element (the screen-share video) at the same output as the voice.
-  applySink(elm) {
-    const id = this.settings.outputDeviceId;
-    if (id && elm?.setSinkId) elm.setSinkId(id).catch(() => {});
+    this.#context = new AudioContext({ sampleRate: SAMPLE_RATE, latencyHint: 'interactive' });
+    await this.#context.audioWorklet.addModule('/app/worklets.js');
+    this.#createMixer();
+    this.#createFramer();
+    this.#createEncoder();
+    this.running = true;
+    await this.#applySink();
+    await this.#context.resume();
+    if (source === 'tone') {
+      this.#startTestTone();
+    } else {
+      await this.#openMicrophone();
+    }
+    this.#emit('state');
   }
 
   async stop() {
-    if (!this.running) return;
-    this.running = false;
-    this._source?.disconnect(); this._framer?.disconnect();
-    this._stream?.getTracks().forEach(t => t.stop());
-    try { this._encoder?.close(); } catch {}
-    for (const d of this._decoders.values()) { try { d.close(); } catch {} }
-    this._decoders.clear();
-    await this._ctx?.close();
-    this._ctx = this._mixer = this._framer = this._stream = this._source = this._encoder = null;
-    this._gateOpen = false; this._closing = false; this._pending = [];
-    this._setTransmitting(false);
-    this._emit('state');
-  }
-
-  /// complexity 10 is the best libopus can do and costs nothing a laptop notices. In-band FEC puts a
-  /// low-rate copy of each frame in the next packet, so a listener whose decoder knows about it
-  /// (Mumble desktop, iOS) rebuilds a lost frame instead of hearing a hole; packetlossperc tells
-  /// the encoder how much to expect, which is what makes it actually spend bits on the FEC.
-  _encoderConfig() { return { codec: 'opus', sampleRate: 48_000, numberOfChannels: 1, bitrate: this.settings.bitrate, opus: { frameDuration: FRAME_MS * 1000, application: 'voip', signal: 'voice', complexity: 10, useinbandfec: true, packetlossperc: 10 } }; }
-  setBitrate(bps) { this.settings.bitrate = bps; if (this._encoder?.state === 'configured') this._encoder.configure(this._encoderConfig()); }
-  setNoiseSuppression(level) { this.settings.noiseSuppression = level; this._framer?.port.postMessage({ type: 'suppress', level }); this._emit('state'); }
-  setMuted(on) { this.muted = on; this.client.setSelfMute(on); if (on) this._closeGate(); if (!on) this.setDeafened(false, false); this._emit('state'); }
-  setDeafened(on, sync = true) { this.deafened = on; this._mixer?.port.postMessage({ type: 'master', gain: on ? 0 : 1 }); if (sync) this.client.setSelfDeaf(on); if (on) { this.muted = true; this._closeGate(); } this._emit('state'); }
-  setPTT(pressed) { this.pttPressed = pressed; this._emit('state'); }
-  setUserVolume(session, gain) { const u = this.client.users.get(session); if (u) u.localVolume = gain; this._mixer?.port.postMessage({ type: 'gain', session, gain: u?.localMute ? 0 : gain }); }
-  setUserLocalMute(session, on) { const u = this.client.users.get(session); if (u) u.localMute = on; this._mixer?.port.postMessage({ type: 'gain', session, gain: on ? 0 : (u?.localVolume ?? 1) }); }
-
-  /// Tell the server our mute/deaf state again, e.g. after a reconnect issued a new session.
-  resync() { if (this.deafened) this.client.setSelfDeaf(true); else if (this.muted) this.client.setSelfMute(true); }
-
-  // ---- capture path ----
-
-  _onFrame(samples, vad = -1) {
-    if (!this.running) return;
-    this.vadProb = vad;
-    // Frames come every 20 ms; a gap means this thread was busy and the frames queued up.
-    const t = performance.now();
-    if (this._lastFrameAt && t - this._lastFrameAt > 150 && t - (this._lastStallLog ?? 0) > 2000) { this._lastStallLog = t; this.stats.captureStalls = (this.stats.captureStalls ?? 0) + 1; this._diag(`capture stalled ${Math.round(t - this._lastFrameAt)} ms — the page was busy`); }
-    this._lastFrameAt = t;
-    let sum = 0;
-    for (let i = 0; i < samples.length; i++) { const v = samples[i] * this.settings.inputGain; sum += v * v; }
-    const db = 20 * Math.log10(Math.sqrt(sum / samples.length) + 1e-9);
-    this.inputLevelDb = db;
-    if ((++this._levelTick % 3) === 0) this._emit('level');
-
-    // Noise floor (same rule as iOS): drops instantly to any quieter frame, rises at ~0.5 dB/s
-    // while the gate is closed, and the auto threshold sits 12 dB above it.
-    if (!this._gateOpen && db > -90) {
-      this.noiseFloorDb = db < this.noiseFloorDb ? db : Math.min(db, this.noiseFloorDb + 0.5 * FRAME_MS / 1000);
-      this.effectiveThresholdDb = Math.min(-15, Math.max(-60, this.noiseFloorDb + 12));
+    if (!this.running) {
+      return;
     }
-    const wants = this._shouldTransmit(db, vad);
-    const now = performance.now();
-    // Voice activity needs two consecutive frames above threshold, so a click doesn't open the gate.
-    this._openFrames = wants ? this._openFrames + 1 : 0;
-    const shouldOpen = wants && (this._gateOpen || this._openFrames >= OPEN_FRAMES || this.settings.transmitMode !== 'vad' || this.pttPressed);
-    if (shouldOpen) { this._lastVoiceAt = now; if (!this._gateOpen) { this._gateOpen = true; this._setTransmitting(true); } }
-    else if (this._gateOpen && now - this._lastVoiceAt > HANGOVER_MS) { this._gateOpen = false; this._closing = true; }
-    if (!this._gateOpen && !this._closing) return;
-    if (this._encoder?.state !== 'configured') return;
-    if (this.settings.inputGain !== 1) for (let i = 0; i < samples.length; i++) samples[i] *= this.settings.inputGain;
-    this._pending.push(this._closing);
-    this._closing = false;
-    this._encoder.encode(new AudioData({ format: 'f32-planar', sampleRate: 48_000, numberOfFrames: FRAME_SAMPLES, numberOfChannels: 1, timestamp: this._ts, data: samples }));
-    this._ts += FRAME_MS * 1000;
+    this.running = false;
+    this.#source?.disconnect();
+    this.#framer?.disconnect();
+    this.#stopStream();
+    this.#closeQuietly(this.#encoder);
+    for (const decoder of this.#decoders.values()) {
+      this.#closeQuietly(decoder);
+    }
+    this.#decoders.clear();
+    await this.#context?.close();
+    this.#context = null;
+    this.#mixer = null;
+    this.#framer = null;
+    this.#stream = null;
+    this.#source = null;
+    this.#encoder = null;
+    this.#gateOpen = false;
+    this.#closing = false;
+    this.#pendingTerminators = [];
+    this.#setTransmitting(false);
+    this.#emit('state');
   }
 
-  get thresholdDb() { return this.settings.autoSensitivity ? this.effectiveThresholdDb : this.settings.vadThresholdDb; }
+  async setProcessing(patch) {
+    this.settings.processing = { ...(this.settings.processing ?? DEFAULTS.processing), ...patch };
+    if (this.running) {
+      await this.#openMicrophone();
+    }
+  }
 
-  _shouldTransmit(db, vad = -1) {
-    if (this.muted || !this.client.isConnected) return false;
+  async setInputDevice(deviceId) {
+    this.settings.inputDeviceId = deviceId;
+    if (this.running) {
+      await this.#openMicrophone();
+    }
+  }
+
+  async devices(kind) {
+    try {
+      const timeout = new Promise((resolve) => setTimeout(() => resolve(null), DEVICE_LIST_TIMEOUT_MS));
+      const all = await Promise.race([navigator.mediaDevices.enumerateDevices(), timeout]);
+      if (!all) {
+        this.#diag('the browser did not answer enumerateDevices()');
+        return [];
+      }
+      return all.filter((device) => device.kind === kind);
+    } catch {
+      return [];
+    }
+  }
+
+  inputDevices() {
+    return this.devices('audioinput');
+  }
+
+  outputDevices() {
+    return this.devices('audiooutput');
+  }
+
+  async setOutputDevice(deviceId) {
+    this.settings.outputDeviceId = deviceId;
+    await this.#applySink();
+    this.#emit('state');
+  }
+
+  applySink(element) {
+    const id = this.settings.outputDeviceId;
+    if (id && element?.setSinkId) {
+      element.setSinkId(id).catch(() => {});
+    }
+  }
+
+  setBitrate(bitsPerSecond) {
+    this.settings.bitrate = bitsPerSecond;
+    if (this.#encoder?.state === 'configured') {
+      this.#encoder.configure(this.#encoderConfig());
+    }
+  }
+
+  setNoiseSuppression(level) {
+    this.settings.noiseSuppression = level;
+    this.#framer?.port.postMessage({ type: 'suppress', level });
+    this.#emit('state');
+  }
+
+  setMuted(on) {
+    this.muted = on;
+    this.client.setSelfMute(on);
+    if (on) {
+      this.#closeGate();
+    } else {
+      this.setDeafened(false, false);
+    }
+    this.#emit('state');
+  }
+
+  setDeafened(on, syncWithServer = true) {
+    this.deafened = on;
+    this.#mixer?.port.postMessage({ type: 'master', gain: on ? 0 : 1 });
+    if (syncWithServer) {
+      this.client.setSelfDeaf(on);
+    }
+    if (on) {
+      this.muted = true;
+      this.#closeGate();
+    }
+    this.#emit('state');
+  }
+
+  setPTT(pressed) {
+    this.pttPressed = pressed;
+    this.#emit('state');
+  }
+
+  setUserVolume(session, gain) {
+    const user = this.client.users.get(session);
+    if (user) {
+      user.localVolume = gain;
+    }
+    this.#mixer?.port.postMessage({ type: 'gain', session, gain: user?.localMute ? 0 : gain });
+  }
+
+  setUserLocalMute(session, on) {
+    const user = this.client.users.get(session);
+    if (user) {
+      user.localMute = on;
+    }
+    this.#mixer?.port.postMessage({ type: 'gain', session, gain: on ? 0 : (user?.localVolume ?? 1) });
+  }
+
+  resync() {
+    if (this.deafened) {
+      this.client.setSelfDeaf(true);
+    } else if (this.muted) {
+      this.client.setSelfMute(true);
+    }
+  }
+
+  #createMixer() {
+    this.#mixer = new AudioWorkletNode(this.#context, 'mutter-mixer', { outputChannelCount: [2] });
+    this.#mixer.connect(this.#context.destination);
+    this.#mixer.port.postMessage({ type: 'master', gain: this.deafened ? 0 : 1 });
+    this.#mixer.port.onmessage = ({ data }) => {
+      if (data.type === 'health' && data.underruns) {
+        this.stats.underruns += data.underruns;
+        this.#diag(`playback ran dry ${data.underruns}× in the last second; buffer now ${data.jitterMs} ms`);
+      }
+    };
+  }
+
+  #createFramer() {
+    this.#framer = new AudioWorkletNode(this.#context, 'mutter-framer', { numberOfInputs: 1, numberOfOutputs: 0 });
+    this.#framer.port.onmessage = ({ data }) => {
+      if (data.type === 'rnnoise') {
+        this.#onRnnoiseStatus(data);
+      } else {
+        this.#onFrame(data.samples, data.vad);
+      }
+    };
+    this.#framer.port.postMessage({ type: 'suppress', level: this.settings.noiseSuppression });
+    this.#loadRnnoise();
+  }
+
+  #onRnnoiseStatus({ ready, error }) {
+    this.neural = ready;
+    this.#diag(ready ? 'RNNoise ready' : `RNNoise failed: ${error}`);
+    if (!ready && this.settings.noiseSuppression === 'neural') {
+      this.setNoiseSuppression('strong');
+    }
+    this.#emit('state');
+  }
+
+  async #loadRnnoise() {
+    if (this.neural === false) {
+      return;
+    }
+    try {
+      this.#rnnoiseBytes ??= await (await fetch('/app/rnnoise.wasm')).arrayBuffer();
+      const copy = this.#rnnoiseBytes.slice(0);
+      this.#framer?.port.postMessage({ type: 'rnnoise', bytes: copy }, [copy]);
+    } catch (error) {
+      this.neural = false;
+      this.#diag(`RNNoise unavailable: ${error.message}`);
+      if (this.settings.noiseSuppression === 'neural') {
+        this.setNoiseSuppression('strong');
+      }
+    }
+  }
+
+  #createEncoder() {
+    this.#encoder = new AudioEncoder({
+      output: (chunk) => this.#onEncodedChunk(chunk),
+      error: (error) => this.#diag(`encoder error: ${error.message}`),
+    });
+    this.#encoder.configure(this.#encoderConfig());
+  }
+
+  #encoderConfig() {
+    return {
+      codec: 'opus',
+      sampleRate: SAMPLE_RATE,
+      numberOfChannels: 1,
+      bitrate: this.settings.bitrate,
+      opus: {
+        frameDuration: FRAME_MS * 1000,
+        application: 'voip',
+        signal: 'voice',
+        complexity: OPUS_COMPLEXITY,
+        useinbandfec: true,
+        packetlossperc: EXPECTED_PACKET_LOSS_PERCENT,
+      },
+    };
+  }
+
+  #onEncodedChunk(chunk) {
+    const bytes = new Uint8Array(chunk.byteLength);
+    chunk.copyTo(bytes);
+    const isTerminator = this.#pendingTerminators.shift() ?? false;
+    this.client.sendAudio(bytes, FRAMES_PER_PACKET, isTerminator);
+    this.stats.packetsOut++;
+    if (isTerminator) {
+      this.#setTransmitting(false);
+    }
+  }
+
+  #startTestTone() {
+    const oscillator = new OscillatorNode(this.#context, { frequency: 440 });
+    const gain = new GainNode(this.#context, { gain: 0.2 });
+    oscillator.connect(gain);
+    oscillator.start();
+    this.#source = gain;
+    this.#source.connect(this.#framer);
+    this.#diag('voice started (test tone)');
+  }
+
+  #microphoneConstraints() {
+    const processing = this.settings.processing ?? DEFAULTS.processing;
+    const id = this.settings.inputDeviceId;
+    return {
+      echoCancellation: processing.echo !== false,
+      noiseSuppression: !!processing.noise,
+      autoGainControl: processing.gain !== false,
+      voiceIsolation: !!processing.noise,
+      channelCount: 1,
+      sampleRate: SAMPLE_RATE,
+      ...(id ? { deviceId: { exact: id } } : {}),
+    };
+  }
+
+  #stopStream() {
+    this.#stream?.getTracks().forEach((track) => track.stop());
+    this.#stream = null;
+  }
+
+  async #openMicrophone() {
+    this.#source?.disconnect();
+    this.#stopStream();
+    this.#source = null;
+    this.captureError = null;
+    try {
+      this.#stream = await navigator.mediaDevices.getUserMedia({ audio: this.#microphoneConstraints() });
+    } catch (error) {
+      if (this.settings.inputDeviceId) {
+        this.settings.inputDeviceId = '';
+        return this.#openMicrophone();
+      }
+      this.captureError = captureErrorText(error);
+      this.#diag(`microphone unavailable: ${error.name} ${error.message} — playback only`);
+      this.#emit('state');
+      return;
+    }
+    const track = this.#stream.getAudioTracks()[0];
+    this.#source = new MediaStreamAudioSourceNode(this.#context, { mediaStream: this.#stream });
+    this.#source.connect(this.#framer);
+    track.onended = () => {
+      this.#diag('microphone track ended');
+      this.captureError = 'Microphone lost';
+      this.#emit('state');
+    };
+    this.#diag(`voice started (${track.label || 'microphone'})`);
+    this.#emit('state');
+  }
+
+  async #applySink() {
+    const id = this.settings.outputDeviceId;
+    if (!this.#context?.setSinkId) {
+      return;
+    }
+    try {
+      await this.#context.setSinkId(id || '');
+      this.#diag(`output → ${id ? id.slice(0, 8) : 'system default'}`);
+    } catch (error) {
+      this.#diag(`output device rejected: ${error.message}`);
+      this.settings.outputDeviceId = '';
+    }
+  }
+
+  #noteCaptureStall() {
+    const now = performance.now();
+    const gap = now - this.#lastFrameAt;
+    const stalled = this.#lastFrameAt && gap > CAPTURE_STALL_MS;
+    if (stalled && now - this.#lastStallLogAt > STALL_LOG_INTERVAL_MS) {
+      this.#lastStallLogAt = now;
+      this.stats.captureStalls++;
+      this.#diag(`capture stalled ${Math.round(gap)} ms — the page was busy`);
+    }
+    this.#lastFrameAt = now;
+  }
+
+  #trackNoiseFloor(db) {
+    if (this.#gateOpen || db <= SILENCE_DB) {
+      return;
+    }
+    if (db < this.noiseFloorDb) {
+      this.noiseFloorDb = db;
+    } else {
+      this.noiseFloorDb = Math.min(db, this.noiseFloorDb + FLOOR_RISE_DB_PER_FRAME);
+    }
+    this.effectiveThresholdDb = Math.min(-15, Math.max(-60, this.noiseFloorDb + THRESHOLD_ABOVE_FLOOR_DB));
+  }
+
+  #onFrame(samples, vad = NO_VAD) {
+    if (!this.running) {
+      return;
+    }
+    this.vadProb = vad;
+    this.#noteCaptureStall();
+    const db = rmsDb(samples, this.settings.inputGain);
+    this.inputLevelDb = db;
+    if (++this.#levelTick % LEVEL_EVENT_EVERY_FRAMES === 0) {
+      this.#emit('level');
+    }
+    this.#trackNoiseFloor(db);
+    this.#updateGate(this.#wantsToTransmit(db, vad));
+    if (!this.#gateOpen && !this.#closing) {
+      return;
+    }
+    if (this.#encoder?.state !== 'configured') {
+      return;
+    }
+    this.#encodeFrame(samples);
+  }
+
+  #updateGate(wants) {
+    const now = performance.now();
+    this.#openFrames = wants ? this.#openFrames + 1 : 0;
+    const bypassesDebounce = this.settings.transmitMode !== 'vad' || this.pttPressed;
+    const shouldOpen = wants && (this.#gateOpen || this.#openFrames >= OPEN_FRAMES || bypassesDebounce);
+    if (shouldOpen) {
+      this.#lastVoiceAt = now;
+      if (!this.#gateOpen) {
+        this.#gateOpen = true;
+        this.#setTransmitting(true);
+      }
+    } else if (this.#gateOpen && now - this.#lastVoiceAt > HANGOVER_MS) {
+      this.#closeGate();
+    }
+  }
+
+  #encodeFrame(samples) {
+    if (this.settings.inputGain !== 1) {
+      for (let i = 0; i < samples.length; i++) {
+        samples[i] *= this.settings.inputGain;
+      }
+    }
+    this.#pendingTerminators.push(this.#closing);
+    this.#closing = false;
+    this.#encoder.encode(
+      new AudioData({
+        format: 'f32-planar',
+        sampleRate: SAMPLE_RATE,
+        numberOfFrames: FRAME_SAMPLES,
+        numberOfChannels: 1,
+        timestamp: this.#timestamp,
+        data: samples,
+      })
+    );
+    this.#timestamp += FRAME_MS * 1000;
+  }
+
+  #wantsToTransmit(db, vad) {
+    if (this.muted || !this.client.isConnected) {
+      return false;
+    }
     switch (this.settings.transmitMode) {
-      case 'continuous': return true;
-      case 'ptt': return this.pttPressed;
+      case 'continuous':
+        return true;
+      case 'ptt':
+        return this.pttPressed;
       default:
-        if (this.pttPressed) return true;
-        // With RNNoise the network says whether this is a voice; the level only has to clear the
-        // room's floor so a confident-but-silent frame can't open the gate.
-        if (vad >= 0) return vad >= (this._gateOpen ? VAD_HOLD : VAD_OPEN) && db > Math.min(this.thresholdDb, this.noiseFloorDb + 6);
+        if (this.pttPressed) {
+          return true;
+        }
+        if (vad >= 0) {
+          const vadThreshold = this.#gateOpen ? VAD_HOLD : VAD_OPEN;
+          const levelFloor = Math.min(this.thresholdDb, this.noiseFloorDb + VAD_LEVEL_ABOVE_FLOOR_DB);
+          return vad >= vadThreshold && db > levelFloor;
+        }
         return db > this.thresholdDb;
     }
   }
-  _closeGate() { if (this._gateOpen) { this._gateOpen = false; this._closing = true; } }
-  _setTransmitting(on) { if (this.isTransmitting !== on) { this.isTransmitting = on; this._emit('transmit'); } }
 
-  // ---- playout path ----
-
-  _onVoice(p) {
-    if (!this.running || this.deafened) return;
-    this.stats.packetsIn++;
-    let dec = this._decoders.get(p.session);
-    if (!dec) {
-      const session = p.session;
-      dec = new AudioDecoder({
-        output: (audio) => {
-          const pcm = new Float32Array(audio.numberOfFrames);
-          audio.copyTo(pcm, { planeIndex: 0, format: 'f32-planar' });
-          audio.close();
-          this.stats.samplesOut += pcm.length;
-          const rx = this._rx.get(session); if (rx) rx.pcm = pcm.slice();      // kept for concealment
-          this._mixer?.port.postMessage({ type: 'push', session, samples: pcm }, [pcm.buffer]);
-        },
-        error: e => { this._diag(`decoder ${session}: ${e.message}`); this._decoders.delete(session); },
-      });
-      dec.configure({ codec: 'opus', sampleRate: 48_000, numberOfChannels: 1 });
-      this._decoders.set(p.session, dec);
-      const u = this.client.users.get(p.session);
-      this._mixer?.port.postMessage({ type: 'gain', session: p.session, gain: u?.localMute ? 0 : (u?.localVolume ?? 1) });
-    }
-    if (p.opus.length && dec.state === 'configured') {
-      this._conceal(p);
-      dec.decode(new EncodedAudioChunk({ type: 'key', timestamp: Number(p.frameNumber) * 10_000, data: p.opus }));
+  #closeGate() {
+    if (this.#gateOpen) {
+      this.#gateOpen = false;
+      this.#closing = true;
     }
   }
 
-  /// WebCodecs gives no way to ask the decoder for packet-loss concealment, so this is ours. Mumble
-  /// numbers frames in 10 ms units; a jump of more than one packet means packets went missing.
-  /// Each missing 20 ms is filled with the previous frame faded by 0.6 per step — crude next to a
-  /// real PLC, but a decaying echo of the last sound is far less audible than a hole, which the
-  /// ear hears as a click and the mixer as an underrun. More than three in a row is a new talk
-  /// spurt or a real outage, and is left alone.
-  _conceal(p) {
-    const seq = Number(p.frameNumber);
-    let rx = this._rx.get(p.session);
-    if (!rx) { rx = { last: null, pcm: null }; this._rx.set(p.session, rx); }
-    if (rx.last !== null && rx.pcm) {
-      const missing = Math.round((seq - rx.last) / FRAMES_PER_PACKET) - 1;
-      if (missing > 0 && missing <= 3) {
-        for (let k = 1; k <= missing; k++) {
-          const g = 0.6 ** k, fill = new Float32Array(rx.pcm.length);
-          for (let i = 0; i < fill.length; i++) fill[i] = rx.pcm[i] * g;
-          this._mixer?.port.postMessage({ type: 'push', session: p.session, samples: fill }, [fill.buffer]);
+  #setTransmitting(on) {
+    if (this.isTransmitting !== on) {
+      this.isTransmitting = on;
+      this.#emit('transmit');
+    }
+  }
+
+  #onVoice(packet) {
+    if (!this.running || this.deafened) {
+      return;
+    }
+    this.stats.packetsIn++;
+    const decoder = this.#decoderFor(packet.session);
+    if (packet.opus.length && decoder.state === 'configured') {
+      this.#conceal(packet);
+      const timestamp = Number(packet.frameNumber) * MICROS_PER_SEQUENCE_UNIT;
+      decoder.decode(new EncodedAudioChunk({ type: 'key', timestamp, data: packet.opus }));
+    }
+  }
+
+  #decoderFor(session) {
+    let decoder = this.#decoders.get(session);
+    if (decoder) {
+      return decoder;
+    }
+    decoder = new AudioDecoder({
+      output: (audio) => this.#onDecoded(session, audio),
+      error: (error) => {
+        this.#diag(`decoder ${session}: ${error.message}`);
+        this.#decoders.delete(session);
+      },
+    });
+    decoder.configure({ codec: 'opus', sampleRate: SAMPLE_RATE, numberOfChannels: 1 });
+    this.#decoders.set(session, decoder);
+    const user = this.client.users.get(session);
+    const gain = user?.localMute ? 0 : (user?.localVolume ?? 1);
+    this.#mixer?.port.postMessage({ type: 'gain', session, gain });
+    return decoder;
+  }
+
+  #onDecoded(session, audio) {
+    const pcm = new Float32Array(audio.numberOfFrames);
+    audio.copyTo(pcm, { planeIndex: 0, format: 'f32-planar' });
+    audio.close();
+    this.stats.samplesOut += pcm.length;
+    const receiver = this.#receivers.get(session);
+    if (receiver) {
+      receiver.lastPcm = pcm.slice();
+    }
+    this.#mixer?.port.postMessage({ type: 'push', session, samples: pcm }, [pcm.buffer]);
+  }
+
+  #conceal(packet) {
+    const sequence = Number(packet.frameNumber);
+    let receiver = this.#receivers.get(packet.session);
+    if (!receiver) {
+      receiver = { lastSequence: null, lastPcm: null };
+      this.#receivers.set(packet.session, receiver);
+    }
+    if (receiver.lastSequence !== null && receiver.lastPcm) {
+      const missing = Math.round((sequence - receiver.lastSequence) / FRAMES_PER_PACKET) - 1;
+      if (missing > 0 && missing <= MAX_CONCEALED_PACKETS) {
+        for (let step = 1; step <= missing; step++) {
+          const decay = CONCEAL_DECAY ** step;
+          const fill = receiver.lastPcm.map((value) => value * decay);
+          this.#mixer?.port.postMessage({ type: 'push', session: packet.session, samples: fill }, [fill.buffer]);
         }
         this.stats.concealed += missing;
       }
     }
-    rx.last = seq;
-  }
-  _pruneDecoders() {
-    for (const s of [...this._decoders.keys()]) if (!this.client.users.has(s)) { try { this._decoders.get(s).close(); } catch {} this._decoders.delete(s); this._rx.delete(s); this._mixer?.port.postMessage({ type: 'remove', session: s }); }
+    receiver.lastSequence = sequence;
   }
 
-  _emit(n) { this.dispatchEvent(new CustomEvent(n)); }
-  _diag(m) { this.client._diag('audio', m); }
+  #pruneDecoders() {
+    for (const session of [...this.#decoders.keys()]) {
+      if (this.client.users.has(session)) {
+        continue;
+      }
+      this.#closeQuietly(this.#decoders.get(session));
+      this.#decoders.delete(session);
+      this.#receivers.delete(session);
+      this.#mixer?.port.postMessage({ type: 'remove', session });
+    }
+  }
+
+  #closeQuietly(codec) {
+    try {
+      codec?.close();
+    } catch {}
+  }
+
+  #emit(name) {
+    this.dispatchEvent(new CustomEvent(name));
+  }
+
+  #diag(message) {
+    this.client.diag('audio', message);
+  }
 }

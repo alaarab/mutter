@@ -6,7 +6,6 @@ import FoundationNetworking
 import FoundationXML
 #endif
 
-/// An entry from the public server directory (https://publist.mumble.info).
 public struct PublicServer: Identifiable, Hashable, Codable, Sendable {
     public var id: String { "\(host):\(port)" }
     public var name: String
@@ -26,7 +25,6 @@ public enum PublicServerListError: Error, LocalizedError {
     public var errorDescription: String? { "The public server list could not be loaded." }
 }
 
-/// Fetches and parses the public server directory.
 public final class PublicServerList: NSObject, XMLParserDelegate {
     public static let url = URL(string: "https://publist.mumble.info/v1/list")!
 

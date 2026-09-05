@@ -1,211 +1,258 @@
-// Two browser tabs against the fake server, through the real bridge: connect, roster, chat,
-// joining channels, voice in both directions, push-to-talk, mute badges, direct messages,
-// images, hostile HTML, leaving, and reconnecting after the server drops us.
-//
-//   node web/test/e2e.test.mjs                       # protobuf voice (server 1.5)
-//   FAKE_VERSION=1.4.287 node web/test/e2e.test.mjs  # legacy voice
-//   VERBOSE=1 ... to see page console output; SHOTS=dir to save screenshots.
+import { startEnvironment, createReporter, openClient, findUser, sleep } from './harness.mjs';
 
-import fs from 'node:fs';
-import { setTimeout as sleep } from 'node:timers/promises';
-import { startFakeServer } from './fake-server.mjs';
-import { launch, startBridge } from './browser.mjs';
+const environment = await startEnvironment();
+const { server, shots } = environment;
+const { check, step, checkNoPageErrors, finish } = createReporter();
 
-const server = await startFakeServer({ port: 0, quiet: !process.env.VERBOSE });
-const bridge = await startBridge();
-const browser = await launch();
-const shots = process.env.SHOTS;
-if (shots) fs.mkdirSync(shots, { recursive: true });
+const seen = { voice: 0, terminators: 0, udp: 0 };
+server.on('voice', (packet) => {
+  seen.voice++;
+  if (packet.isTerminator) {
+    seen.terminators++;
+  }
+  if (packet.via === 'udp') {
+    seen.udp++;
+  }
+});
 
-const failures = [];
-const check = (cond, msg) => { console.log(`${cond ? ' ok ' : 'FAIL'} ${msg}`); if (!cond) failures.push(msg); };
-const step = async (msg, fn) => { try { await fn(); check(true, msg); } catch (e) { check(false, `${msg} — ${e.message}`); } };
-const seen = { voice: 0, terminators: 0, plugin: 0, udp: 0 };
-server.on('voice', v => { seen.voice++; if (v.isTerminator) seen.terminators++; if (v.via === 'udp') seen.udp++; });
-server.on('plugin', () => seen.plugin++);
+const PHONE_VIEWPORT = { width: 420, height: 760, deviceScaleFactor: 1, mobile: false };
+const DESKTOP_VIEWPORT = { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false };
 
-const findUser = name => `[...mutter.client.users.values()].find(u => u.name === ${JSON.stringify(name)})`;
-
-async function open(name) {
-  const page = await browser.newPage(`${bridge.url}/?source=tone`);
-  await page.type('#host', '127.0.0.1');
-  await page.type('#port', String(server.port));
-  await page.type('#username', name);
-  if (shots && name === 'Alpha') await page.screenshot(`${shots}/00-connect.png`);
-  await page.click('#connectBtn');
-  await page.waitFor(`mutter.client.state === 'connected'`, { label: `${name} connected` });
-  return page;
-}
+const bareIconButtons = `[...document.querySelectorAll('.icon, .rail-btn, .pill-btn, .tools button, .live-badge')]
+  .filter(e => e.offsetParent && !e.querySelector('svg') && !e.textContent.trim())
+  .map(e => e.id || e.className).join(', ')`;
 
 try {
-  const a = await open('Alpha');
-  const b = await open('Bravo');
+  const alpha = await openClient(environment, 'Alpha', {
+    beforeConnect: async (page) => {
+      if (shots) {
+        await page.screenshot(`${shots}/00-connect.png`);
+      }
+    },
+  });
+  const bravo = await openClient(environment, 'Bravo');
   check(true, 'both tabs connected through the bridge');
-  await a.waitFor('mutter.client.users.size === 2');
-  await a.waitFor('mutter.audio.neural === true', { label: 'RNNoise instantiated in the worklet', timeout: 8000 });
-  check(await a.eval(`mutter.settings.noiseSuppression`) === 'neural', 'neural noise suppression is the default and RNNoise loaded');
+  await alpha.waitFor('mutter.client.users.size === 2');
+  await alpha.waitFor('mutter.audio.neural === true', { label: 'RNNoise instantiated in the worklet', timeout: 8000 });
+  check(
+    (await alpha.eval('mutter.settings.noiseSuppression')) === 'neural',
+    'neural noise suppression is the default and RNNoise loaded'
+  );
   await sleep(150);
-  check(await a.eval(`[...document.querySelectorAll('.user .name > span:first-child')].map(e => e.textContent).sort().join(',')`) === 'Alpha,Bravo', 'both users in the tree');
-  check(await a.eval(`document.querySelectorAll('.ch').length`) === 5, 'five channels rendered');
-  check(await a.eval(`document.querySelector('.row.system')?.textContent.includes('Welcome')`), 'welcome text shown as a system message');
-  // Every button that is meant to be an icon must actually have one. A mis-keyed icon name or a
-  // selector that misses its slot leaves an empty box that is easy to ship and hard to notice.
-  const bare = await a.eval(`[...document.querySelectorAll('.icon, .rail-btn, .pill-btn, .tools button, .live-badge')]
-    .filter(e => e.offsetParent && !e.querySelector('svg') && !e.textContent.trim())
-    .map(e => e.id || e.className).join(', ')`);
+  const treeNames = await alpha.eval(
+    `[...document.querySelectorAll('.user .name > span:first-child')].map(e => e.textContent).sort().join(',')`
+  );
+  check(treeNames === 'Alpha,Bravo', 'both users in the tree');
+  check((await alpha.eval(`document.querySelectorAll('.ch').length`)) === 5, 'five channels rendered');
+  check(
+    await alpha.eval(`document.querySelector('.row.system')?.textContent.includes('Welcome')`),
+    'welcome text shown as a system message'
+  );
+  const bare = await alpha.eval(bareIconButtons);
   check(bare === '', `every visible icon button has a glyph${bare ? ` — empty: ${bare}` : ''}`);
-  if (shots) await a.screenshot(`${shots}/01-session.png`);
+  if (shots) {
+    await alpha.screenshot(`${shots}/01-session.png`);
+  }
 
   await step('channel chat delivered and own bubble shown', async () => {
-    await a.type('#chatInput', 'hello from alpha');
-    await a.click('#sendBtn');
-    await b.waitFor(`[...document.querySelectorAll('.row .content')].some(e => e.textContent.includes('hello from alpha'))`);
-    if (await a.eval(`document.querySelectorAll('.row.own').length`) !== 1) throw new Error('own bubble missing');
-    if (await a.eval(`document.getElementById('chatInput').value`) !== '') throw new Error('input not cleared');
+    await alpha.type('#chatInput', 'hello from alpha');
+    await alpha.click('#sendBtn');
+    await bravo.waitFor(`[...document.querySelectorAll('.row .content')].some(e => e.textContent.includes('hello from alpha'))`);
+    if ((await alpha.eval(`document.querySelectorAll('.row.own').length`)) !== 1) {
+      throw new Error('own bubble missing');
+    }
+    if ((await alpha.eval(`document.getElementById('chatInput').value`)) !== '') {
+      throw new Error('input not cleared');
+    }
   });
 
   await step('join arrow moves Alpha to Lounge; dock and chat title follow', async () => {
-    await a.eval(`(() => { const row = [...document.querySelectorAll('.ch')].find(r => r.querySelector('.name').textContent === 'Lounge'); row.querySelector('.join').click(); })()`);
-    await b.waitFor(`${findUser('Alpha')}?.channelId === 1`);
-    await a.waitFor(`mutter.client.myChannel?.channelId === 1 && document.getElementById('meChannel').textContent === 'Lounge'`);
-    await a.waitFor(`document.getElementById('chatTitle').textContent === 'Lounge'`);
+    await alpha.eval(`(() => {
+      const row = [...document.querySelectorAll('.ch')].find(r => r.querySelector('.name').textContent === 'Lounge');
+      row.querySelector('.join').click();
+    })()`);
+    await bravo.waitFor(`${findUser('Alpha')}?.channelId === 1`);
+    await alpha.waitFor(`mutter.client.myChannel?.channelId === 1 && document.getElementById('meChannel').textContent === 'Lounge'`);
+    await alpha.waitFor(`document.getElementById('chatTitle').textContent === 'Lounge'`);
     if (shots) {
-      await b.send('Emulation.setDeviceMetricsOverride', { width: 420, height: 760, deviceScaleFactor: 1, mobile: false });
-      await b.eval(`document.getElementById('backBtn').click()`);
-      await b.screenshot(`${shots}/06-narrow-channels.png`);
-      await b.eval(`mutter.showTab('chat')`);
-      await b.screenshot(`${shots}/07-narrow-chat.png`);
-      await b.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+      await bravo.send('Emulation.setDeviceMetricsOverride', PHONE_VIEWPORT);
+      await bravo.eval(`document.getElementById('backBtn').click()`);
+      await bravo.screenshot(`${shots}/06-narrow-channels.png`);
+      await bravo.eval(`mutter.showTab('chat')`);
+      await bravo.screenshot(`${shots}/07-narrow-chat.png`);
+      await bravo.send('Emulation.setDeviceMetricsOverride', DESKTOP_VIEWPORT);
     }
   });
 
   await step('voice flows Alpha → Bravo once both are in Lounge', async () => {
-    await b.eval('mutter.client.joinChannel(1)');
-    await a.waitFor('mutter.client.usersIn(1).length === 2');
-    await b.eval(`mutter.settings.transmitMode = 'ptt'`);          // Bravo listens only
-    await a.eval(`mutter.settings.transmitMode = 'continuous'`);
-    await a.waitFor('mutter.audio.isTransmitting', { label: 'Alpha transmitting' });
-    await b.waitFor('mutter.audio.stats.packetsIn > 25', { label: 'Bravo receiving packets', timeout: 8000 });
-    await b.waitFor('mutter.audio.stats.samplesOut > 960 * 20', { label: 'Bravo decoding audio' });
-    await b.waitFor(`${findUser('Alpha')}.talking === true && !!document.querySelector('.user.talking')`, { label: 'talking ring on Alpha' });
-    await b.waitFor(`!mutter.audio.isTransmitting && !document.getElementById('meterFill').classList.contains('open')`, { label: 'Bravo (push-to-talk, idle) is not transmitting and its meter is not green', timeout: 3000 });
-    if (shots) await b.screenshot(`${shots}/02-talking.png`);
+    await bravo.eval('mutter.client.joinChannel(1)');
+    await alpha.waitFor('mutter.client.usersIn(1).length === 2');
+    await bravo.eval(`mutter.settings.transmitMode = 'ptt'`);
+    await alpha.eval(`mutter.settings.transmitMode = 'continuous'`);
+    await alpha.waitFor('mutter.audio.isTransmitting', { label: 'Alpha transmitting' });
+    await bravo.waitFor('mutter.audio.stats.packetsIn > 25', { label: 'Bravo receiving packets', timeout: 8000 });
+    await bravo.waitFor('mutter.audio.stats.samplesOut > 960 * 20', { label: 'Bravo decoding audio' });
+    await bravo.waitFor(`${findUser('Alpha')}.talking === true && !!document.querySelector('.user.talking')`, {
+      label: 'talking ring on Alpha',
+    });
+    await bravo.waitFor(`!mutter.audio.isTransmitting && !document.getElementById('meterFill').classList.contains('open')`, {
+      label: 'Bravo (push-to-talk, idle) is not transmitting and its meter is not green',
+      timeout: 3000,
+    });
+    if (shots) {
+      await bravo.screenshot(`${shots}/02-talking.png`);
+    }
   });
 
   await step('gate closes with a terminator when Alpha stops', async () => {
-    await a.eval(`mutter.settings.transmitMode = 'ptt'`);
-    await a.waitFor('!mutter.audio.isTransmitting', { timeout: 3000 });
-    await b.waitFor(`${findUser('Alpha')}.talking === false`, { timeout: 3000 });
-    if (!seen.terminators) throw new Error('server never saw a terminator packet');
+    await alpha.eval(`mutter.settings.transmitMode = 'ptt'`);
+    await alpha.waitFor('!mutter.audio.isTransmitting', { timeout: 3000 });
+    await bravo.waitFor(`${findUser('Alpha')}.talking === false`, { timeout: 3000 });
+    if (!seen.terminators) {
+      throw new Error('server never saw a terminator packet');
+    }
   });
 
   await step('holding Space transmits, releasing stops', async () => {
-    await a.eval('document.activeElement?.blur()');
-    await a.key('Space', ' ', { up: false });
-    await a.waitFor('mutter.audio.isTransmitting', { timeout: 3000 });
-    await a.key('Space', ' ', { down: false });
-    await a.waitFor('!mutter.audio.isTransmitting', { timeout: 3000 });
+    await alpha.eval('document.activeElement?.blur()');
+    await alpha.key('Space', ' ', { up: false });
+    await alpha.waitFor('mutter.audio.isTransmitting', { timeout: 3000 });
+    await alpha.key('Space', ' ', { down: false });
+    await alpha.waitFor('!mutter.audio.isTransmitting', { timeout: 3000 });
   });
 
   await step('mute shows on the other side', async () => {
-    await a.click('#muteBtn');
-    await b.waitFor(`${findUser('Alpha')}.selfMute === true`);
-    await b.waitFor(`!!document.querySelector('.user .avatar.muted') && !!document.querySelector('.member .avatar.muted')`);
-    await a.waitFor(`document.getElementById('muteBtn').classList.contains('active')`);
+    await alpha.click('#muteBtn');
+    await bravo.waitFor(`${findUser('Alpha')}.selfMute === true`);
+    await bravo.waitFor(`!!document.querySelector('.user .avatar.muted') && !!document.querySelector('.member .avatar.muted')`);
+    await alpha.waitFor(`document.getElementById('muteBtn').classList.contains('active')`);
   });
 
   await step('deafen implies mute; undeafen clears both', async () => {
-    await a.click('#deafBtn');
-    await b.waitFor(`${findUser('Alpha')}.selfDeaf === true`);
-    await a.click('#deafBtn');
-    await b.waitFor(`${findUser('Alpha')}.selfDeaf === false`);
-    await a.click('#muteBtn');
-    await b.waitFor(`${findUser('Alpha')}.selfMute === false`);
+    await alpha.click('#deafBtn');
+    await bravo.waitFor(`${findUser('Alpha')}.selfDeaf === true`);
+    await alpha.click('#deafBtn');
+    await bravo.waitFor(`${findUser('Alpha')}.selfDeaf === false`);
+    await alpha.click('#muteBtn');
+    await bravo.waitFor(`${findUser('Alpha')}.selfMute === false`);
   });
 
   await step('direct message arrives tagged "direct"', async () => {
-    await b.eval(`mutter.client.sendText('psst', { sessions: [${findUser('Alpha')}.session] })`);
-    await a.waitFor(`[...document.querySelectorAll('.row')].some(e => e.textContent.includes('psst') && e.querySelector('.tag')?.textContent === 'DM')`);
+    await bravo.eval(`mutter.client.sendText('psst', { sessions: [${findUser('Alpha')}.session] })`);
+    await alpha.waitFor(`[...document.querySelectorAll('.row')].some(e => e.textContent.includes('psst') && e.querySelector('.tag')?.textContent === 'DM')`);
   });
 
   await step('image is shrunk to the server limit and rendered inline', async () => {
-    await a.eval(`(async () => {
-      const c = new OffscreenCanvas(1600, 1200); const x = c.getContext('2d');
-      for (let i = 0; i < 400; i++) { x.fillStyle = \`hsl(\${i * 7 % 360} 80% 50%)\`; x.fillRect(Math.random() * 1600, Math.random() * 1200, 90, 90); }
-      const blob = await c.convertToBlob({ type: 'image/png' });
+    await alpha.eval(`(async () => {
+      const canvas = new OffscreenCanvas(1600, 1200);
+      const context = canvas.getContext('2d');
+      for (let i = 0; i < 400; i++) {
+        context.fillStyle = \`hsl(\${i * 7 % 360} 80% 50%)\`;
+        context.fillRect(Math.random() * 1600, Math.random() * 1200, 90, 90);
+      }
+      const blob = await canvas.convertToBlob({ type: 'image/png' });
       const { imageToHtml } = await import('/app/chat.js');
-      const html = await imageToHtml(new File([blob], 'x.png', { type: 'image/png' }), mutter.client.serverInfo.imageMessageLength);
-      if (html.length > mutter.client.serverInfo.imageMessageLength) throw new Error('too big: ' + html.length);
+      const limit = mutter.client.serverInfo.imageMessageLength;
+      const html = await imageToHtml(new File([blob], 'x.png', { type: 'image/png' }), limit);
+      if (html.length > limit) throw new Error('too big: ' + html.length);
       mutter.client.sendText(html, { channelId: 1 });
     })()`);
-    await b.waitFor(`!!document.querySelector('.row .content img')`);
-    if (shots) await b.screenshot(`${shots}/03-image.png`);
+    await bravo.waitFor(`!!document.querySelector('.row .content img')`);
+    if (shots) {
+      await bravo.screenshot(`${shots}/03-image.png`);
+    }
   });
 
   await step('a long message that isn’t well-formed XML is refused and marked undelivered', async () => {
-    // What the old client sent: <img …> with no slash. murmur's XML pass rejects it as TextTooLong.
-    await a.eval(`mutter.client.sendText('<img src="data:image/jpeg;base64,' + 'QUFB'.repeat(2000) + '">', { channelId: 1 })`);
-    await a.waitFor(`!!document.querySelector('.row.failed .failed-note')`, { timeout: 4000 });
-    await a.waitFor(`[...document.querySelectorAll('.toast')].some(t => /too long/i.test(t.textContent))`, { timeout: 3000 });
-    if (await b.eval(`[...document.querySelectorAll('.row img')].some(i => i.src.includes('QUFBQUFB'))`)) throw new Error('fake server delivered a malformed message');
+    await alpha.eval(`mutter.client.sendText('<img src="data:image/jpeg;base64,' + 'QUFB'.repeat(2000) + '">', { channelId: 1 })`);
+    await alpha.waitFor(`!!document.querySelector('.row.failed .failed-note')`, { timeout: 4000 });
+    await alpha.waitFor(`[...document.querySelectorAll('.toast')].some(t => /too long/i.test(t.textContent))`, { timeout: 3000 });
+    if (await bravo.eval(`[...document.querySelectorAll('.row img')].some(i => i.src.includes('QUFBQUFB'))`)) {
+      throw new Error('fake server delivered a malformed message');
+    }
   });
 
   await step('desktop Mumble’s percent-encoded data URI image decodes', async () => {
-    // Log::imageToImg splits the base64 into 72-char lines, percent-encodes each (+ / =), and
-    // joins them with newlines; the subtype comes out uppercase.
-    await b.eval(`(async () => {
-      const c = new OffscreenCanvas(48, 32); const x = c.getContext('2d'); x.fillStyle = '#0f0'; x.fillRect(0, 0, 48, 32);
-      const blob = await c.convertToBlob({ type: 'image/png' });
-      const b64 = btoa(String.fromCharCode(...new Uint8Array(await blob.arrayBuffer())));
-      const enc = b64.match(/.{1,72}/g).map(encodeURIComponent).join('\\n');
-      mutter.client.sendText('<img src="data:image/PNG;base64,' + enc + '" />', { channelId: 1 });
+    await bravo.eval(`(async () => {
+      const canvas = new OffscreenCanvas(48, 32);
+      const context = canvas.getContext('2d');
+      context.fillStyle = '#0f0';
+      context.fillRect(0, 0, 48, 32);
+      const blob = await canvas.convertToBlob({ type: 'image/png' });
+      const base64 = btoa(String.fromCharCode(...new Uint8Array(await blob.arrayBuffer())));
+      const encoded = base64.match(/.{1,72}/g).map(encodeURIComponent).join('\\n');
+      mutter.client.sendText('<img src="data:image/PNG;base64,' + encoded + '" />', { channelId: 1 });
     })()`);
-    await a.waitFor(`(() => { const img = [...document.querySelectorAll('.row .content img')].find(i => i.src.startsWith('data:image/PNG')); return img && img.complete && img.naturalWidth === 48; })()`, { timeout: 5000 });
+    await alpha.waitFor(
+      `(() => {
+        const image = [...document.querySelectorAll('.row .content img')].find(i => i.src.startsWith('data:image/PNG'));
+        return image && image.complete && image.naturalWidth === 48;
+      })()`,
+      { timeout: 5000 }
+    );
   });
 
   await step('hostile HTML is neutralised', async () => {
-    await b.eval(`mutter.client.sendText('<b>bold</b><script>window.pwned=1</script><img src="x" onerror="window.pwned=2"><a href="javascript:alert(1)">j</a> see https://example.com/x', { channelId: 1 })`);
-    await a.waitFor(`[...document.querySelectorAll('.row .content b')].some(e => e.textContent === 'bold')`);
-    const ok = await a.eval(`!window.pwned && !document.querySelector('.row script') && !document.querySelector('.row a[href^="javascript"]') && !document.querySelector('.row img[onerror]') && !!document.querySelector('.row a[href="https://example.com/x"]')`);
-    if (!ok) throw new Error('something dangerous survived, or linkify failed');
+    await bravo.eval(
+      `mutter.client.sendText('<b>bold</b><script>window.pwned=1</script><img src="x" onerror="window.pwned=2"><a href="javascript:alert(1)">j</a> see https://example.com/x', { channelId: 1 })`
+    );
+    await alpha.waitFor(`[...document.querySelectorAll('.row .content b')].some(e => e.textContent === 'bold')`);
+    const safe = await alpha.eval(
+      `!window.pwned && !document.querySelector('.row script') && !document.querySelector('.row a[href^="javascript"]') && !document.querySelector('.row img[onerror]') && !!document.querySelector('.row a[href="https://example.com/x"]')`
+    );
+    if (!safe) {
+      throw new Error('something dangerous survived, or linkify failed');
+    }
   });
 
   await step('permission denied surfaces as a toast', async () => {
-    await a.eval(`mutter.client.joinChannel(999)`);
-    await a.waitFor(`[...document.querySelectorAll('.toast')].some(t => t.textContent.includes('No such channel'))`, { timeout: 3000 });
+    await alpha.eval(`mutter.client.joinChannel(999)`);
+    await alpha.waitFor(`[...document.querySelectorAll('.toast')].some(t => t.textContent.includes('No such channel'))`, { timeout: 3000 });
   });
 
   await step('leave returns to the connect screen and the other side sees it', async () => {
-    await a.click('#leaveBtn');
-    await b.waitFor('mutter.client.users.size === 1');
-    await a.waitFor(`!document.getElementById('connect').hidden && mutter.client.state === 'disconnected'`);
-    if (await a.eval('mutter.audio.running')) throw new Error('audio still running after leave');
+    await alpha.click('#leaveBtn');
+    await bravo.waitFor('mutter.client.users.size === 1');
+    await alpha.waitFor(`!document.getElementById('connect').hidden && mutter.client.state === 'disconnected'`);
+    if (await alpha.eval('mutter.audio.running')) {
+      throw new Error('audio still running after leave');
+    }
   });
 
   await step('server drop → reconnecting overlay → back with a fresh session', async () => {
-    const before = await b.eval('mutter.client.me');
-    for (const u of server.users.values()) if (u.name === 'Bravo') u.socket.destroy();
-    await b.waitFor(`mutter.client.state === 'reconnecting' && !document.getElementById('overlay').hidden`, { timeout: 3000 });
-    await b.waitFor(`mutter.client.state === 'connected' && document.getElementById('overlay').hidden`, { timeout: 10_000 });
-    const after = await b.eval('mutter.client.me');
-    if (after === before) throw new Error('session id did not change');
-    if (await b.eval('mutter.client.users.size') !== 1) throw new Error('ghost user after reconnect');
+    const before = await bravo.eval('mutter.client.me');
+    for (const user of server.users.values()) {
+      if (user.name === 'Bravo') {
+        user.socket.destroy();
+      }
+    }
+    await bravo.waitFor(`mutter.client.state === 'reconnecting' && !document.getElementById('overlay').hidden`, { timeout: 3000 });
+    await bravo.waitFor(`mutter.client.state === 'connected' && document.getElementById('overlay').hidden`, { timeout: 10_000 });
+    const after = await bravo.eval('mutter.client.me');
+    if (after === before) {
+      throw new Error('session id did not change');
+    }
+    if ((await bravo.eval('mutter.client.users.size')) !== 1) {
+      throw new Error('ghost user after reconnect');
+    }
   });
 
   check(seen.voice > 50, `server relayed voice (${seen.voice} packets, ${seen.udp} over UDP)`);
-  if (process.env.FAKE_UDP === '0') check(seen.udp === 0 && await b.eval('mutter.client.stats.udp?.up !== true'), 'with UDP blocked, voice stays on the TCP tunnel');
-  else check(seen.udp > 50 && await b.eval('mutter.client.stats.udp?.up === true'), 'voice travelled over UDP through the bridge and the client knows it');
-  for (const [name, p] of [['Alpha', a], ['Bravo', b]]) {
-    const errs = p.errors();
-    check(errs.length === 0, `${name}: no page exceptions${errs.length ? `\n      ${errs.join('\n      ')}` : ''}`);
+  if (process.env.FAKE_UDP === '0') {
+    const stayedOnTcp = seen.udp === 0 && (await bravo.eval('mutter.client.stats.udp?.up !== true'));
+    check(stayedOnTcp, 'with UDP blocked, voice stays on the TCP tunnel');
+  } else {
+    const usedUdp = seen.udp > 50 && (await bravo.eval('mutter.client.stats.udp?.up === true'));
+    check(usedUdp, 'voice travelled over UDP through the bridge and the client knows it');
   }
-} catch (e) {
-  check(false, `aborted: ${e.stack}`);
+  checkNoPageErrors([
+    ['Alpha', alpha],
+    ['Bravo', bravo],
+  ]);
+} catch (error) {
+  check(false, `aborted: ${error.stack}`);
 } finally {
-  await browser.close();
-  bridge.close();
-  await server.close();
+  await environment.close();
 }
 
-if (failures.length) { console.error(`\n${failures.length} failure(s)`); process.exit(1); }
-console.log('\nPASS');
+finish();

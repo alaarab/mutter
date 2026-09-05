@@ -6,8 +6,6 @@ struct ViewedImage: Identifiable {
     let image: UIImage
 }
 
-/// Full-screen image viewer: pinch to zoom, double-tap to zoom, drag past the edge or
-/// tap the close button to dismiss.
 struct ImageViewerScreen: View {
     let image: UIImage
     @Environment(\.dismiss) private var dismiss
@@ -22,7 +20,6 @@ struct ImageViewerScreen: View {
                 .ignoresSafeArea()
                 .offset(drag)
                 .scaleEffect(1 - dragProgress * 0.15)
-                // Swipe down (or up) to flick the image away.
                 .gesture(
                     DragGesture()
                         .onChanged { drag = $0.translation }
@@ -51,7 +48,6 @@ struct ImageViewerScreen: View {
     }
 }
 
-/// UIScrollView-backed zoom/pan, which SwiftUI still has no native equivalent for.
 private struct ZoomableImage: UIViewRepresentable {
     let image: UIImage
 

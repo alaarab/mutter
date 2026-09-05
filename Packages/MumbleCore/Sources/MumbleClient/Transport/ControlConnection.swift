@@ -5,8 +5,6 @@ import Security
 import CryptoKit
 import MumbleProtocol
 
-/// TLS control channel to a Mumble server, built on Network.framework.
-/// All callbacks are delivered on the queue passed to `init`.
 final class ControlConnection {
     enum Event {
         case ready
@@ -15,8 +13,6 @@ final class ControlConnection {
         case closed
     }
 
-    /// Called during the TLS handshake with the server's certificate. The handler must call the
-    /// completion exactly once; it may do so asynchronously (after asking the user).
     typealias VerifyHandler = (SecTrust, ServerCertificateInfo, @escaping (Bool) -> Void) -> Void
 
     private let connection: NWConnection
@@ -68,7 +64,6 @@ final class ControlConnection {
             case .failed(let error):
                 self.onEvent?(.failed(error))
             case .waiting(let error):
-                // Waiting means no viable path yet (e.g. airplane mode). Treat prolonged waits as failure.
                 self.onEvent?(.failed(error))
             case .cancelled:
                 self.onEvent?(.closed)
@@ -143,7 +138,6 @@ enum CertificateInspector {
         )
     }
 
-    /// True when the system trust store (or a user-installed profile) already trusts this chain.
     static func isSystemTrusted(_ trust: SecTrust) -> Bool {
         var error: CFError?
         return SecTrustEvaluateWithError(trust, &error)

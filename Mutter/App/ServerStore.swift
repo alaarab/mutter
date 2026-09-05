@@ -14,7 +14,6 @@ struct SavedServer: Identifiable, Codable, Hashable {
     var certificateFingerprint: Data?
     var lastConnectedAt: Date?
     var isFavorite = true
-    /// Index into `Theme.serverPalette`, so each server has a stable colour.
     var accentIndex: Int = Int.random(in: 0..<8)
 
     var endpoint: ServerEndpoint { ServerEndpoint(host: host, port: port) }
@@ -22,7 +21,6 @@ struct SavedServer: Identifiable, Codable, Hashable {
     var displayName: String { name.isEmpty ? host : name }
 }
 
-/// Saved servers (JSON on disk) plus their passwords (keychain) and live ping status.
 @Observable
 final class ServerStore {
     private(set) var servers: [SavedServer] = []
@@ -32,8 +30,7 @@ final class ServerStore {
     @ObservationIgnored private let fileURL: URL
 
     init(directory: URL? = nil) {
-        let dir = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Mutter", isDirectory: true)
+        let dir = directory ?? AppDirectories.support
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         fileURL = dir.appendingPathComponent("servers.json")
         if let data = try? Data(contentsOf: fileURL),
@@ -94,8 +91,6 @@ final class ServerStore {
         persist()
     }
 
-    // MARK: Passwords
-
     private func passwordQuery(_ server: SavedServer) -> [CFString: Any] {
         [
             kSecClass: kSecClassGenericPassword,
@@ -124,14 +119,12 @@ final class ServerStore {
         SecItemAdd(add as CFDictionary, nil)
     }
 
-    // MARK: Live status
-
     @MainActor
     func refreshStatus() async {
         let list = servers
         await withTaskGroup(of: (UUID, ServerPingResult?).self) { group in
-            for s in list {
-                group.addTask { (s.id, await ServerPinger.ping(s.endpoint)) }
+            for server in list {
+                group.addTask { (server.id, await ServerPinger.ping(server.endpoint)) }
             }
             for await (id, result) in group {
                 if let result {

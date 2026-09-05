@@ -3,8 +3,6 @@ import WidgetKit
 import SwiftUI
 import AppIntents
 
-/// Lock screen banner and Dynamic Island for a live voice session:
-/// server, channel, who is speaking, and mute / talk buttons that work without unlocking.
 struct VoiceLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: VoiceActivityAttributes.self) { context in
