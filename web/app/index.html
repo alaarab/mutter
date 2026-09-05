@@ -45,11 +45,11 @@
         </span>
         <span id="pingPill" class="ping" hidden></span>
       </div>
-      <div class="vp-chan">
+      <button id="vpGo" class="vp-chan" type="button" data-tip="Open the voice view">
         <span class="hash">#</span>
         <span id="meChannel">—</span>
         <span id="talkers" class="talkers"></span>
-      </div>
+      </button>
       <div id="meter" class="meter" title="Input level">
         <span id="meterFill"></span>
         <span id="meterMark"></span>
@@ -87,6 +87,7 @@
       </button>
       <span id="chanDesc" class="desc"></span>
       <div class="actions">
+        <button id="voiceBtn" class="icon" type="button" data-tip="Voice" hidden></button>
         <button id="screenBtn" class="icon" type="button" data-tip="Screen" hidden></button>
         <button id="serverBtn" class="icon" type="button" data-tip="Server"></button>
         <button id="membersBtn" class="icon" type="button" data-tip="Members"></button>
@@ -118,6 +119,7 @@
       </form>
     </section>
     <section id="stage" class="pane stage"></section>
+    <section id="paneVoice" class="pane room"></section>
     <section id="paneServer" class="pane">
       <div id="serverPane" class="server-pane"></div>
     </section>

@@ -2,6 +2,7 @@ import { MumbleClient } from './client.js';
 import { AudioEngine } from './audio.js';
 import { ScreenShare, probeIce } from './share.js';
 import { mountStage } from './stage.js';
+import { mountRoom } from './room.js';
 import { THEMES, DEFAULT_THEME, applyTheme } from './themes.js';
 import { settings, saveSettings, servers, rememberServer, forgetServer, collapsedFor } from './store.js';
 import { DEFAULT_IMAGE_LIMIT, sanitize, imageToHtml, escapeHtml, plainText, openViewer } from './chat.js';
@@ -67,6 +68,7 @@ function mountIcons() {
     railAdd: 'plus',
     railSettings: 'settings',
     newChannelBtn: 'plus',
+    voiceBtn: 'volume',
     screenBtn: 'screen',
     serverBtn: 'info',
     membersBtn: 'users',
@@ -99,6 +101,17 @@ migrateSettings();
 applyTheme(settings.theme);
 applyTextSize(settings.textSize);
 mountIcons();
+const room = mountRoom({
+  container: $('paneVoice'),
+  client,
+  audio,
+  share,
+  settings,
+  canShare: ScreenShare.supported,
+  leave,
+  onShare: () => $('shareBtn').click(),
+  onUser: (tile, user) => openProfile(tile, user),
+});
 if (!AudioEngine.supported) {
   $('unsupported').hidden = false;
 }
@@ -170,6 +183,10 @@ function showTab(name) {
   document.body.dataset.tab = name;
   $('serverBtn').classList.toggle('on', name === 'server');
   $('screenBtn').classList.toggle('on', name === 'screen');
+  $('voiceBtn').classList.toggle('on', name === 'voice');
+  if (name === 'voice') {
+    room.render();
+  }
   if (chatVisible()) {
     clearUnread();
     messages.clearUnread();
@@ -188,6 +205,7 @@ function toggleTab(name) {
 wide.addEventListener('change', applyLayout);
 $('backBtn').onclick = () => showTab('channels');
 $('serverBtn').onclick = () => toggleTab('server');
+$('voiceBtn').onclick = () => toggleTab('voice');
 $('screenBtn').onclick = () => toggleTab('screen');
 $('railHome').onclick = () => showTab('chat');
 $('membersBtn').onclick = () => {
@@ -428,6 +446,9 @@ function renderAll() {
   renderChannelHead();
   renderScope();
   renderServerPane();
+  if (document.body.dataset.tab === 'voice') {
+    room.render();
+  }
   $('subtitle').textContent = `${client.users.size} online · in #${client.myChannel?.name ?? '—'}`;
 }
 
@@ -556,6 +577,9 @@ client.addEventListener('talking', (event) => {
   }
   renderTalkers();
   renderTalkers($('vsTalkers'));
+  if (document.body.dataset.tab === 'voice') {
+    room.render();
+  }
 });
 
 function newChannel(parent = client.myChannel?.channelId ?? 0) {
@@ -584,6 +608,10 @@ function renderChannelHead() {
   if (tab === 'server') {
     const address = ui.target ? serverLabel(ui.target) : '';
     setChannelHead('Server', address, address);
+  } else if (tab === 'voice') {
+    const channel = client.myChannel;
+    const where = channel ? `#${channel.name} · ${client.usersIn(channel.channelId).length} here` : '';
+    setChannelHead('Voice', where, where);
   } else if (tab === 'screen') {
     let who = '';
     if (share.watching) {
@@ -882,6 +910,7 @@ function renderPanels() {
     button.dataset.tip = audio.muted ? 'Unmute' : 'Mute';
   }
   $('voiceStrip').hidden = !client.isConnected;
+  $('voiceBtn').hidden = !client.isConnected;
   $('vsChan').textContent = client.myChannel?.name ?? '';
   renderTalkers($('vsTalkers'));
   $('deafBtn').innerHTML = ICON[audio.deafened ? 'headphonesOff' : 'headphones'];
@@ -922,6 +951,9 @@ function refreshMe() {
   if (client.myUser) {
     refreshUser(client.myUser, treeContext());
   }
+  if (document.body.dataset.tab === 'voice') {
+    room.render();
+  }
 }
 
 audio.addEventListener('state', refreshMe);
@@ -960,7 +992,8 @@ for (const id of ['muteBtn', 'vsMute']) {
 }
 $('deafBtn').onclick = () => audio.setDeafened(!audio.deafened);
 $('vsLeave').onclick = leave;
-$('vsGo').onclick = () => showTab('channels');
+$('vsGo').onclick = () => showTab('voice');
+$('vpGo').onclick = () => showTab('voice');
 $('pttBtn').addEventListener('pointerdown', (event) => {
   event.preventDefault();
   audio.setPTT(true);

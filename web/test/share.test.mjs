@@ -65,6 +65,7 @@ try {
     await bravo.eval('mutter.settings.shareAudio = false');
     await bravo.click('.offer .watch');
     await bravo.waitFor(`mutter.share.watching?.state === 'connected'`, { timeout: 15_000, label: 'peer connection connected' });
+    await alpha.waitFor(`!![...mutter.share.sharing.peers.values()][0]?.remoteDescription?.sdp`, { label: 'sharer applied the answer' });
     const audio = await alpha.eval(`(() => {
       const sdp = [...mutter.share.sharing.peers.values()][0].remoteDescription.sdp;
       const section = sdp.split(/(?=m=)/).find(s => s.startsWith('m=audio')) ?? '';
