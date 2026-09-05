@@ -843,7 +843,7 @@ client.addEventListener('log', () => {
 
 const TRANSMIT_STATUS = {
   vad: () => 'Voice activity',
-  ptt: () => `Push to talk · ${keyLabel(settings.pttKey)}`,
+  ptt: () => 'Push to talk',
   continuous: () => 'Always on',
 };
 

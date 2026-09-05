@@ -75,7 +75,10 @@
   --side-w: 232px;
   --head-h: 48px;
   --tabs-h: 50px;
-  --t: .1s ease-in-out;
+  --ease: cubic-bezier(.22, 1, .36, 1);
+  --spring: cubic-bezier(.34, 1.4, .64, 1);
+  --t: .14s var(--ease);
+  --t-move: .2s var(--ease);
 }
 
 * {
@@ -198,12 +201,16 @@ svg {
   border-radius: var(--r6);
   color: var(--muted);
   flex: none;
-  transition: background var(--t), color var(--t);
+  transition: background var(--t), color var(--t), transform .12s var(--ease);
 }
 
 .icon:hover {
   background: var(--hover);
   color: var(--ink);
+}
+
+.icon:active {
+  transform: scale(.92);
 }
 
 .icon.on {
@@ -231,6 +238,11 @@ svg {
 
 .icon.primary:hover {
   background: var(--accent-active);
+  transform: scale(1.06);
+}
+
+.icon.primary:active {
+  transform: scale(.94);
 }
 
 .icon.active {
@@ -254,7 +266,11 @@ button.ghost {
   padding: 8px 13px;
   font-weight: 600;
   font-size: 12.5px;
-  transition: background var(--t);
+  transition: background var(--t), transform .12s var(--ease);
+}
+
+button.ghost:active {
+  transform: scale(.97);
 }
 
 button.ghost:hover {
@@ -277,7 +293,11 @@ button.ghost.danger {
   color: var(--ink);
   font-weight: 600;
   font-size: 12.5px;
-  transition: background var(--t);
+  transition: background var(--t), color var(--t), transform .12s var(--ease);
+}
+
+.pill-btn:active {
+  transform: scale(.97);
 }
 
 .pill-btn:hover {
@@ -509,6 +529,13 @@ input[type=range] {
 .talking > .avatar,
 .avatar.speaking {
   box-shadow: 0 0 0 2px var(--speaking);
+  animation: speak-ring 1.6s ease-in-out infinite;
+}
+
+@keyframes speak-ring {
+  50% {
+    box-shadow: 0 0 0 2px var(--speaking), 0 0 0 6px color-mix(in srgb, var(--speaking) 22%, transparent);
+  }
 }
 
 .avatar .sdot {
@@ -616,13 +643,22 @@ input[type=range] {
   display: grid;
   place-items: center;
   font: 700 15px var(--display);
-  transition: border-radius .15s, background var(--t), color var(--t);
+  transition: border-radius .18s var(--ease), background var(--t), color var(--t), transform .18s var(--spring);
   flex: none;
 }
 
 .rail-btn:hover,
 .rail-btn.on {
   border-radius: 11px;
+}
+
+.rail-btn:hover {
+  transform: translateY(-1px);
+}
+
+.rail-btn:active {
+  transform: scale(.94);
+  transition-duration: .08s;
 }
 
 .rail-btn.brand {
@@ -660,7 +696,7 @@ input[type=range] {
   border-radius: 0 4px 4px 0;
   background: var(--ink);
   transform: translateY(-50%);
-  transition: height .15s;
+  transition: height .18s var(--ease);
 }
 
 .rail-btn:hover::before {
@@ -1117,7 +1153,12 @@ input[type=range] {
   font: 700 13px var(--display);
   user-select: none;
   touch-action: none;
-  transition: background var(--t);
+  transition: background var(--t), color var(--t), transform .12s var(--ease);
+}
+
+.talk:active,
+.talk.active {
+  transform: scale(.98);
 }
 
 .talk.active {
@@ -1135,7 +1176,7 @@ input[type=range] {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   height: 52px;
   padding: 0 8px 0 10px;
   background: var(--sunken);
@@ -1147,6 +1188,16 @@ input[type=range] {
   display: flex;
   flex-direction: column;
   line-height: 1.15;
+  margin: 0 4px 0 6px;
+}
+
+.user-panel .icon {
+  width: 28px;
+  height: 28px;
+}
+
+body[data-layout="desktop"] .user-panel #settingsBtn {
+  display: none;
 }
 
 .user-panel .name {
@@ -1359,6 +1410,14 @@ body[data-tab="channels"] #paneChat,
 body[data-tab="server"] #paneServer,
 body[data-tab="screen"] #stage {
   display: flex;
+  animation: pane-in .22s var(--ease);
+}
+
+@keyframes pane-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
 }
 
 .messages {
@@ -1372,6 +1431,28 @@ body[data-tab="screen"] #stage {
 .messages::before {
   content: '';
   flex: 1;
+}
+
+.messages:empty::before {
+  flex: 0;
+}
+
+.messages:empty::after {
+  content: 'No messages yet. Say hi.';
+  margin: auto;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.row.fresh {
+  animation: message-in .2s var(--ease);
+}
+
+@keyframes message-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
 }
 
 .divider {
@@ -1924,6 +2005,7 @@ body[data-members="off"] #members {
   object-fit: contain;
   display: block;
   background: #000;
+  animation: fade-in .3s var(--ease);
 }
 
 .stage video.preview.small {
@@ -2007,7 +2089,12 @@ body[data-members="off"] #members {
   backdrop-filter: blur(8px);
 }
 
+.connect {
+  animation: fade-in .2s var(--ease);
+}
+
 .connect .card {
+  animation: card-in .3s var(--ease);
   width: min(440px, 100%);
   background: var(--surface);
   border: 1px solid var(--separator);
@@ -2148,6 +2235,14 @@ body[data-members="off"] #members {
   flex-direction: column;
   gap: 4px;
   box-shadow: -12px 0 40px rgba(0,0,0,.35);
+  animation: sheet-in .24s var(--ease);
+}
+
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
 }
 
 .sheet-head {
@@ -2267,13 +2362,13 @@ body[data-members="off"] #members {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  animation: pop .12s ease-out;
+  animation: pop .18s var(--spring);
 }
 
 @keyframes pop {
   from {
     opacity: 0;
-    transform: translateY(-4px) scale(.98);
+    transform: translateY(-4px) scale(.96);
   }
 }
 
@@ -2465,7 +2560,7 @@ body[data-members="off"] #members {
   pointer-events: none;
   box-shadow: 0 6px 20px rgba(0,0,0,.4);
   white-space: nowrap;
-  animation: pop .1s ease-out;
+  animation: pop .12s var(--ease);
 }
 
 .toasts {
@@ -2491,7 +2586,7 @@ body[data-members="off"] #members {
   border-radius: var(--r8);
   padding: 7px 11px;
   font-size: 12.5px;
-  animation: rise .18s ease-out;
+  animation: rise .22s var(--spring);
   max-width: 360px;
   white-space: nowrap;
   overflow: hidden;
@@ -2528,7 +2623,7 @@ body[data-members="off"] #members {
 .toast.out {
   opacity: 0;
   transform: translateY(6px);
-  transition: all .3s;
+  transition: opacity .22s var(--ease), transform .22s var(--ease);
 }
 
 @keyframes rise {
@@ -2546,6 +2641,11 @@ body[data-members="off"] #members {
   display: grid;
   place-items: center;
   z-index: 50;
+  animation: fade-in .2s var(--ease);
+}
+
+.overlay .card {
+  animation: card-in .28s var(--ease);
 }
 
 .overlay .card {
@@ -2572,12 +2672,27 @@ body[data-members="off"] #members {
   place-items: center;
   z-index: 60;
   cursor: zoom-out;
+  animation: fade-in .18s var(--ease);
 }
 
 .viewer img {
   max-width: 96vw;
   max-height: 96vh;
   border-radius: 8px;
+  animation: card-in .24s var(--ease);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(.98);
+  }
 }
 
 @media (max-width: 879px) {
@@ -2709,4 +2824,14 @@ body[data-members="off"] #members {
 :root[data-light="on"] .row .content pre,
 :root[data-light="on"] .row .content code {
   background: var(--sunken);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
 }
