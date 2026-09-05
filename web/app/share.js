@@ -5,6 +5,8 @@ const TRICKLE_MS = 250;
 const PROBE_MS = 8000;
 const STATS_INTERVAL_MS = 1000;
 const MAX_BITRATE = 6_000_000;
+const CAMERA_MAX_BITRATE = 900_000;
+const CAMERA_VIDEO = { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 24, max: 30 } };
 const CODEC_ORDER = ['video/H264', 'video/VP9', 'video/AV1', 'video/VP8'];
 const BUCKET = { burst: 12, rate: 3 };
 const OPAQUE_LABEL = /^[\w+/=-]{16,}$/;
@@ -131,8 +133,12 @@ function videoStats(report, direction, sample) {
 
 export class ScreenShare extends EventTarget {
   sharing = null;
+  camera = null;
+  canFlip = false;
   available = new Map();
+  cameras = new Map();
   watching = null;
+  feeds = new Map();
 
   #assembler = new SignalAssembler();
   #peerState = new WeakMap();
@@ -160,6 +166,10 @@ export class ScreenShare extends EventTarget {
 
   static get supported() {
     return !!(globalThis.RTCPeerConnection && navigator.mediaDevices?.getDisplayMedia);
+  }
+
+  static get cameraSupported() {
+    return !!(globalThis.RTCPeerConnection && navigator.mediaDevices?.getUserMedia);
   }
 
   get viewerCount() {
@@ -190,6 +200,8 @@ export class ScreenShare extends EventTarget {
     const trackSettings = track.getSettings();
     this.sharing = {
       id: crypto.randomUUID().slice(0, 8),
+      kind: 'screen',
+      maxBitrate: MAX_BITRATE,
       stream,
       contentHint,
       peers: new Map(),
@@ -204,8 +216,157 @@ export class ScreenShare extends EventTarget {
     track.addEventListener('ended', () => this.stop());
     const { title, w, h, audio } = this.sharing;
     this.#diag(`sharing ${title} ${w}×${h}${audio ? ' with audio' : ''}`);
-    this.#announce();
+    this.#announceSource(this.sharing);
     this.#emit('state');
+  }
+
+  async startCamera() {
+    if (this.camera) {
+      return;
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { ...CAMERA_VIDEO, facingMode: 'user' }, audio: false });
+    const track = stream.getVideoTracks()[0];
+    if (!track) {
+      throw new Error('No camera track');
+    }
+    track.contentHint = 'motion';
+    const camera = {
+      id: crypto.randomUUID().slice(0, 8),
+      kind: 'camera',
+      maxBitrate: CAMERA_MAX_BITRATE,
+      stream,
+      contentHint: 'motion',
+      peers: new Map(),
+      announced: new Set(),
+      title: 'Camera',
+      w: 0,
+      h: 0,
+      audio: false,
+      stats: null,
+    };
+    this.camera = camera;
+    this.#watchTrackEnd(camera, track);
+    this.canFlip = (await this.#videoInputs()).length > 1;
+    this.#diag('camera on');
+    this.#announceSource(camera);
+    this.#emit('state');
+  }
+
+  stopCamera() {
+    const camera = this.camera;
+    if (!camera) {
+      return;
+    }
+    this.camera = null;
+    this.#endShare(camera);
+    this.#send([...camera.announced], { t: 'stop', id: camera.id });
+    this.#diag('camera off');
+    this.#emit('state');
+  }
+
+  async flipCamera() {
+    const camera = this.camera;
+    if (!camera) {
+      return;
+    }
+    const inputs = await this.#videoInputs();
+    const current = camera.stream.getVideoTracks()[0];
+    const index = inputs.findIndex((device) => device.deviceId === current?.getSettings().deviceId);
+    const next = inputs[(index + 1) % inputs.length];
+    if (!next || inputs.length < 2) {
+      return;
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { ...CAMERA_VIDEO, deviceId: { exact: next.deviceId } }, audio: false });
+    const track = stream.getVideoTracks()[0];
+    track.contentHint = 'motion';
+    if (current) {
+      camera.stream.removeTrack(current);
+      current.stop();
+    }
+    camera.stream.addTrack(track);
+    this.#watchTrackEnd(camera, track);
+    for (const peer of camera.peers.values()) {
+      for (const sender of peer.getSenders()) {
+        await sender.replaceTrack(track).catch(() => {});
+      }
+    }
+    this.#emit('state');
+  }
+
+  watchCamera(sender) {
+    const offer = this.cameras.get(sender);
+    if (!offer || this.feeds.has(sender)) {
+      return;
+    }
+    const connection = this.#newPeer();
+    const feed = { sender, id: offer.id, pc: connection, stream: new MediaStream(), state: 'connecting' };
+    this.feeds.set(sender, feed);
+    connection.ontrack = (event) => {
+      feed.stream.addTrack(event.track);
+      this.#emit('feed', { sender });
+    };
+    connection.onconnectionstatechange = () => {
+      if (this.feeds.get(sender) !== feed) {
+        return;
+      }
+      feed.state = connection.connectionState;
+      if (feed.state === 'failed') {
+        this.#explainPath(connection, `camera ${sender}`);
+      }
+      this.#emit('feed', { sender });
+    };
+    this.#send([sender], { t: 'watch', id: offer.id });
+  }
+
+  unwatchCamera(sender, notify = true) {
+    const feed = this.feeds.get(sender);
+    if (!feed) {
+      return;
+    }
+    this.feeds.delete(sender);
+    feed.pc.close();
+    if (notify) {
+      this.#send([sender], { t: 'leave', id: feed.id });
+    }
+    this.#emit('feed', { sender });
+  }
+
+  unwatchAllCameras() {
+    for (const sender of [...this.feeds.keys()]) {
+      this.unwatchCamera(sender);
+    }
+  }
+
+  #watchTrackEnd(camera, track) {
+    track.addEventListener('ended', () => {
+      if (this.camera === camera && camera.stream.getVideoTracks()[0] === track) {
+        this.stopCamera();
+      }
+    });
+  }
+
+  async #videoInputs() {
+    try {
+      return (await navigator.mediaDevices.enumerateDevices()).filter((device) => device.kind === 'videoinput');
+    } catch {
+      return [];
+    }
+  }
+
+  #sources() {
+    return [this.sharing, this.camera].filter(Boolean);
+  }
+
+  #sourceFor(id) {
+    return this.#sources().find((source) => source.id === id) ?? null;
+  }
+
+  #viewerFor(sender, id) {
+    if (this.watching?.sender === sender && this.watching.id === id) {
+      return this.watching;
+    }
+    const feed = this.feeds.get(sender);
+    return feed?.id === id ? feed : null;
   }
 
   stop() {
@@ -230,7 +391,7 @@ export class ScreenShare extends EventTarget {
     for (const peer of share.peers.values()) {
       for (const transceiver of peer.getTransceivers()) {
         if (transceiver.sender.track?.kind === 'video') {
-          this.#tuneVideo(transceiver, hint);
+          this.#tuneVideo(transceiver, hint, share.maxBitrate);
         }
       }
     }
@@ -395,49 +556,49 @@ export class ScreenShare extends EventTarget {
   }
 
   async #offer(viewer, message) {
-    const share = this.sharing;
-    if (!share || share.id !== message.id) {
+    const source = this.#sourceFor(message.id);
+    if (!source) {
       return;
     }
-    share.announced.add(viewer);
-    this.#closePeer(share, viewer);
+    source.announced.add(viewer);
+    this.#closePeer(source, viewer);
     const connection = this.#newPeer();
-    share.peers.set(viewer, connection);
-    for (const track of [...share.stream.getVideoTracks(), ...share.stream.getAudioTracks()]) {
-      const transceiver = connection.addTransceiver(track, { direction: 'sendonly', streams: [share.stream] });
+    source.peers.set(viewer, connection);
+    for (const track of [...source.stream.getVideoTracks(), ...source.stream.getAudioTracks()]) {
+      const transceiver = connection.addTransceiver(track, { direction: 'sendonly', streams: [source.stream] });
       if (track.kind === 'video') {
-        this.#tuneVideo(transceiver, share.contentHint);
+        this.#tuneVideo(transceiver, source.contentHint, source.maxBitrate);
       }
     }
     connection.onconnectionstatechange = () => {
-      if (share.peers.get(viewer) !== connection) {
+      if (source.peers.get(viewer) !== connection) {
         return;
       }
       const state = connection.connectionState;
-      this.#diag(`viewer ${viewer} ${state}`);
+      this.#diag(`${source.kind} viewer ${viewer} ${state}`);
       if (state === 'connected' || state === 'failed') {
-        this.#explainPath(connection, `sharer→${viewer}`);
+        this.#explainPath(connection, `${source.kind}→${viewer}`);
       }
       if (state === 'failed' || state === 'closed') {
-        share.peers.delete(viewer);
+        source.peers.delete(viewer);
       }
       this.#emit('state');
     };
     try {
-      this.#trickleCandidates(connection, viewer, share.id);
+      this.#trickleCandidates(connection, viewer, source.id);
       await connection.setLocalDescription(await connection.createOffer());
       await waitForGathering(connection);
       this.#stateOf(connection).sdpSent = true;
-      this.#send([viewer], { t: 'offer', id: share.id, sdp: connection.localDescription.sdp });
+      this.#send([viewer], { t: 'offer', id: source.id, sdp: connection.localDescription.sdp });
     } catch (error) {
       this.#diag(`offer failed: ${error.message}`);
-      this.#closePeer(share, viewer);
+      this.#closePeer(source, viewer);
     }
   }
 
   async #answer(sender, message) {
-    const viewer = this.watching;
-    if (!viewer || viewer.sender !== sender || viewer.id !== message.id) {
+    const viewer = this.#viewerFor(sender, message.id);
+    if (!viewer) {
       return;
     }
     const connection = viewer.pc;
@@ -459,11 +620,11 @@ export class ScreenShare extends EventTarget {
     } catch (error) {
       this.#diag(`answer failed: ${error.message}`);
       viewer.state = 'failed';
-      this.#emit('state');
+      this.#emit(viewer === this.watching ? 'state' : 'feed', { sender });
     }
   }
 
-  #tuneVideo(transceiver, hint) {
+  #tuneVideo(transceiver, hint, maxBitrate) {
     try {
       const codecs = RTCRtpSender.getCapabilities('video')?.codecs ?? [];
       const preferred = CODEC_ORDER.flatMap((mime) => codecs.filter((codec) => codec.mimeType === mime));
@@ -472,16 +633,16 @@ export class ScreenShare extends EventTarget {
         transceiver.setCodecPreferences([...preferred, ...rest]);
       }
     } catch {}
-    this.#applyEncoding(transceiver.sender, hint);
+    this.#applyEncoding(transceiver.sender, hint, maxBitrate);
   }
 
-  async #applyEncoding(sender, hint) {
+  async #applyEncoding(sender, hint, maxBitrate) {
     try {
       const parameters = sender.getParameters();
       if (!parameters.encodings?.length) {
         parameters.encodings = [{}];
       }
-      parameters.encodings[0].maxBitrate = MAX_BITRATE;
+      parameters.encodings[0].maxBitrate = maxBitrate;
       parameters.encodings[0].maxFramerate = hint === 'motion' ? 60 : 30;
       parameters.degradationPreference = hint === 'motion' ? 'maintain-framerate' : 'balanced';
       await sender.setParameters(parameters);
@@ -515,7 +676,7 @@ export class ScreenShare extends EventTarget {
         await this.#onAnswer(sender, message);
         break;
       case 'leave':
-        this.#onLeave(sender);
+        this.#onLeave(sender, message);
         break;
       case 'ice':
         this.#onIce(sender, message);
@@ -526,6 +687,15 @@ export class ScreenShare extends EventTarget {
   }
 
   #onAnnounce(sender, message) {
+    if (message.kind === 'camera') {
+      const fresh = this.cameras.get(sender)?.id !== message.id;
+      this.cameras.set(sender, { id: message.id });
+      if (fresh) {
+        this.unwatchCamera(sender, false);
+      }
+      this.#emit('cameras', { sender, fresh });
+      return;
+    }
     const fresh = !this.available.has(sender);
     this.available.set(sender, {
       id: message.id,
@@ -538,6 +708,12 @@ export class ScreenShare extends EventTarget {
   }
 
   #onStop(sender, message) {
+    if (this.cameras.get(sender)?.id === message.id) {
+      this.cameras.delete(sender);
+      this.unwatchCamera(sender, false);
+      this.#emit('cameras', { sender, ended: true });
+      return;
+    }
     if (this.available.get(sender)?.id === message.id) {
       this.available.delete(sender);
       this.#emit('available', { sender, ended: true });
@@ -548,8 +724,8 @@ export class ScreenShare extends EventTarget {
   }
 
   async #onAnswer(sender, message) {
-    const connection = this.sharing?.peers.get(sender);
-    if (!connection || this.sharing.id !== message.id) {
+    const connection = this.#sourceFor(message.id)?.peers.get(sender);
+    if (!connection) {
       return;
     }
     await connection
@@ -558,20 +734,17 @@ export class ScreenShare extends EventTarget {
     this.#flushCandidates(connection);
   }
 
-  #onLeave(sender) {
-    if (this.sharing?.peers.has(sender)) {
-      this.#closePeer(this.sharing, sender);
-      this.#emit('state');
+  #onLeave(sender, message) {
+    for (const source of this.#sources()) {
+      if (source.peers.has(sender) && (message.id === undefined || source.id === message.id)) {
+        this.#closePeer(source, sender);
+        this.#emit('state');
+      }
     }
   }
 
   #onIce(sender, message) {
-    let connection = null;
-    if (this.watching?.sender === sender && this.watching.id === message.id) {
-      connection = this.watching.pc;
-    } else if (this.sharing?.id === message.id) {
-      connection = this.sharing.peers.get(sender);
-    }
+    const connection = this.#viewerFor(sender, message.id)?.pc ?? this.#sourceFor(message.id)?.peers.get(sender) ?? null;
     if (connection && Array.isArray(message.c)) {
       for (const candidate of message.c) {
         this.#addCandidate(connection, candidate);
@@ -590,27 +763,33 @@ export class ScreenShare extends EventTarget {
       .map((user) => user.session);
   }
 
-  #announce(recipients = this.#channelMembers()) {
-    const share = this.sharing;
-    if (!share || !recipients.length) {
+  #announceSource(source, recipients = this.#channelMembers()) {
+    if (!source || !recipients.length) {
       return;
     }
     for (const recipient of recipients) {
-      share.announced.add(recipient);
+      source.announced.add(recipient);
     }
-    this.#send(recipients, { t: 'announce', id: share.id, title: share.title, w: share.w, h: share.h, audio: share.audio });
+    this.#send(recipients, {
+      t: 'announce',
+      id: source.id,
+      kind: source.kind,
+      title: source.title,
+      w: source.w,
+      h: source.h,
+      audio: source.audio,
+    });
   }
 
   #onUsersChanged() {
-    const share = this.sharing;
-    if (share) {
-      const newcomers = this.#channelMembers().filter((session) => !share.announced.has(session));
+    for (const source of this.#sources()) {
+      const newcomers = this.#channelMembers().filter((session) => !source.announced.has(session));
       if (newcomers.length) {
-        this.#announce(newcomers);
+        this.#announceSource(source, newcomers);
       }
-      for (const viewer of [...share.peers.keys()]) {
+      for (const viewer of [...source.peers.keys()]) {
         if (!this.client.users.has(viewer)) {
-          this.#closePeer(share, viewer);
+          this.#closePeer(source, viewer);
           this.#emit('state');
         }
       }
@@ -622,6 +801,13 @@ export class ScreenShare extends EventTarget {
       if (!this.client.users.has(sender)) {
         this.available.delete(sender);
         this.#emit('available', { sender, ended: true });
+      }
+    }
+    for (const sender of [...this.cameras.keys()]) {
+      if (!this.client.users.has(sender)) {
+        this.cameras.delete(sender);
+        this.unwatchCamera(sender, false);
+        this.#emit('cameras', { sender, ended: true });
       }
     }
   }
@@ -714,16 +900,23 @@ export class ScreenShare extends EventTarget {
   }
 
   #teardown() {
-    const share = this.sharing;
-    if (share) {
-      this.sharing = null;
-      this.#endShare(share);
+    for (const source of this.#sources()) {
+      this.#endShare(source);
     }
+    this.sharing = null;
+    this.camera = null;
     this.#closeViewer();
+    for (const feed of this.feeds.values()) {
+      feed.pc.close();
+    }
+    this.feeds.clear();
     this.available.clear();
+    this.cameras.clear();
     this.#queue.length = 0;
     this.#emit('state');
     this.#emit('available', {});
+    this.#emit('cameras', {});
+    this.#emit('feed', {});
   }
 
   #emit(name, detail) {

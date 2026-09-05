@@ -6,6 +6,9 @@ export const MARK =
   '<svg viewBox="0 0 512 512" fill="none" stroke="currentColor" stroke-width="54" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="6" aria-hidden="true"><path d="M128 370L128 230C128 140 200 140 256 290C312 140 384 140 384 230L384 370"/></svg>';
 
 export const ICON = {
+  video: svg('<rect x="3" y="7" width="13" height="10" rx="2"/><path d="M16 10.5l5-2.5v8l-5-2.5"/>'),
+  videoOff: svg('<path d="M16 10.5l5-2.5v8M10.5 7H14a2 2 0 0 1 2 2v5M3 9v6a2 2 0 0 0 2 2h9M4 4l16 16"/>'),
+  flip: svg('<path d="M4 12a8 8 0 0 1 13.7-5.7M20 12a8 8 0 0 1-13.7 5.7M17 3v3.5h-3.5M7 21v-3.5h3.5"/>'),
   mic: svg('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>'),
   micOff: svg('<path d="M15 9.5V6a3 3 0 0 0-6 0v1M9 12a3 3 0 0 0 5.2 2M5 11a7 7 0 0 0 11.6 5.2M19 11a7 7 0 0 1-.6 2.8M12 18v3M4 4l16 16"/>'),
   headphones: svg('<path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="4" y="14" width="4" height="6" rx="1.5"/><rect x="16" y="14" width="4" height="6" rx="1.5"/>'),

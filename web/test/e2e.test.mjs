@@ -149,6 +149,24 @@ try {
     await bravo.eval(`mutter.showTab('chat')`);
   });
 
+  await step('Alpha’s camera plays inside Alpha’s tile on Bravo and leaves when stopped', async () => {
+    const alphaTileVideo = `[...document.querySelectorAll('#paneVoice .room-tile')].find((tile) => tile.textContent.includes('Alpha'))?.querySelector('video')`;
+    await bravo.eval(`mutter.showTab('voice')`);
+    await alpha.eval('mutter.share.startCamera()');
+    await alpha.waitFor('!!mutter.share.camera', { label: 'Alpha’s camera is on' });
+    await bravo.waitFor(`(${alphaTileVideo})?.videoWidth > 0`, { timeout: 15_000, label: 'camera frames play in Alpha’s tile' });
+    if (shots) {
+      await bravo.send('Emulation.setDeviceMetricsOverride', PHONE_VIEWPORT);
+      await sleep(SETTLE_MS);
+      await bravo.screenshot(`${shots}/09-camera.png`);
+      await bravo.send('Emulation.setDeviceMetricsOverride', DESKTOP_VIEWPORT);
+    }
+    await alpha.eval('mutter.share.stopCamera()');
+    await bravo.waitFor(`!(${alphaTileVideo})`, { label: 'the tile goes back to the avatar' });
+    await bravo.eval(`mutter.showTab('chat')`);
+    await bravo.waitFor('mutter.share.feeds.size === 0', { label: 'camera feeds are released on leaving the view' });
+  });
+
   await step('gate closes with a terminator when Alpha stops', async () => {
     await alpha.eval(`mutter.settings.transmitMode = 'ptt'`);
     await alpha.waitFor('!mutter.audio.isTransmitting', { timeout: 3000 });

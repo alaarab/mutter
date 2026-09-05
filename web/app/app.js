@@ -108,9 +108,11 @@ const room = mountRoom({
   share,
   settings,
   canShare: ScreenShare.supported,
+  canCamera: ScreenShare.cameraSupported,
   leave,
   onShare: () => $('shareBtn').click(),
   onUser: (tile, user) => openProfile(tile, user),
+  onError: (text) => toast(text, 'warn'),
 });
 if (!AudioEngine.supported) {
   $('unsupported').hidden = false;
@@ -179,6 +181,9 @@ function clearUnread() {
 function showTab(name) {
   if (name === 'channels' && wide.matches) {
     name = 'chat';
+  }
+  if (document.body.dataset.tab === 'voice' && name !== 'voice') {
+    share.unwatchAllCameras();
   }
   document.body.dataset.tab = name;
   $('serverBtn').classList.toggle('on', name === 'server');
@@ -457,6 +462,13 @@ client.addEventListener('users', scheduleRender);
 client.addEventListener('server', scheduleRender);
 share.addEventListener('available', scheduleRender);
 share.addEventListener('state', scheduleRender);
+for (const eventName of ['cameras', 'feed']) {
+  share.addEventListener(eventName, () => {
+    if (document.body.dataset.tab === 'voice') {
+      room.render();
+    }
+  });
+}
 
 const isCurrentChannel = (channel) => channel.channelId === client.myChannel?.channelId;
 
