@@ -50,16 +50,19 @@ export async function startFakeServer({
   password = null,
   quiet = false,
   udp = process.env.FAKE_UDP !== '0',
+  loss = Number(process.env.FAKE_LOSS ?? 0),
+  jitterMs = Number(process.env.FAKE_JITTER ?? 0),
 } = {}) {
-  const server = new FakeMumbleServer({ version, password, quiet, udp });
+  const server = new FakeMumbleServer({ version, password, quiet, udp, loss, jitterMs });
   await server.listen(port);
   return server;
 }
 
 export class FakeMumbleServer extends EventEmitter {
-  constructor({ version, password, quiet, udp = true }) {
+  constructor({ version, password, quiet, udp = true, loss = 0, jitterMs = 0 }) {
     super();
     this.udpEnabled = udp;
+    this.impairment = { loss, jitterMs };
     this.udpAddresses = new Map();
     const [major, minor, patch] = version.split('.').map(Number);
     this.version = { ...versionFields(major, minor, patch), release: `FakeMumble ${version}` };
@@ -538,10 +541,23 @@ export class FakeMumbleServer extends EventEmitter {
   }
 
   sendVoice(user, packet) {
+    if (Math.random() < this.impairment.loss) {
+      return;
+    }
+    if (this.impairment.jitterMs) {
+      setTimeout(() => this.deliverVoice(user, packet), Math.random() * this.impairment.jitterMs);
+    } else {
+      this.deliverVoice(user, packet);
+    }
+  }
+
+  deliverVoice(user, packet) {
     if (user.udpRemote && Date.now() - user.udpAt < UDP_FRESH_MS) {
       const encrypted = user.crypt.encrypt(packet);
       if (encrypted) {
-        this.udp.send(encrypted, user.udpRemote.port, user.udpRemote.address);
+        try {
+          this.udp.send(encrypted, user.udpRemote.port, user.udpRemote.address);
+        } catch {}
         return;
       }
     }

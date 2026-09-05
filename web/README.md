@@ -94,7 +94,7 @@ right. Under 880px it becomes the phone layout — one pane at a time behind a t
   server), counts, a join arrow on hover, status-dot avatars (speaking ring, muted, deafened,
   sharing). Members grouped by channel on the right. Click anyone for a profile card: banner,
   badges, connection stats, message / mute-for-me / volume / watch / join them.
-- Voice both ways over the TCP tunnel: 20 ms Opus at 16–96 kbit/s, per-user jitter buffer.
+- Voice both ways over the TCP tunnel: 20 ms Opus at 16–96 kbit/s, per-user jitter buffer that reorders by sequence number and conceals lost packets with a mirrored, decaying copy of the last one.
   Cleaning: the browser's echo cancellation and gain control, then **RNNoise** — the neural
   denoiser Mumble desktop uses, compiled to WebAssembly and run in the worklet (−22 dB on
   realistic background noise, voice within 1 dB; `web/vendor/rnnoise`) — or the iOS app's
@@ -152,6 +152,8 @@ node web/test/share.test.mjs                        # screen share between two t
 node web/test/signal.test.mjs                       # the plugin-message fragment codec, in Node
 node web/test/dsp.test.mjs                          # the spectral suppressor: FFT, SNR gain, click ducking, block-size independence
 node web/test/rnnoise.test.mjs                      # the RNNoise wasm: loads without imports, −22 dB on noise, voice kept, speed
+node web/test/voice.test.mjs                        # voice packet codec round-trips and missing-packet arithmetic, in Node
+node web/test/quality.test.mjs                      # a tone through two tabs: SNR, clicks, dropouts, underruns; FAKE_LOSS=0.05 FAKE_JITTER=40 to impair
 node web/test/fake-server.mjs                       # keep one running to click around against
 node web/probe.mjs <host> [port] [username]         # handshake against any server, read-only
 ```

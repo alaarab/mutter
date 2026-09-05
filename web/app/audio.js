@@ -1,3 +1,5 @@
+import { missingPackets, SAMPLES_PER_SEQUENCE_UNIT } from '../src/voice.js';
+
 const SAMPLE_RATE = 48_000;
 const FRAME_MS = 20;
 const FRAME_SAMPLES = 960;
@@ -17,7 +19,10 @@ const CAPTURE_STALL_MS = 150;
 const STALL_LOG_INTERVAL_MS = 2000;
 const DEVICE_LIST_TIMEOUT_MS = 2000;
 const MAX_CONCEALED_PACKETS = 3;
-const CONCEAL_DECAY = 0.6;
+const CONCEAL_FLOOR = 0.4;
+const CONCEAL_FADE_SAMPLES = 96;
+const REORDER_WAIT_MS = 30;
+const MAX_REORDER_DEPTH = 1;
 const OPUS_COMPLEXITY = 10;
 const EXPECTED_PACKET_LOSS_PERCENT = 10;
 
@@ -40,6 +45,34 @@ function rmsDb(samples, gain) {
     sum += value * value;
   }
   return 20 * Math.log10(Math.sqrt(sum / samples.length) + 1e-9);
+}
+
+function concealmentFills(pcm, count) {
+  const fills = [];
+  const total = pcm.length * count;
+  let position = 0;
+  for (let index = 0; index < count; index++) {
+    const mirrored = index % 2 === 0;
+    const fill = new Float32Array(pcm.length);
+    for (let i = 0; i < pcm.length; i++, position++) {
+      const source = mirrored ? pcm[pcm.length - 1 - i] : pcm[i];
+      let envelope = 1 - (1 - CONCEAL_FLOOR) * (position / total);
+      const remaining = total - position;
+      if (remaining <= CONCEAL_FADE_SAMPLES) {
+        envelope *= remaining / CONCEAL_FADE_SAMPLES;
+      }
+      fill[i] = source * envelope;
+    }
+    fills.push(fill);
+  }
+  return fills;
+}
+
+function fadeIn(pcm) {
+  const fade = Math.min(CONCEAL_FADE_SAMPLES, pcm.length);
+  for (let i = 0; i < fade; i++) {
+    pcm[i] *= i / fade;
+  }
 }
 
 function captureErrorText(error) {
@@ -84,6 +117,7 @@ export class AudioEngine extends EventTarget {
   #lastFrameAt = 0;
   #lastStallLogAt = 0;
   #rnnoiseBytes = null;
+  #captureResolve = null;
 
   constructor(client, settings = {}) {
     super();
@@ -145,6 +179,10 @@ export class AudioEngine extends EventTarget {
       this.#closeQuietly(decoder);
     }
     this.#decoders.clear();
+    for (const receiver of this.#receivers.values()) {
+      clearTimeout(receiver.flushTimer);
+    }
+    this.#receivers.clear();
     await this.#context?.close();
     this.#context = null;
     this.#mixer = null;
@@ -266,6 +304,16 @@ export class AudioEngine extends EventTarget {
     this.#mixer?.port.postMessage({ type: 'gain', session, gain: on ? 0 : (user?.localVolume ?? 1) });
   }
 
+  captureOutput(milliseconds) {
+    if (!this.#mixer) {
+      return Promise.resolve(new Float32Array(0));
+    }
+    return new Promise((resolve) => {
+      this.#captureResolve = resolve;
+      this.#mixer.port.postMessage({ type: 'capture', samples: Math.round((milliseconds / 1000) * SAMPLE_RATE) });
+    });
+  }
+
   resync() {
     if (this.deafened) {
       this.client.setSelfDeaf(true);
@@ -279,6 +327,11 @@ export class AudioEngine extends EventTarget {
     this.#mixer.connect(this.#context.destination);
     this.#mixer.port.postMessage({ type: 'master', gain: this.deafened ? 0 : 1 });
     this.#mixer.port.onmessage = ({ data }) => {
+      if (data.type === 'capture') {
+        this.#captureResolve?.(data.samples);
+        this.#captureResolve = null;
+        return;
+      }
       if (data.type === 'health' && data.underruns) {
         this.stats.underruns += data.underruns;
         this.#diag(`playback ran dry ${data.underruns}× in the last second; buffer now ${data.jitterMs} ms`);
@@ -557,12 +610,80 @@ export class AudioEngine extends EventTarget {
       return;
     }
     this.stats.packetsIn++;
-    const decoder = this.#decoderFor(packet.session);
-    if (packet.opus.length && decoder.state === 'configured') {
-      this.#conceal(packet);
-      const timestamp = Number(packet.frameNumber) * MICROS_PER_SEQUENCE_UNIT;
-      decoder.decode(new EncodedAudioChunk({ type: 'key', timestamp, data: packet.opus }));
+    if (!packet.opus.length) {
+      return;
     }
+    const receiver = this.#receiverFor(packet.session);
+    const sequence = Number(packet.frameNumber);
+    if (receiver.nextSequence !== null && sequence < receiver.nextSequence) {
+      return;
+    }
+    receiver.pending.set(sequence, packet);
+    this.#drainPending(receiver, false);
+  }
+
+  #receiverFor(session) {
+    let receiver = this.#receivers.get(session);
+    if (!receiver) {
+      receiver = {
+        session,
+        nextSequence: null,
+        lastSequence: null,
+        lastPcm: null,
+        unitsPerPacket: FRAMES_PER_PACKET,
+        pending: new Map(),
+        flushTimer: null,
+        queue: [],
+        fadeInNext: false,
+      };
+      this.#receivers.set(session, receiver);
+    }
+    return receiver;
+  }
+
+  #drainPending(receiver, flushing) {
+    while (receiver.pending.size) {
+      const lowest = Math.min(...receiver.pending.keys());
+      const inOrder = receiver.nextSequence === null || lowest === receiver.nextSequence;
+      if (!inOrder && !flushing && receiver.pending.size <= MAX_REORDER_DEPTH) {
+        receiver.flushTimer ??= setTimeout(() => {
+          receiver.flushTimer = null;
+          this.#drainPending(receiver, true);
+        }, REORDER_WAIT_MS);
+        return;
+      }
+      const packet = receiver.pending.get(lowest);
+      receiver.pending.delete(lowest);
+      if (!inOrder) {
+        this.#scheduleConcealment(receiver, lowest);
+      }
+      this.#play(receiver, packet, lowest);
+    }
+    clearTimeout(receiver.flushTimer);
+    receiver.flushTimer = null;
+  }
+
+  #scheduleConcealment(receiver, targetSequence) {
+    if (receiver.lastSequence === null) {
+      return;
+    }
+    const packetSamples = receiver.unitsPerPacket * SAMPLES_PER_SEQUENCE_UNIT;
+    const missing = missingPackets(receiver.lastSequence, packetSamples, targetSequence);
+    if (missing > 0) {
+      receiver.queue.push({ fills: Math.min(missing, MAX_CONCEALED_PACKETS) });
+    }
+  }
+
+  #play(receiver, packet, sequence) {
+    const decoder = this.#decoderFor(receiver.session);
+    if (decoder.state !== 'configured') {
+      return;
+    }
+    const timestamp = sequence * MICROS_PER_SEQUENCE_UNIT;
+    decoder.decode(new EncodedAudioChunk({ type: 'key', timestamp, data: packet.opus }));
+    receiver.queue.push({ pcm: null, isTerminator: packet.isTerminator });
+    receiver.lastSequence = sequence;
+    receiver.nextSequence = packet.isTerminator ? null : sequence + receiver.unitsPerPacket;
   }
 
   #decoderFor(session) {
@@ -575,6 +696,7 @@ export class AudioEngine extends EventTarget {
       error: (error) => {
         this.#diag(`decoder ${session}: ${error.message}`);
         this.#decoders.delete(session);
+        this.#receivers.get(session)?.queue.splice(0);
       },
     });
     decoder.configure({ codec: 'opus', sampleRate: SAMPLE_RATE, numberOfChannels: 1 });
@@ -591,31 +713,52 @@ export class AudioEngine extends EventTarget {
     audio.close();
     this.stats.samplesOut += pcm.length;
     const receiver = this.#receivers.get(session);
-    if (receiver) {
-      receiver.lastPcm = pcm.slice();
+    const waiting = receiver?.queue.find((item) => item.fills === undefined && item.pcm === null);
+    if (!waiting) {
+      this.#mixer?.port.postMessage({ type: 'push', session, samples: pcm }, [pcm.buffer]);
+      return;
     }
-    this.#mixer?.port.postMessage({ type: 'push', session, samples: pcm }, [pcm.buffer]);
+    waiting.pcm = pcm;
+    this.#emitReady(receiver);
   }
 
-  #conceal(packet) {
-    const sequence = Number(packet.frameNumber);
-    let receiver = this.#receivers.get(packet.session);
-    if (!receiver) {
-      receiver = { lastSequence: null, lastPcm: null };
-      this.#receivers.set(packet.session, receiver);
-    }
-    if (receiver.lastSequence !== null && receiver.lastPcm) {
-      const missing = Math.round((sequence - receiver.lastSequence) / FRAMES_PER_PACKET) - 1;
-      if (missing > 0 && missing <= MAX_CONCEALED_PACKETS) {
-        for (let step = 1; step <= missing; step++) {
-          const decay = CONCEAL_DECAY ** step;
-          const fill = receiver.lastPcm.map((value) => value * decay);
-          this.#mixer?.port.postMessage({ type: 'push', session: packet.session, samples: fill }, [fill.buffer]);
-        }
-        this.stats.concealed += missing;
+  #emitReady(receiver) {
+    while (receiver.queue.length) {
+      const item = receiver.queue[0];
+      if (item.fills !== undefined) {
+        this.#emitFills(receiver, item.fills);
+      } else if (item.pcm) {
+        this.#emitDecoded(receiver, item);
+      } else {
+        return;
       }
+      receiver.queue.shift();
     }
-    receiver.lastSequence = sequence;
+  }
+
+  #emitFills(receiver, fills) {
+    receiver.fadeInNext = true;
+    if (!receiver.lastPcm) {
+      return;
+    }
+    for (const fill of concealmentFills(receiver.lastPcm, fills)) {
+      this.#mixer?.port.postMessage({ type: 'push', session: receiver.session, samples: fill }, [fill.buffer]);
+    }
+    this.stats.concealed += fills;
+  }
+
+  #emitDecoded(receiver, item) {
+    const pcm = item.pcm;
+    receiver.unitsPerPacket = Math.max(1, Math.round(pcm.length / SAMPLES_PER_SEQUENCE_UNIT));
+    if (receiver.fadeInNext) {
+      fadeIn(pcm);
+      receiver.fadeInNext = false;
+    }
+    receiver.lastPcm = pcm.slice();
+    this.#mixer?.port.postMessage({ type: 'push', session: receiver.session, samples: pcm }, [pcm.buffer]);
+    if (item.isTerminator) {
+      this.#mixer?.port.postMessage({ type: 'end', session: receiver.session });
+    }
   }
 
   #pruneDecoders() {
@@ -625,6 +768,7 @@ export class AudioEngine extends EventTarget {
       }
       this.#closeQuietly(this.#decoders.get(session));
       this.#decoders.delete(session);
+      clearTimeout(this.#receivers.get(session)?.flushTimer);
       this.#receivers.delete(session);
       this.#mixer?.port.postMessage({ type: 'remove', session });
     }
