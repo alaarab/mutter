@@ -5,6 +5,7 @@ import { el, avatar, clickWithoutBubbling } from './ui.js';
 const GROUP_WINDOW_MS = 7 * 60_000;
 const MAX_ROWS = 600;
 const BOTTOM_THRESHOLD_PX = 40;
+const FRESH_MS = 3000;
 
 export class MessageList {
   constructor(container, ctx) {
@@ -49,7 +50,11 @@ export class MessageList {
       this.clearUnread();
       this.box.append(divider('New messages', 'newmsgs'));
     }
-    this.box.append(message.scope?.system ? systemRow(message) : this.row(message, previous));
+    const row = message.scope?.system ? systemRow(message) : this.row(message, previous);
+    if (Date.now() - message.date.getTime() < FRESH_MS) {
+      row.classList.add('fresh');
+    }
+    this.box.append(row);
     this.previous = message;
     while (this.box.children.length > MAX_ROWS) {
       this.box.firstChild.remove();
