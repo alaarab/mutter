@@ -32,7 +32,11 @@
       "main.js",
       "picker.html",
       "picker-preload.cjs",
-      "package.json"
+      "package.json",
+      "node_modules/uiohook-napi/**"
+    ],
+    "asarUnpack": [
+      "node_modules/uiohook-napi/**"
     ],
     "extraResources": [
       {
@@ -101,5 +105,8 @@
         "AppImage"
       ]
     }
+  },
+  "dependencies": {
+    "uiohook-napi": "^1.5.5"
   }
 }

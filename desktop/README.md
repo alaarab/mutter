@@ -67,7 +67,31 @@ BrowserWindow ──http/ws──▶ bridge (in the main process) ──TLS + UD
   so they can be inspected and edited in place. The bridge finds them through
   `process.resourcesPath`.
 - The renderer runs sandboxed with context isolation and no preload; it is the plain web client.
-  Only the picker page has a preload, and it exposes two functions.
+  Only the picker page has a preload, and it exposes two functions. The main process talks to
+  the page only through `executeJavaScript` against `window.mutter`, to read the push-to-talk
+  binding and to press or release it.
+
+## Push to talk from any window
+
+The browser only hears your push-to-talk key while its tab is focused. The desktop app keeps
+hearing it: while the Mutter window is in the background it watches for the one key or mouse
+button you bound under Settings, and holds the mic open for exactly as long as you hold it.
+The key still reaches whatever you are doing, so a game bound to the same key keeps working.
+
+This uses a system-wide input hook ([uiohook-napi](https://github.com/SnosMe/uiohook-napi)),
+which is the same mechanism Discord uses. It compares every key event against your one binding
+and does nothing else with them; nothing is stored or sent anywhere, and it is inactive while
+the Mutter window is focused because the page handles the key itself there.
+
+Platform notes:
+
+- **Windows**: works out of the box.
+- **macOS**: the first press prompts for the Input Monitoring permission in System Settings →
+  Privacy & Security. Until it is granted, push to talk only works with Mutter focused.
+- **Linux**: works on X11 and for XWayland apps. Native Wayland apps do not expose key events to
+  other programs, so there push to talk only works with Mutter focused.
+
+If the hook cannot load, the app logs one line and carries on without it.
 
 ## Signing, later
 

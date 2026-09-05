@@ -11,6 +11,17 @@ const PICKER_WINDOW = { width: 760, height: 560 };
 const THUMBNAIL_SIZE = { width: 320, height: 180 };
 const BACKGROUND = '#08080A';
 const PICKER_BACKGROUND = '#111113';
+const HOOK_MOUSE_BUTTON_FROM_DOM = { 3: 4, 4: 5 };
+const HOOK_KEY_NAME_FROM_DOM = {
+  ControlLeft: 'Ctrl',
+  ControlRight: 'CtrlRight',
+  ShiftLeft: 'Shift',
+  ShiftRight: 'ShiftRight',
+  AltLeft: 'Alt',
+  AltRight: 'AltRight',
+  MetaLeft: 'Meta',
+  MetaRight: 'MetaRight',
+};
 
 let mainWindow = null;
 
@@ -103,6 +114,76 @@ async function runSmokeCheck(window, url) {
   app.quit();
 }
 
+function hookKeyFor(code, UiohookKey) {
+  if (!code || code.startsWith('Mouse')) {
+    return null;
+  }
+  const name = HOOK_KEY_NAME_FROM_DOM[code] ?? code.replace(/^Key|^Digit/, '');
+  return UiohookKey[name] ?? null;
+}
+
+function hookMouseButtonFor(code) {
+  const match = /^Mouse(\d)$/.exec(code ?? '');
+  return match ? (HOOK_MOUSE_BUTTON_FROM_DOM[Number(match[1])] ?? null) : null;
+}
+
+async function installGlobalPushToTalk(window) {
+  let hook;
+  try {
+    hook = await import('uiohook-napi');
+  } catch (error) {
+    console.log(`push to talk from other windows unavailable: ${error.message}`);
+    return;
+  }
+  const { uIOhook, UiohookKey } = hook;
+  const bound = { key: null, mouseButton: null, pressed: false };
+  const readBinding = async () => {
+    const code = await window.webContents.executeJavaScript('window.mutter?.settings.pttKey ?? null').catch(() => null);
+    bound.key = hookKeyFor(code, UiohookKey);
+    bound.mouseButton = hookMouseButtonFor(code);
+  };
+  const press = (pressed) => {
+    if (bound.pressed === pressed || window.isDestroyed() || (pressed && window.isFocused())) {
+      return;
+    }
+    bound.pressed = pressed;
+    window.webContents.executeJavaScript(`window.mutter?.audio.setPTT(${pressed})`).catch(() => {});
+  };
+  uIOhook.on('keydown', (event) => {
+    if (bound.key !== null && event.keycode === bound.key) {
+      press(true);
+    }
+  });
+  uIOhook.on('keyup', (event) => {
+    if (bound.key !== null && event.keycode === bound.key) {
+      press(false);
+    }
+  });
+  uIOhook.on('mousedown', (event) => {
+    if (bound.mouseButton !== null && event.button === bound.mouseButton) {
+      press(true);
+    }
+  });
+  uIOhook.on('mouseup', (event) => {
+    if (bound.mouseButton !== null && event.button === bound.mouseButton) {
+      press(false);
+    }
+  });
+  window.on('blur', readBinding);
+  window.on('focus', () => {
+    bound.pressed = false;
+  });
+  window.webContents.on('did-finish-load', readBinding);
+  try {
+    uIOhook.start();
+  } catch (error) {
+    console.log(`push to talk from other windows unavailable: ${error.message}`);
+    return;
+  }
+  app.on('will-quit', () => uIOhook.stop());
+  await readBinding();
+}
+
 function describeSource(source) {
   return {
     id: source.id,
@@ -164,7 +245,9 @@ app.whenReady().then(async () => {
   await mainWindow.loadURL(url);
   if (SMOKE) {
     await runSmokeCheck(mainWindow, url);
+    return;
   }
+  installGlobalPushToTalk(mainWindow);
 });
 
 app.on('second-instance', () => {
