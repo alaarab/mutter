@@ -1,5 +1,3 @@
-# XcodeGen manifest. Run `xcodegen generate` in this directory to produce Mutter.xcodeproj.
-# Install XcodeGen with `brew install xcodegen`.
 name: Mutter
 options:
   bundleIdPrefix: com.alaarab

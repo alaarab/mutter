@@ -2,14 +2,15 @@ import XCTest
 @testable import MumbleProtocol
 
 final class VarintTests: XCTestCase {
-
-    private func roundTrip(_ v: Int64, expectedBytes: Int? = nil, file: StaticString = #filePath, line: UInt = #line) {
-        let d = MumbleVarint.encoded(v)
-        if let expectedBytes { XCTAssertEqual(d.count, expectedBytes, "byte count for \(v)", file: file, line: line) }
-        var off = 0
-        let decoded = MumbleVarint.decode(d, offset: &off)
-        XCTAssertEqual(decoded, v, file: file, line: line)
-        XCTAssertEqual(off, d.count, file: file, line: line)
+    private func roundTrip(_ value: Int64, expectedBytes: Int? = nil, file: StaticString = #filePath, line: UInt = #line) {
+        let encoded = MumbleVarint.encoded(value)
+        if let expectedBytes {
+            XCTAssertEqual(encoded.count, expectedBytes, "byte count for \(value)", file: file, line: line)
+        }
+        var offset = 0
+        let decoded = MumbleVarint.decode(encoded, offset: &offset)
+        XCTAssertEqual(decoded, value, file: file, line: line)
+        XCTAssertEqual(offset, encoded.count, file: file, line: line)
     }
 
     func testSmallPositive() {
@@ -50,30 +51,32 @@ final class VarintTests: XCTestCase {
     func testNegatives() {
         XCTAssertEqual([UInt8](MumbleVarint.encoded(-1)), [0xFC])
         XCTAssertEqual([UInt8](MumbleVarint.encoded(-4)), [0xFF])
-        roundTrip(-1); roundTrip(-2); roundTrip(-3); roundTrip(-4)
+        for value: Int64 in [-1, -2, -3, -4] {
+            roundTrip(value)
+        }
         roundTrip(-5, expectedBytes: 2)
         roundTrip(-1000)
         roundTrip(-123456789)
     }
 
     func testTruncated() {
-        var off = 0
-        XCTAssertNil(MumbleVarint.decode(Data([0x80]), offset: &off))
-        off = 0
-        XCTAssertNil(MumbleVarint.decode(Data([0xF4, 1, 2, 3]), offset: &off))
-        off = 0
-        XCTAssertNil(MumbleVarint.decode(Data(), offset: &off))
+        var offset = 0
+        XCTAssertNil(MumbleVarint.decode(Data([0x80]), offset: &offset))
+        offset = 0
+        XCTAssertNil(MumbleVarint.decode(Data([0xF4, 1, 2, 3]), offset: &offset))
+        offset = 0
+        XCTAssertNil(MumbleVarint.decode(Data(), offset: &offset))
     }
 
     func testSequentialDecode() {
-        var d = Data()
-        MumbleVarint.encode(5, into: &d)
-        MumbleVarint.encode(300, into: &d)
-        MumbleVarint.encode(70000, into: &d)
-        var off = 0
-        XCTAssertEqual(MumbleVarint.decode(d, offset: &off), 5)
-        XCTAssertEqual(MumbleVarint.decode(d, offset: &off), 300)
-        XCTAssertEqual(MumbleVarint.decode(d, offset: &off), 70000)
-        XCTAssertEqual(off, d.count)
+        var encoded = Data()
+        MumbleVarint.encode(5, into: &encoded)
+        MumbleVarint.encode(300, into: &encoded)
+        MumbleVarint.encode(70000, into: &encoded)
+        var offset = 0
+        XCTAssertEqual(MumbleVarint.decode(encoded, offset: &offset), 5)
+        XCTAssertEqual(MumbleVarint.decode(encoded, offset: &offset), 300)
+        XCTAssertEqual(MumbleVarint.decode(encoded, offset: &offset), 70000)
+        XCTAssertEqual(offset, encoded.count)
     }
 }

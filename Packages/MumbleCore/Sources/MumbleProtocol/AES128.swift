@@ -3,44 +3,41 @@ import Foundation
 import CommonCrypto
 #endif
 
-/// AES-128 single-block ECB. Uses CommonCrypto on Apple platforms (hardware accelerated),
-/// and a small pure-Swift implementation elsewhere so the protocol package still builds and
-/// tests on Linux.
 public struct AES128: BlockCipher {
-    private let impl: BlockCipher
+    private let implementation: BlockCipher
 
     public init(key: [UInt8]) {
         precondition(key.count == 16, "AES-128 needs a 16-byte key")
         #if canImport(CommonCrypto)
-        impl = CommonCryptoAES(key: key)
+        implementation = CommonCryptoAES(key: key)
         #else
-        impl = SoftAES128(key: key)
+        implementation = SoftAES128(key: key)
         #endif
     }
 
-    public func encryptBlock(_ input: [UInt8]) -> [UInt8] { impl.encryptBlock(input) }
-    public func decryptBlock(_ input: [UInt8]) -> [UInt8] { impl.decryptBlock(input) }
+    public func encryptBlock(_ input: [UInt8]) -> [UInt8] { implementation.encryptBlock(input) }
+    public func decryptBlock(_ input: [UInt8]) -> [UInt8] { implementation.decryptBlock(input) }
 }
 
 #if canImport(CommonCrypto)
 struct CommonCryptoAES: BlockCipher {
     let key: [UInt8]
 
-    private func run(_ op: CCOperation, _ input: [UInt8]) -> [UInt8] {
-        var out = [UInt8](repeating: 0, count: 16)
+    private func run(_ operation: CCOperation, _ input: [UInt8]) -> [UInt8] {
+        var output = [UInt8](repeating: 0, count: 16)
         var moved = 0
-        let status = key.withUnsafeBytes { k in
-            input.withUnsafeBytes { i in
-                out.withUnsafeMutableBytes { o in
-                    CCCrypt(op, CCAlgorithm(kCCAlgorithmAES128), CCOptions(kCCOptionECBMode),
-                            k.baseAddress, 16, nil,
-                            i.baseAddress, 16,
-                            o.baseAddress, 16, &moved)
+        let status = key.withUnsafeBytes { keyBytes in
+            input.withUnsafeBytes { inputBytes in
+                output.withUnsafeMutableBytes { outputBytes in
+                    CCCrypt(operation, CCAlgorithm(kCCAlgorithmAES128), CCOptions(kCCOptionECBMode),
+                            keyBytes.baseAddress, 16, nil,
+                            inputBytes.baseAddress, 16,
+                            outputBytes.baseAddress, 16, &moved)
                 }
             }
         }
         precondition(status == CCCryptorStatus(kCCSuccess) && moved == 16, "AES block operation failed")
-        return out
+        return output
     }
 
     func encryptBlock(_ input: [UInt8]) -> [UInt8] { run(CCOperation(kCCEncrypt), input) }
@@ -48,16 +45,13 @@ struct CommonCryptoAES: BlockCipher {
 }
 #endif
 
-/// Straightforward table-based AES-128. Not constant-time; only used where CommonCrypto is unavailable.
 public struct SoftAES128: BlockCipher {
-    private let roundKeys: [[UInt8]] // 11 x 16
+    private let roundKeys: [[UInt8]]
 
     public init(key: [UInt8]) {
         precondition(key.count == 16)
         roundKeys = SoftAES128.expandKey(key)
     }
-
-    // MARK: Tables
 
     private static let sbox: [UInt8] = [
         0x63,0x7c,0x77,0x7b,0xf2,0x6b,0x6f,0xc5,0x30,0x01,0x67,0x2b,0xfe,0xd7,0xab,0x76,
@@ -78,127 +72,142 @@ public struct SoftAES128: BlockCipher {
         0x8c,0xa1,0x89,0x0d,0xbf,0xe6,0x42,0x68,0x41,0x99,0x2d,0x0f,0xb0,0x54,0xbb,0x16,
     ]
 
-    private static let invSbox: [UInt8] = {
-        var inv = [UInt8](repeating: 0, count: 256)
-        for (i, v) in sbox.enumerated() { inv[Int(v)] = UInt8(i) }
-        return inv
+    private static let inverseSbox: [UInt8] = {
+        var inverse = [UInt8](repeating: 0, count: 256)
+        for (index, value) in sbox.enumerated() { inverse[Int(value)] = UInt8(index) }
+        return inverse
     }()
 
-    private static let rcon: [UInt8] = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36]
+    private static let roundConstants: [UInt8] = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36]
 
     @inline(__always)
-    private static func xtime(_ x: UInt8) -> UInt8 {
-        (x << 1) ^ ((x & 0x80) != 0 ? 0x1b : 0)
+    private static func xtime(_ value: UInt8) -> UInt8 {
+        (value << 1) ^ ((value & 0x80) != 0 ? 0x1b : 0)
     }
 
     @inline(__always)
-    private static func mul(_ a: UInt8, _ b: UInt8) -> UInt8 {
-        var a = a, b = b, p: UInt8 = 0
+    private static func multiply(_ left: UInt8, _ right: UInt8) -> UInt8 {
+        var multiplicand = left
+        var multiplier = right
+        var product: UInt8 = 0
         for _ in 0..<8 {
-            if b & 1 != 0 { p ^= a }
-            a = xtime(a)
-            b >>= 1
+            if multiplier & 1 != 0 { product ^= multiplicand }
+            multiplicand = xtime(multiplicand)
+            multiplier >>= 1
         }
-        return p
+        return product
     }
 
     private static func expandKey(_ key: [UInt8]) -> [[UInt8]] {
-        var w = [[UInt8]](repeating: [0, 0, 0, 0], count: 44)
-        for i in 0..<4 { w[i] = [key[4 * i], key[4 * i + 1], key[4 * i + 2], key[4 * i + 3]] }
-        for i in 4..<44 {
-            var temp = w[i - 1]
-            if i % 4 == 0 {
-                temp = [sbox[Int(temp[1])] ^ rcon[i / 4 - 1], sbox[Int(temp[2])], sbox[Int(temp[3])], sbox[Int(temp[0])]]
+        var words = [[UInt8]](repeating: [0, 0, 0, 0], count: 44)
+        for index in 0..<4 {
+            words[index] = [key[4 * index], key[4 * index + 1], key[4 * index + 2], key[4 * index + 3]]
+        }
+        for index in 4..<44 {
+            var temp = words[index - 1]
+            if index % 4 == 0 {
+                temp = [
+                    sbox[Int(temp[1])] ^ roundConstants[index / 4 - 1],
+                    sbox[Int(temp[2])],
+                    sbox[Int(temp[3])],
+                    sbox[Int(temp[0])],
+                ]
             }
-            w[i] = [w[i - 4][0] ^ temp[0], w[i - 4][1] ^ temp[1], w[i - 4][2] ^ temp[2], w[i - 4][3] ^ temp[3]]
+            let previous = words[index - 4]
+            words[index] = [previous[0] ^ temp[0], previous[1] ^ temp[1], previous[2] ^ temp[2], previous[3] ^ temp[3]]
         }
-        var rounds: [[UInt8]] = []
-        for r in 0..<11 {
-            rounds.append(w[4 * r] + w[4 * r + 1] + w[4 * r + 2] + w[4 * r + 3])
+        return (0..<11).map { round in
+            words[4 * round] + words[4 * round + 1] + words[4 * round + 2] + words[4 * round + 3]
         }
-        return rounds
     }
 
-    private static func addRoundKey(_ s: inout [UInt8], _ k: [UInt8]) {
-        for i in 0..<16 { s[i] ^= k[i] }
+    private static func addRoundKey(_ state: inout [UInt8], _ roundKey: [UInt8]) {
+        for index in 0..<16 { state[index] ^= roundKey[index] }
     }
 
-    private static func subBytes(_ s: inout [UInt8]) {
-        for i in 0..<16 { s[i] = sbox[Int(s[i])] }
+    private static func subBytes(_ state: inout [UInt8]) {
+        for index in 0..<16 { state[index] = sbox[Int(state[index])] }
     }
 
-    private static func invSubBytes(_ s: inout [UInt8]) {
-        for i in 0..<16 { s[i] = invSbox[Int(s[i])] }
+    private static func inverseSubBytes(_ state: inout [UInt8]) {
+        for index in 0..<16 { state[index] = inverseSbox[Int(state[index])] }
     }
 
-    // State is column-major: s[r + 4*c].
-    private static func shiftRows(_ s: inout [UInt8]) {
-        var t = s
-        for c in 0..<4 {
-            for r in 0..<4 {
-                t[r + 4 * c] = s[r + 4 * ((c + r) % 4)]
-            }
-        }
-        s = t
-    }
-
-    private static func invShiftRows(_ s: inout [UInt8]) {
-        var t = s
-        for c in 0..<4 {
-            for r in 0..<4 {
-                t[r + 4 * ((c + r) % 4)] = s[r + 4 * c]
+    private static func shiftRows(_ state: inout [UInt8]) {
+        var shifted = state
+        for column in 0..<4 {
+            for row in 0..<4 {
+                shifted[row + 4 * column] = state[row + 4 * ((column + row) % 4)]
             }
         }
-        s = t
+        state = shifted
     }
 
-    private static func mixColumns(_ s: inout [UInt8]) {
-        for c in 0..<4 {
-            let a0 = s[4 * c], a1 = s[4 * c + 1], a2 = s[4 * c + 2], a3 = s[4 * c + 3]
-            s[4 * c] = mul(a0, 2) ^ mul(a1, 3) ^ a2 ^ a3
-            s[4 * c + 1] = a0 ^ mul(a1, 2) ^ mul(a2, 3) ^ a3
-            s[4 * c + 2] = a0 ^ a1 ^ mul(a2, 2) ^ mul(a3, 3)
-            s[4 * c + 3] = mul(a0, 3) ^ a1 ^ a2 ^ mul(a3, 2)
+    private static func inverseShiftRows(_ state: inout [UInt8]) {
+        var shifted = state
+        for column in 0..<4 {
+            for row in 0..<4 {
+                shifted[row + 4 * ((column + row) % 4)] = state[row + 4 * column]
+            }
+        }
+        state = shifted
+    }
+
+    private static func mixColumns(_ state: inout [UInt8]) {
+        for column in 0..<4 {
+            let base = 4 * column
+            let a0 = state[base]
+            let a1 = state[base + 1]
+            let a2 = state[base + 2]
+            let a3 = state[base + 3]
+            state[base] = multiply(a0, 2) ^ multiply(a1, 3) ^ a2 ^ a3
+            state[base + 1] = a0 ^ multiply(a1, 2) ^ multiply(a2, 3) ^ a3
+            state[base + 2] = a0 ^ a1 ^ multiply(a2, 2) ^ multiply(a3, 3)
+            state[base + 3] = multiply(a0, 3) ^ a1 ^ a2 ^ multiply(a3, 2)
         }
     }
 
-    private static func invMixColumns(_ s: inout [UInt8]) {
-        for c in 0..<4 {
-            let a0 = s[4 * c], a1 = s[4 * c + 1], a2 = s[4 * c + 2], a3 = s[4 * c + 3]
-            s[4 * c] = mul(a0, 14) ^ mul(a1, 11) ^ mul(a2, 13) ^ mul(a3, 9)
-            s[4 * c + 1] = mul(a0, 9) ^ mul(a1, 14) ^ mul(a2, 11) ^ mul(a3, 13)
-            s[4 * c + 2] = mul(a0, 13) ^ mul(a1, 9) ^ mul(a2, 14) ^ mul(a3, 11)
-            s[4 * c + 3] = mul(a0, 11) ^ mul(a1, 13) ^ mul(a2, 9) ^ mul(a3, 14)
+    private static func inverseMixColumns(_ state: inout [UInt8]) {
+        for column in 0..<4 {
+            let base = 4 * column
+            let a0 = state[base]
+            let a1 = state[base + 1]
+            let a2 = state[base + 2]
+            let a3 = state[base + 3]
+            state[base] = multiply(a0, 14) ^ multiply(a1, 11) ^ multiply(a2, 13) ^ multiply(a3, 9)
+            state[base + 1] = multiply(a0, 9) ^ multiply(a1, 14) ^ multiply(a2, 11) ^ multiply(a3, 13)
+            state[base + 2] = multiply(a0, 13) ^ multiply(a1, 9) ^ multiply(a2, 14) ^ multiply(a3, 11)
+            state[base + 3] = multiply(a0, 11) ^ multiply(a1, 13) ^ multiply(a2, 9) ^ multiply(a3, 14)
         }
     }
 
     public func encryptBlock(_ input: [UInt8]) -> [UInt8] {
-        var s = input
-        SoftAES128.addRoundKey(&s, roundKeys[0])
-        for r in 1..<10 {
-            SoftAES128.subBytes(&s)
-            SoftAES128.shiftRows(&s)
-            SoftAES128.mixColumns(&s)
-            SoftAES128.addRoundKey(&s, roundKeys[r])
+        var state = input
+        SoftAES128.addRoundKey(&state, roundKeys[0])
+        for round in 1..<10 {
+            SoftAES128.subBytes(&state)
+            SoftAES128.shiftRows(&state)
+            SoftAES128.mixColumns(&state)
+            SoftAES128.addRoundKey(&state, roundKeys[round])
         }
-        SoftAES128.subBytes(&s)
-        SoftAES128.shiftRows(&s)
-        SoftAES128.addRoundKey(&s, roundKeys[10])
-        return s
+        SoftAES128.subBytes(&state)
+        SoftAES128.shiftRows(&state)
+        SoftAES128.addRoundKey(&state, roundKeys[10])
+        return state
     }
 
     public func decryptBlock(_ input: [UInt8]) -> [UInt8] {
-        var s = input
-        SoftAES128.addRoundKey(&s, roundKeys[10])
-        for r in stride(from: 9, through: 1, by: -1) {
-            SoftAES128.invShiftRows(&s)
-            SoftAES128.invSubBytes(&s)
-            SoftAES128.addRoundKey(&s, roundKeys[r])
-            SoftAES128.invMixColumns(&s)
+        var state = input
+        SoftAES128.addRoundKey(&state, roundKeys[10])
+        for round in stride(from: 9, through: 1, by: -1) {
+            SoftAES128.inverseShiftRows(&state)
+            SoftAES128.inverseSubBytes(&state)
+            SoftAES128.addRoundKey(&state, roundKeys[round])
+            SoftAES128.inverseMixColumns(&state)
         }
-        SoftAES128.invShiftRows(&s)
-        SoftAES128.invSubBytes(&s)
-        SoftAES128.addRoundKey(&s, roundKeys[0])
-        return s
+        SoftAES128.inverseShiftRows(&state)
+        SoftAES128.inverseSubBytes(&state)
+        SoftAES128.addRoundKey(&state, roundKeys[0])
+        return state
     }
 }

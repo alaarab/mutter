@@ -1,17 +1,13 @@
 import Foundation
 
-/// A message that can be sent on the control channel.
 public protocol ControlMessage {
     static var messageType: MessageType { get }
     func encodePayload() -> Data
 }
 
-/// A message that can be received on the control channel.
 public protocol DecodableControlMessage: ControlMessage {
     init(payload: Data) throws
 }
-
-// MARK: - Version (0)
 
 public struct VersionMessage: DecodableControlMessage, Hashable, Sendable {
     public static let messageType = MessageType.version
@@ -30,20 +26,19 @@ public struct VersionMessage: DecodableControlMessage, Hashable, Sendable {
     }
 
     public init(payload: Data) throws {
-        var r = ProtobufReader(payload)
-        try r.forEachField { f in
-            switch f.number {
-            case 1: versionV1 = f.uint32Value
-            case 2: release = f.stringValue
-            case 3: os = f.stringValue
-            case 4: osVersion = f.stringValue
-            case 5: versionV2 = f.uint64Value
+        var reader = ProtobufReader(payload)
+        try reader.forEachField { field in
+            switch field.number {
+            case 1: versionV1 = field.uint32Value
+            case 2: release = field.stringValue
+            case 3: os = field.stringValue
+            case 4: osVersion = field.stringValue
+            case 5: versionV2 = field.uint64Value
             default: break
             }
         }
     }
 
-    /// Effective version, preferring the 64-bit encoding when present.
     public var protocolVersion: ProtocolVersion {
         if let v2 = versionV2, v2 != 0 { return ProtocolVersion(v2: v2) }
         if let v1 = versionV1 { return ProtocolVersion(v1: v1) }
@@ -51,19 +46,16 @@ public struct VersionMessage: DecodableControlMessage, Hashable, Sendable {
     }
 
     public func encodePayload() -> Data {
-        var w = ProtobufWriter()
-        w.uint32(1, versionV1)
-        w.string(2, release)
-        w.string(3, os)
-        w.string(4, osVersion)
-        w.uint64(5, versionV2)
-        return w.data
+        var writer = ProtobufWriter()
+        writer.uint32(1, versionV1)
+        writer.string(2, release)
+        writer.string(3, os)
+        writer.string(4, osVersion)
+        writer.uint64(5, versionV2)
+        return writer.data
     }
 }
 
-// MARK: - UDPTunnel (1)
-
-/// Raw voice packet carried over TCP. The payload is a plain (unencrypted) UDP voice packet.
 public struct UDPTunnelMessage: DecodableControlMessage, Sendable {
     public static let messageType = MessageType.udpTunnel
     public var packet: Data
@@ -72,8 +64,6 @@ public struct UDPTunnelMessage: DecodableControlMessage, Sendable {
     public init(payload: Data) throws { self.packet = payload }
     public func encodePayload() -> Data { packet }
 }
-
-// MARK: - Authenticate (2)
 
 public struct AuthenticateMessage: ControlMessage, Sendable {
     public static let messageType = MessageType.authenticate
@@ -91,18 +81,16 @@ public struct AuthenticateMessage: ControlMessage, Sendable {
     }
 
     public func encodePayload() -> Data {
-        var w = ProtobufWriter()
-        w.string(1, username)
-        w.string(2, password)
-        w.repeatedString(3, tokens)
-        w.repeatedInt32(4, celtVersions)
-        w.bool(5, opus)
-        w.int32(6, clientType)
-        return w.data
+        var writer = ProtobufWriter()
+        writer.string(1, username)
+        writer.string(2, password)
+        writer.repeatedString(3, tokens)
+        writer.repeatedInt32(4, celtVersions)
+        writer.bool(5, opus)
+        writer.int32(6, clientType)
+        return writer.data
     }
 }
-
-// MARK: - Ping (3)
 
 public struct PingMessage: DecodableControlMessage, Sendable {
     public static let messageType = MessageType.ping
@@ -121,43 +109,41 @@ public struct PingMessage: DecodableControlMessage, Sendable {
     public init(timestamp: UInt64) { self.timestamp = timestamp }
 
     public init(payload: Data) throws {
-        var r = ProtobufReader(payload)
-        try r.forEachField { f in
-            switch f.number {
-            case 1: timestamp = f.uint64Value
-            case 2: good = f.uint32Value
-            case 3: late = f.uint32Value
-            case 4: lost = f.uint32Value
-            case 5: resync = f.uint32Value
-            case 6: udpPackets = f.uint32Value
-            case 7: tcpPackets = f.uint32Value
-            case 8: udpPingAvg = f.floatValue
-            case 9: udpPingVar = f.floatValue
-            case 10: tcpPingAvg = f.floatValue
-            case 11: tcpPingVar = f.floatValue
+        var reader = ProtobufReader(payload)
+        try reader.forEachField { field in
+            switch field.number {
+            case 1: timestamp = field.uint64Value
+            case 2: good = field.uint32Value
+            case 3: late = field.uint32Value
+            case 4: lost = field.uint32Value
+            case 5: resync = field.uint32Value
+            case 6: udpPackets = field.uint32Value
+            case 7: tcpPackets = field.uint32Value
+            case 8: udpPingAvg = field.floatValue
+            case 9: udpPingVar = field.floatValue
+            case 10: tcpPingAvg = field.floatValue
+            case 11: tcpPingVar = field.floatValue
             default: break
             }
         }
     }
 
     public func encodePayload() -> Data {
-        var w = ProtobufWriter()
-        w.uint64(1, timestamp)
-        w.uint32(2, good)
-        w.uint32(3, late)
-        w.uint32(4, lost)
-        w.uint32(5, resync)
-        w.uint32(6, udpPackets)
-        w.uint32(7, tcpPackets)
-        w.float(8, udpPingAvg)
-        w.float(9, udpPingVar)
-        w.float(10, tcpPingAvg)
-        w.float(11, tcpPingVar)
-        return w.data
+        var writer = ProtobufWriter()
+        writer.uint64(1, timestamp)
+        writer.uint32(2, good)
+        writer.uint32(3, late)
+        writer.uint32(4, lost)
+        writer.uint32(5, resync)
+        writer.uint32(6, udpPackets)
+        writer.uint32(7, tcpPackets)
+        writer.float(8, udpPingAvg)
+        writer.float(9, udpPingVar)
+        writer.float(10, tcpPingAvg)
+        writer.float(11, tcpPingVar)
+        return writer.data
     }
 }
-
-// MARK: - Reject (4)
 
 public enum RejectType: UInt32, Sendable {
     case none = 0
@@ -193,25 +179,23 @@ public struct RejectMessage: DecodableControlMessage, Sendable {
     public var reason: String?
 
     public init(payload: Data) throws {
-        var r = ProtobufReader(payload)
-        try r.forEachField { f in
-            switch f.number {
-            case 1: type = RejectType(rawValue: f.uint32Value) ?? .none
-            case 2: reason = f.stringValue
+        var reader = ProtobufReader(payload)
+        try reader.forEachField { field in
+            switch field.number {
+            case 1: type = RejectType(rawValue: field.uint32Value) ?? .none
+            case 2: reason = field.stringValue
             default: break
             }
         }
     }
 
     public func encodePayload() -> Data {
-        var w = ProtobufWriter()
-        w.uint32(1, type.rawValue)
-        w.string(2, reason)
-        return w.data
+        var writer = ProtobufWriter()
+        writer.uint32(1, type.rawValue)
+        writer.string(2, reason)
+        return writer.data
     }
 }
-
-// MARK: - ServerSync (5)
 
 public struct ServerSyncMessage: DecodableControlMessage, Sendable {
     public static let messageType = MessageType.serverSync
@@ -221,29 +205,27 @@ public struct ServerSyncMessage: DecodableControlMessage, Sendable {
     public var permissions: UInt64?
 
     public init(payload: Data) throws {
-        var r = ProtobufReader(payload)
-        try r.forEachField { f in
-            switch f.number {
-            case 1: session = f.uint32Value
-            case 2: maxBandwidth = f.uint32Value
-            case 3: welcomeText = f.stringValue
-            case 4: permissions = f.uint64Value
+        var reader = ProtobufReader(payload)
+        try reader.forEachField { field in
+            switch field.number {
+            case 1: session = field.uint32Value
+            case 2: maxBandwidth = field.uint32Value
+            case 3: welcomeText = field.stringValue
+            case 4: permissions = field.uint64Value
             default: break
             }
         }
     }
 
     public func encodePayload() -> Data {
-        var w = ProtobufWriter()
-        w.uint32(1, session)
-        w.uint32(2, maxBandwidth)
-        w.string(3, welcomeText)
-        w.uint64(4, permissions)
-        return w.data
+        var writer = ProtobufWriter()
+        writer.uint32(1, session)
+        writer.uint32(2, maxBandwidth)
+        writer.string(3, welcomeText)
+        writer.uint64(4, permissions)
+        return writer.data
     }
 }
-
-// MARK: - ChannelRemove (6)
 
 public struct ChannelRemoveMessage: DecodableControlMessage, Sendable {
     public static let messageType = MessageType.channelRemove
@@ -252,20 +234,18 @@ public struct ChannelRemoveMessage: DecodableControlMessage, Sendable {
     public init(channelId: UInt32) { self.channelId = channelId }
 
     public init(payload: Data) throws {
-        var r = ProtobufReader(payload)
-        try r.forEachField { f in
-            if f.number == 1 { channelId = f.uint32Value }
+        var reader = ProtobufReader(payload)
+        try reader.forEachField { field in
+            if field.number == 1 { channelId = field.uint32Value }
         }
     }
 
     public func encodePayload() -> Data {
-        var w = ProtobufWriter()
-        w.uint32(1, channelId)
-        return w.data
+        var writer = ProtobufWriter()
+        writer.uint32(1, channelId)
+        return writer.data
     }
 }
-
-// MARK: - ChannelState (7)
 
 public struct ChannelStateMessage: DecodableControlMessage, Sendable {
     public static let messageType = MessageType.channelState
@@ -286,58 +266,55 @@ public struct ChannelStateMessage: DecodableControlMessage, Sendable {
     public init() {}
 
     public init(payload: Data) throws {
-        var r = ProtobufReader(payload)
-        try r.forEachField { f in
-            switch f.number {
-            case 1: channelId = f.uint32Value
-            case 2: parent = f.uint32Value
-            case 3: name = f.stringValue
-            case 4: links.append(contentsOf: Self.packedOrSingle(f))
-            case 5: description = f.stringValue
-            case 6: linksAdd.append(contentsOf: Self.packedOrSingle(f))
-            case 7: linksRemove.append(contentsOf: Self.packedOrSingle(f))
-            case 8: temporary = f.boolValue
-            case 9: position = f.int32Value
-            case 10: descriptionHash = f.payload
-            case 11: maxUsers = f.uint32Value
-            case 12: isEnterRestricted = f.boolValue
-            case 13: canEnter = f.boolValue
+        var reader = ProtobufReader(payload)
+        try reader.forEachField { field in
+            switch field.number {
+            case 1: channelId = field.uint32Value
+            case 2: parent = field.uint32Value
+            case 3: name = field.stringValue
+            case 4: links.append(contentsOf: Self.packedOrSingle(field))
+            case 5: description = field.stringValue
+            case 6: linksAdd.append(contentsOf: Self.packedOrSingle(field))
+            case 7: linksRemove.append(contentsOf: Self.packedOrSingle(field))
+            case 8: temporary = field.boolValue
+            case 9: position = field.int32Value
+            case 10: descriptionHash = field.payload
+            case 11: maxUsers = field.uint32Value
+            case 12: isEnterRestricted = field.boolValue
+            case 13: canEnter = field.boolValue
             default: break
             }
         }
     }
 
-    /// Repeated varint fields may arrive packed (length-delimited) even for proto2 syntax.
-    static func packedOrSingle(_ f: ProtobufField) -> [UInt32] {
-        if f.wireType == .varint { return [f.uint32Value] }
+    static func packedOrSingle(_ field: ProtobufField) -> [UInt32] {
+        if field.wireType == .varint { return [field.uint32Value] }
         var out: [UInt32] = []
-        var r = ProtobufReader(f.payload)
-        while !r.isAtEnd, let v = try? r.readRawVarint() {
-            out.append(UInt32(truncatingIfNeeded: v))
+        var reader = ProtobufReader(field.payload)
+        while !reader.isAtEnd, let value = try? reader.readRawVarint() {
+            out.append(UInt32(truncatingIfNeeded: value))
         }
         return out
     }
 
     public func encodePayload() -> Data {
-        var w = ProtobufWriter()
-        w.uint32(1, channelId)
-        w.uint32(2, parent)
-        w.string(3, name)
-        w.repeatedUInt32(4, links)
-        w.string(5, description)
-        w.repeatedUInt32(6, linksAdd)
-        w.repeatedUInt32(7, linksRemove)
-        w.bool(8, temporary)
-        w.int32(9, position)
-        w.bytes(10, descriptionHash)
-        w.uint32(11, maxUsers)
-        w.bool(12, isEnterRestricted)
-        w.bool(13, canEnter)
-        return w.data
+        var writer = ProtobufWriter()
+        writer.uint32(1, channelId)
+        writer.uint32(2, parent)
+        writer.string(3, name)
+        writer.repeatedUInt32(4, links)
+        writer.string(5, description)
+        writer.repeatedUInt32(6, linksAdd)
+        writer.repeatedUInt32(7, linksRemove)
+        writer.bool(8, temporary)
+        writer.int32(9, position)
+        writer.bytes(10, descriptionHash)
+        writer.uint32(11, maxUsers)
+        writer.bool(12, isEnterRestricted)
+        writer.bool(13, canEnter)
+        return writer.data
     }
 }
-
-// MARK: - UserRemove (8)
 
 public struct UserRemoveMessage: DecodableControlMessage, Sendable {
     public static let messageType = MessageType.userRemove
@@ -353,29 +330,27 @@ public struct UserRemoveMessage: DecodableControlMessage, Sendable {
     }
 
     public init(payload: Data) throws {
-        var r = ProtobufReader(payload)
-        try r.forEachField { f in
-            switch f.number {
-            case 1: session = f.uint32Value
-            case 2: actor = f.uint32Value
-            case 3: reason = f.stringValue
-            case 4: ban = f.boolValue
+        var reader = ProtobufReader(payload)
+        try reader.forEachField { field in
+            switch field.number {
+            case 1: session = field.uint32Value
+            case 2: actor = field.uint32Value
+            case 3: reason = field.stringValue
+            case 4: ban = field.boolValue
             default: break
             }
         }
     }
 
     public func encodePayload() -> Data {
-        var w = ProtobufWriter()
-        w.uint32(1, session)
-        w.uint32(2, actor)
-        w.string(3, reason)
-        w.bool(4, ban)
-        return w.data
+        var writer = ProtobufWriter()
+        writer.uint32(1, session)
+        writer.uint32(2, actor)
+        writer.string(3, reason)
+        writer.bool(4, ban)
+        return writer.data
     }
 }
-
-// MARK: - UserState (9)
 
 public struct UserStateMessage: DecodableControlMessage, Sendable {
     public static let messageType = MessageType.userState
@@ -405,65 +380,63 @@ public struct UserStateMessage: DecodableControlMessage, Sendable {
     public init() {}
 
     public init(payload: Data) throws {
-        var r = ProtobufReader(payload)
-        try r.forEachField { f in
-            switch f.number {
-            case 1: session = f.uint32Value
-            case 2: actor = f.uint32Value
-            case 3: name = f.stringValue
-            case 4: userId = f.uint32Value
-            case 5: channelId = f.uint32Value
-            case 6: mute = f.boolValue
-            case 7: deaf = f.boolValue
-            case 8: suppress = f.boolValue
-            case 9: selfMute = f.boolValue
-            case 10: selfDeaf = f.boolValue
-            case 11: texture = f.payload
-            case 12: pluginContext = f.payload
-            case 13: pluginIdentity = f.stringValue
-            case 14: comment = f.stringValue
-            case 15: hash = f.stringValue
-            case 16: commentHash = f.payload
-            case 17: textureHash = f.payload
-            case 18: prioritySpeaker = f.boolValue
-            case 19: recording = f.boolValue
-            case 20: temporaryAccessTokens.append(f.stringValue)
-            case 21: listeningChannelAdd.append(contentsOf: ChannelStateMessage.packedOrSingle(f))
-            case 22: listeningChannelRemove.append(contentsOf: ChannelStateMessage.packedOrSingle(f))
+        var reader = ProtobufReader(payload)
+        try reader.forEachField { field in
+            switch field.number {
+            case 1: session = field.uint32Value
+            case 2: actor = field.uint32Value
+            case 3: name = field.stringValue
+            case 4: userId = field.uint32Value
+            case 5: channelId = field.uint32Value
+            case 6: mute = field.boolValue
+            case 7: deaf = field.boolValue
+            case 8: suppress = field.boolValue
+            case 9: selfMute = field.boolValue
+            case 10: selfDeaf = field.boolValue
+            case 11: texture = field.payload
+            case 12: pluginContext = field.payload
+            case 13: pluginIdentity = field.stringValue
+            case 14: comment = field.stringValue
+            case 15: hash = field.stringValue
+            case 16: commentHash = field.payload
+            case 17: textureHash = field.payload
+            case 18: prioritySpeaker = field.boolValue
+            case 19: recording = field.boolValue
+            case 20: temporaryAccessTokens.append(field.stringValue)
+            case 21: listeningChannelAdd.append(contentsOf: ChannelStateMessage.packedOrSingle(field))
+            case 22: listeningChannelRemove.append(contentsOf: ChannelStateMessage.packedOrSingle(field))
             default: break
             }
         }
     }
 
     public func encodePayload() -> Data {
-        var w = ProtobufWriter()
-        w.uint32(1, session)
-        w.uint32(2, actor)
-        w.string(3, name)
-        w.uint32(4, userId)
-        w.uint32(5, channelId)
-        w.bool(6, mute)
-        w.bool(7, deaf)
-        w.bool(8, suppress)
-        w.bool(9, selfMute)
-        w.bool(10, selfDeaf)
-        w.bytes(11, texture)
-        w.bytes(12, pluginContext)
-        w.string(13, pluginIdentity)
-        w.string(14, comment)
-        w.string(15, hash)
-        w.bytes(16, commentHash)
-        w.bytes(17, textureHash)
-        w.bool(18, prioritySpeaker)
-        w.bool(19, recording)
-        w.repeatedString(20, temporaryAccessTokens)
-        w.repeatedUInt32(21, listeningChannelAdd)
-        w.repeatedUInt32(22, listeningChannelRemove)
-        return w.data
+        var writer = ProtobufWriter()
+        writer.uint32(1, session)
+        writer.uint32(2, actor)
+        writer.string(3, name)
+        writer.uint32(4, userId)
+        writer.uint32(5, channelId)
+        writer.bool(6, mute)
+        writer.bool(7, deaf)
+        writer.bool(8, suppress)
+        writer.bool(9, selfMute)
+        writer.bool(10, selfDeaf)
+        writer.bytes(11, texture)
+        writer.bytes(12, pluginContext)
+        writer.string(13, pluginIdentity)
+        writer.string(14, comment)
+        writer.string(15, hash)
+        writer.bytes(16, commentHash)
+        writer.bytes(17, textureHash)
+        writer.bool(18, prioritySpeaker)
+        writer.bool(19, recording)
+        writer.repeatedString(20, temporaryAccessTokens)
+        writer.repeatedUInt32(21, listeningChannelAdd)
+        writer.repeatedUInt32(22, listeningChannelRemove)
+        return writer.data
     }
 }
-
-// MARK: - TextMessage (11)
 
 public struct TextMessageMessage: DecodableControlMessage, Sendable {
     public static let messageType = MessageType.textMessage
@@ -481,31 +454,29 @@ public struct TextMessageMessage: DecodableControlMessage, Sendable {
     }
 
     public init(payload: Data) throws {
-        var r = ProtobufReader(payload)
-        try r.forEachField { f in
-            switch f.number {
-            case 1: actor = f.uint32Value
-            case 2: sessions.append(contentsOf: ChannelStateMessage.packedOrSingle(f))
-            case 3: channelIds.append(contentsOf: ChannelStateMessage.packedOrSingle(f))
-            case 4: treeIds.append(contentsOf: ChannelStateMessage.packedOrSingle(f))
-            case 5: message = f.stringValue
+        var reader = ProtobufReader(payload)
+        try reader.forEachField { field in
+            switch field.number {
+            case 1: actor = field.uint32Value
+            case 2: sessions.append(contentsOf: ChannelStateMessage.packedOrSingle(field))
+            case 3: channelIds.append(contentsOf: ChannelStateMessage.packedOrSingle(field))
+            case 4: treeIds.append(contentsOf: ChannelStateMessage.packedOrSingle(field))
+            case 5: message = field.stringValue
             default: break
             }
         }
     }
 
     public func encodePayload() -> Data {
-        var w = ProtobufWriter()
-        w.uint32(1, actor)
-        w.repeatedUInt32(2, sessions)
-        w.repeatedUInt32(3, channelIds)
-        w.repeatedUInt32(4, treeIds)
-        w.string(5, message)
-        return w.data
+        var writer = ProtobufWriter()
+        writer.uint32(1, actor)
+        writer.repeatedUInt32(2, sessions)
+        writer.repeatedUInt32(3, channelIds)
+        writer.repeatedUInt32(4, treeIds)
+        writer.string(5, message)
+        return writer.data
     }
 }
-
-// MARK: - PermissionDenied (12)
 
 public enum DenyType: UInt32, Sendable {
     case text = 0
@@ -534,32 +505,31 @@ public struct PermissionDeniedMessage: DecodableControlMessage, Sendable {
     public var name: String?
 
     public init(payload: Data) throws {
-        var r = ProtobufReader(payload)
-        try r.forEachField { f in
-            switch f.number {
-            case 1: permission = f.uint32Value
-            case 2: channelId = f.uint32Value
-            case 3: session = f.uint32Value
-            case 4: reason = f.stringValue
-            case 5: type = DenyType(rawValue: f.uint32Value)
-            case 6: name = f.stringValue
+        var reader = ProtobufReader(payload)
+        try reader.forEachField { field in
+            switch field.number {
+            case 1: permission = field.uint32Value
+            case 2: channelId = field.uint32Value
+            case 3: session = field.uint32Value
+            case 4: reason = field.stringValue
+            case 5: type = DenyType(rawValue: field.uint32Value)
+            case 6: name = field.stringValue
             default: break
             }
         }
     }
 
     public func encodePayload() -> Data {
-        var w = ProtobufWriter()
-        w.uint32(1, permission)
-        w.uint32(2, channelId)
-        w.uint32(3, session)
-        w.string(4, reason)
-        w.uint32(5, type?.rawValue)
-        w.string(6, name)
-        return w.data
+        var writer = ProtobufWriter()
+        writer.uint32(1, permission)
+        writer.uint32(2, channelId)
+        writer.uint32(3, session)
+        writer.string(4, reason)
+        writer.uint32(5, type?.rawValue)
+        writer.string(6, name)
+        return writer.data
     }
 
-    /// Human-readable explanation.
     public var userMessage: String {
         switch type {
         case .text: return reason ?? "Permission denied."
@@ -580,8 +550,6 @@ public struct PermissionDeniedMessage: DecodableControlMessage, Sendable {
     }
 }
 
-// MARK: - CryptSetup (15)
-
 public struct CryptSetupMessage: DecodableControlMessage, Sendable {
     public static let messageType = MessageType.cryptSetup
     public var key: Data?
@@ -595,27 +563,25 @@ public struct CryptSetupMessage: DecodableControlMessage, Sendable {
     }
 
     public init(payload: Data) throws {
-        var r = ProtobufReader(payload)
-        try r.forEachField { f in
-            switch f.number {
-            case 1: key = f.payload
-            case 2: clientNonce = f.payload
-            case 3: serverNonce = f.payload
+        var reader = ProtobufReader(payload)
+        try reader.forEachField { field in
+            switch field.number {
+            case 1: key = field.payload
+            case 2: clientNonce = field.payload
+            case 3: serverNonce = field.payload
             default: break
             }
         }
     }
 
     public func encodePayload() -> Data {
-        var w = ProtobufWriter()
-        w.bytes(1, key)
-        w.bytes(2, clientNonce)
-        w.bytes(3, serverNonce)
-        return w.data
+        var writer = ProtobufWriter()
+        writer.bytes(1, key)
+        writer.bytes(2, clientNonce)
+        writer.bytes(3, serverNonce)
+        return writer.data
     }
 }
-
-// MARK: - UserList (18)
 
 public struct RegisteredUser: Hashable, Sendable {
     public var userId: UInt32
@@ -638,39 +604,37 @@ public struct UserListMessage: DecodableControlMessage, Sendable {
     public init() {}
 
     public init(payload: Data) throws {
-        var r = ProtobufReader(payload)
-        try r.forEachField { f in
-            guard f.number == 1 else { return }
-            var inner = ProtobufReader(f.payload)
-            var u = RegisteredUser(userId: 0)
-            try inner.forEachField { g in
-                switch g.number {
-                case 1: u.userId = g.uint32Value
-                case 2: u.name = g.stringValue
-                case 3: u.lastSeen = g.stringValue
-                case 4: u.lastChannel = g.uint32Value
+        var reader = ProtobufReader(payload)
+        try reader.forEachField { field in
+            guard field.number == 1 else { return }
+            var inner = ProtobufReader(field.payload)
+            var user = RegisteredUser(userId: 0)
+            try inner.forEachField { userField in
+                switch userField.number {
+                case 1: user.userId = userField.uint32Value
+                case 2: user.name = userField.stringValue
+                case 3: user.lastSeen = userField.stringValue
+                case 4: user.lastChannel = userField.uint32Value
                 default: break
                 }
             }
-            users.append(u)
+            users.append(user)
         }
     }
 
     public func encodePayload() -> Data {
-        var w = ProtobufWriter()
-        for u in users {
+        var writer = ProtobufWriter()
+        for user in users {
             var inner = ProtobufWriter()
-            inner.uint32(1, u.userId)
-            inner.string(2, u.name)
-            inner.string(3, u.lastSeen)
-            inner.uint32(4, u.lastChannel)
-            w.message(1, inner.data)
+            inner.uint32(1, user.userId)
+            inner.string(2, user.name)
+            inner.string(3, user.lastSeen)
+            inner.uint32(4, user.lastChannel)
+            writer.message(1, inner.data)
         }
-        return w.data
+        return writer.data
     }
 }
-
-// MARK: - VoiceTarget (19)
 
 public struct VoiceTargetEntry: Hashable, Sendable {
     public var sessions: [UInt32] = []
@@ -699,22 +663,20 @@ public struct VoiceTargetMessage: ControlMessage, Sendable {
     }
 
     public func encodePayload() -> Data {
-        var w = ProtobufWriter()
-        w.uint32(1, id)
-        for t in targets {
+        var writer = ProtobufWriter()
+        writer.uint32(1, id)
+        for target in targets {
             var inner = ProtobufWriter()
-            inner.repeatedUInt32(1, t.sessions)
-            inner.uint32(2, t.channelId)
-            inner.string(3, t.group)
-            inner.bool(4, t.links)
-            inner.bool(5, t.children)
-            w.message(2, inner.data)
+            inner.repeatedUInt32(1, target.sessions)
+            inner.uint32(2, target.channelId)
+            inner.string(3, target.group)
+            inner.bool(4, target.links)
+            inner.bool(5, target.children)
+            writer.message(2, inner.data)
         }
-        return w.data
+        return writer.data
     }
 }
-
-// MARK: - PermissionQuery (20)
 
 public struct PermissionQueryMessage: DecodableControlMessage, Sendable {
     public static let messageType = MessageType.permissionQuery
@@ -725,27 +687,25 @@ public struct PermissionQueryMessage: DecodableControlMessage, Sendable {
     public init(channelId: UInt32) { self.channelId = channelId }
 
     public init(payload: Data) throws {
-        var r = ProtobufReader(payload)
-        try r.forEachField { f in
-            switch f.number {
-            case 1: channelId = f.uint32Value
-            case 2: permissions = f.uint32Value
-            case 3: flush = f.boolValue
+        var reader = ProtobufReader(payload)
+        try reader.forEachField { field in
+            switch field.number {
+            case 1: channelId = field.uint32Value
+            case 2: permissions = field.uint32Value
+            case 3: flush = field.boolValue
             default: break
             }
         }
     }
 
     public func encodePayload() -> Data {
-        var w = ProtobufWriter()
-        w.uint32(1, channelId)
-        w.uint32(2, permissions)
-        w.bool(3, flush)
-        return w.data
+        var writer = ProtobufWriter()
+        writer.uint32(1, channelId)
+        writer.uint32(2, permissions)
+        writer.bool(3, flush)
+        return writer.data
     }
 }
-
-// MARK: - CodecVersion (21)
 
 public struct CodecVersionMessage: DecodableControlMessage, Sendable {
     public static let messageType = MessageType.codecVersion
@@ -755,29 +715,27 @@ public struct CodecVersionMessage: DecodableControlMessage, Sendable {
     public var opus: Bool?
 
     public init(payload: Data) throws {
-        var r = ProtobufReader(payload)
-        try r.forEachField { f in
-            switch f.number {
-            case 1: alpha = f.int32Value
-            case 2: beta = f.int32Value
-            case 3: preferAlpha = f.boolValue
-            case 4: opus = f.boolValue
+        var reader = ProtobufReader(payload)
+        try reader.forEachField { field in
+            switch field.number {
+            case 1: alpha = field.int32Value
+            case 2: beta = field.int32Value
+            case 3: preferAlpha = field.boolValue
+            case 4: opus = field.boolValue
             default: break
             }
         }
     }
 
     public func encodePayload() -> Data {
-        var w = ProtobufWriter()
-        w.int32(1, alpha)
-        w.int32(2, beta)
-        w.bool(3, preferAlpha)
-        w.bool(4, opus)
-        return w.data
+        var writer = ProtobufWriter()
+        writer.int32(1, alpha)
+        writer.int32(2, beta)
+        writer.bool(3, preferAlpha)
+        writer.bool(4, opus)
+        return writer.data
     }
 }
-
-// MARK: - UserStats (22)
 
 public struct PacketStats: Hashable, Sendable {
     public var good: UInt32 = 0
@@ -788,13 +746,13 @@ public struct PacketStats: Hashable, Sendable {
     public init() {}
 
     init(payload: Data) throws {
-        var r = ProtobufReader(payload)
-        try r.forEachField { f in
-            switch f.number {
-            case 1: good = f.uint32Value
-            case 2: late = f.uint32Value
-            case 3: lost = f.uint32Value
-            case 4: resync = f.uint32Value
+        var reader = ProtobufReader(payload)
+        try reader.forEachField { field in
+            switch field.number {
+            case 1: good = field.uint32Value
+            case 2: late = field.uint32Value
+            case 3: lost = field.uint32Value
+            case 4: resync = field.uint32Value
             default: break
             }
         }
@@ -829,57 +787,54 @@ public struct UserStatsMessage: DecodableControlMessage, Hashable, Sendable {
     }
 
     public init(payload: Data) throws {
-        var r = ProtobufReader(payload)
-        try r.forEachField { f in
-            switch f.number {
-            case 1: session = f.uint32Value
-            case 2: statsOnly = f.boolValue
-            case 3: certificates.append(f.payload)
-            case 4: fromClient = try PacketStats(payload: f.payload)
-            case 5: fromServer = try PacketStats(payload: f.payload)
-            case 6: udpPackets = f.uint32Value
-            case 7: tcpPackets = f.uint32Value
-            case 8: udpPingAvg = f.floatValue
-            case 9: udpPingVar = f.floatValue
-            case 10: tcpPingAvg = f.floatValue
-            case 11: tcpPingVar = f.floatValue
-            case 12: version = try VersionMessage(payload: f.payload)
-            case 13: celtVersions.append(f.int32Value)
-            case 14: address = f.payload
-            case 15: bandwidth = f.uint32Value
-            case 16: onlineSeconds = f.uint32Value
-            case 17: idleSeconds = f.uint32Value
-            case 18: strongCertificate = f.boolValue
-            case 19: opus = f.boolValue
+        var reader = ProtobufReader(payload)
+        try reader.forEachField { field in
+            switch field.number {
+            case 1: session = field.uint32Value
+            case 2: statsOnly = field.boolValue
+            case 3: certificates.append(field.payload)
+            case 4: fromClient = try PacketStats(payload: field.payload)
+            case 5: fromServer = try PacketStats(payload: field.payload)
+            case 6: udpPackets = field.uint32Value
+            case 7: tcpPackets = field.uint32Value
+            case 8: udpPingAvg = field.floatValue
+            case 9: udpPingVar = field.floatValue
+            case 10: tcpPingAvg = field.floatValue
+            case 11: tcpPingVar = field.floatValue
+            case 12: version = try VersionMessage(payload: field.payload)
+            case 13: celtVersions.append(field.int32Value)
+            case 14: address = field.payload
+            case 15: bandwidth = field.uint32Value
+            case 16: onlineSeconds = field.uint32Value
+            case 17: idleSeconds = field.uint32Value
+            case 18: strongCertificate = field.boolValue
+            case 19: opus = field.boolValue
             default: break
             }
         }
     }
 
     public func encodePayload() -> Data {
-        var w = ProtobufWriter()
-        w.uint32(1, session)
-        w.bool(2, statsOnly)
-        return w.data
+        var writer = ProtobufWriter()
+        writer.uint32(1, session)
+        writer.bool(2, statsOnly)
+        return writer.data
     }
 
-    /// Formats the 16-byte address field (IPv4-mapped or IPv6) for display.
     public var addressString: String? {
         guard let address, address.count == 16 else { return nil }
-        let b = [UInt8](address)
+        let bytes = [UInt8](address)
         let v4Prefix: [UInt8] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF]
-        if Array(b[0..<12]) == v4Prefix {
-            return "\(b[12]).\(b[13]).\(b[14]).\(b[15])"
+        if Array(bytes[0..<12]) == v4Prefix {
+            return "\(bytes[12]).\(bytes[13]).\(bytes[14]).\(bytes[15])"
         }
         var parts: [String] = []
         for i in stride(from: 0, to: 16, by: 2) {
-            parts.append(String(format: "%x", UInt16(b[i]) << 8 | UInt16(b[i + 1])))
+            parts.append(String(format: "%x", UInt16(bytes[i]) << 8 | UInt16(bytes[i + 1])))
         }
         return parts.joined(separator: ":")
     }
 }
-
-// MARK: - RequestBlob (23)
 
 public struct RequestBlobMessage: ControlMessage, Sendable {
     public static let messageType = MessageType.requestBlob
@@ -894,15 +849,13 @@ public struct RequestBlobMessage: ControlMessage, Sendable {
     }
 
     public func encodePayload() -> Data {
-        var w = ProtobufWriter()
-        w.repeatedUInt32(1, sessionTexture)
-        w.repeatedUInt32(2, sessionComment)
-        w.repeatedUInt32(3, channelDescription)
-        return w.data
+        var writer = ProtobufWriter()
+        writer.repeatedUInt32(1, sessionTexture)
+        writer.repeatedUInt32(2, sessionComment)
+        writer.repeatedUInt32(3, channelDescription)
+        return writer.data
     }
 }
-
-// MARK: - ServerConfig (24)
 
 public struct ServerConfigMessage: DecodableControlMessage, Sendable {
     public static let messageType = MessageType.serverConfig
@@ -915,35 +868,33 @@ public struct ServerConfigMessage: DecodableControlMessage, Sendable {
     public var recordingAllowed: Bool?
 
     public init(payload: Data) throws {
-        var r = ProtobufReader(payload)
-        try r.forEachField { f in
-            switch f.number {
-            case 1: maxBandwidth = f.uint32Value
-            case 2: welcomeText = f.stringValue
-            case 3: allowHtml = f.boolValue
-            case 4: messageLength = f.uint32Value
-            case 5: imageMessageLength = f.uint32Value
-            case 6: maxUsers = f.uint32Value
-            case 7: recordingAllowed = f.boolValue
+        var reader = ProtobufReader(payload)
+        try reader.forEachField { field in
+            switch field.number {
+            case 1: maxBandwidth = field.uint32Value
+            case 2: welcomeText = field.stringValue
+            case 3: allowHtml = field.boolValue
+            case 4: messageLength = field.uint32Value
+            case 5: imageMessageLength = field.uint32Value
+            case 6: maxUsers = field.uint32Value
+            case 7: recordingAllowed = field.boolValue
             default: break
             }
         }
     }
 
     public func encodePayload() -> Data {
-        var w = ProtobufWriter()
-        w.uint32(1, maxBandwidth)
-        w.string(2, welcomeText)
-        w.bool(3, allowHtml)
-        w.uint32(4, messageLength)
-        w.uint32(5, imageMessageLength)
-        w.uint32(6, maxUsers)
-        w.bool(7, recordingAllowed)
-        return w.data
+        var writer = ProtobufWriter()
+        writer.uint32(1, maxBandwidth)
+        writer.string(2, welcomeText)
+        writer.bool(3, allowHtml)
+        writer.uint32(4, messageLength)
+        writer.uint32(5, imageMessageLength)
+        writer.uint32(6, maxUsers)
+        writer.bool(7, recordingAllowed)
+        return writer.data
     }
 }
-
-// MARK: - SuggestConfig (25)
 
 public struct SuggestConfigMessage: DecodableControlMessage, Sendable {
     public static let messageType = MessageType.suggestConfig
@@ -953,35 +904,28 @@ public struct SuggestConfigMessage: DecodableControlMessage, Sendable {
     public var versionV2: UInt64?
 
     public init(payload: Data) throws {
-        var r = ProtobufReader(payload)
-        try r.forEachField { f in
-            switch f.number {
-            case 1: versionV1 = f.uint32Value
-            case 2: positional = f.boolValue
-            case 3: pushToTalk = f.boolValue
-            case 4: versionV2 = f.uint64Value
+        var reader = ProtobufReader(payload)
+        try reader.forEachField { field in
+            switch field.number {
+            case 1: versionV1 = field.uint32Value
+            case 2: positional = field.boolValue
+            case 3: pushToTalk = field.boolValue
+            case 4: versionV2 = field.uint64Value
             default: break
             }
         }
     }
 
     public func encodePayload() -> Data {
-        var w = ProtobufWriter()
-        w.uint32(1, versionV1)
-        w.bool(2, positional)
-        w.bool(3, pushToTalk)
-        w.uint64(4, versionV2)
-        return w.data
+        var writer = ProtobufWriter()
+        writer.uint32(1, versionV1)
+        writer.bool(2, positional)
+        writer.bool(3, pushToTalk)
+        writer.uint64(4, versionV2)
+        return writer.data
     }
 }
 
-// MARK: - Incoming dispatch
-
-/// A decoded control-channel message. Types the client does not model are surfaced as `.unhandled`.
-/// Arbitrary client-to-client data relayed by the server (Mumble 1.4+). Mutter uses it for
-/// screen-share signaling under dataId "mutter/rtc". The server caps `data` at 1000 bytes and
-/// `dataId` at 100 characters, rate-limits per client (burst 15, then 4/s, silently dropping),
-/// and delivers to nobody if `receiverSessions` is empty.
 public struct PluginDataTransmissionMessage: DecodableControlMessage, Sendable {
     public static let messageType = MessageType.pluginDataTransmission
     public static let maxDataLength = 1000
@@ -997,33 +941,24 @@ public struct PluginDataTransmissionMessage: DecodableControlMessage, Sendable {
     }
 
     public init(payload: Data) throws {
-        var r = ProtobufReader(payload)
-        try r.forEachField { f in
-            switch f.number {
-            case 1: senderSession = f.uint32Value
-            case 2: receiverSessions.append(contentsOf: Self.sessions(f))
-            case 3: data = f.payload
-            case 4: dataId = f.stringValue ?? ""
+        var reader = ProtobufReader(payload)
+        try reader.forEachField { field in
+            switch field.number {
+            case 1: senderSession = field.uint32Value
+            case 2: receiverSessions.append(contentsOf: ChannelStateMessage.packedOrSingle(field))
+            case 3: data = field.payload
+            case 4: dataId = field.stringValue
             default: break
             }
         }
     }
 
-    /// Repeated uint32 arrives either packed or one field per value.
-    private static func sessions(_ f: ProtobufField) -> [UInt32] {
-        if f.wireType == .varint { return [f.uint32Value] }
-        var out: [UInt32] = []
-        var r = ProtobufReader(f.payload)
-        while !r.isAtEnd, let v = try? r.readRawVarint() { out.append(UInt32(truncatingIfNeeded: v)) }
-        return out
-    }
-
     public func encodePayload() -> Data {
-        var w = ProtobufWriter()
-        for r in receiverSessions { w.uint32(2, r) }
-        w.bytes(3, data)
-        w.string(4, dataId)
-        return w.data
+        var writer = ProtobufWriter()
+        for receiver in receiverSessions { writer.uint32(2, receiver) }
+        writer.bytes(3, data)
+        writer.string(4, dataId)
+        return writer.data
     }
 }
 

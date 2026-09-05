@@ -102,8 +102,7 @@ struct HomeView: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Theme.background)
+            .themedList()
             .navigationTitle("Mutter")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -165,7 +164,7 @@ struct HomeView: View {
                         Spacer(minLength: 0)
                         Pill(text: "\(status.users)/\(status.maxUsers)", symbol: "person.2.fill", color: status.users > 0 ? Theme.speaking : Theme.muted)
                         HStack(spacing: 4) {
-                            StatusDot(color: latencyColor(status.latencyMs))
+                            StatusDot(color: Theme.latencyColor(status.latencyMs))
                             Text("\(Int(status.latencyMs)) ms").font(.caption2).foregroundStyle(Theme.muted)
                         }
                     }
@@ -183,9 +182,9 @@ struct HomeView: View {
         }
         .swipeActions(edge: .leading) {
             Button {
-                var s = server
-                s.isFavorite.toggle()
-                model.servers.upsert(s)
+                var updated = server
+                updated.isFavorite.toggle()
+                model.servers.upsert(updated)
             } label: {
                 Label(server.isFavorite ? "Unfavourite" : "Favourite", systemImage: server.isFavorite ? "star.slash" : "star")
             }
@@ -195,12 +194,6 @@ struct HomeView: View {
             Button { editing = server } label: { Label("Edit", systemImage: "pencil") }
             Button(role: .destructive) { model.servers.remove(server) } label: { Label("Delete", systemImage: "trash") }
         }
-    }
-
-    private func latencyColor(_ ms: Double) -> Color {
-        if ms < 90 { return Theme.speaking }
-        if ms < 200 { return Theme.warning }
-        return Theme.danger
     }
 }
 
@@ -243,8 +236,8 @@ struct QuickConnectSheet: View {
         .presentationDetents([.medium])
     }
 
-    private func parse(_ s: String) -> (String, UInt16) {
-        let trimmed = s.trimmingCharacters(in: .whitespaces)
+    private func parse(_ address: String) -> (String, UInt16) {
+        let trimmed = address.trimmingCharacters(in: .whitespaces)
         if let idx = trimmed.lastIndex(of: ":"), !trimmed.contains("]"), trimmed.filter({ $0 == ":" }).count == 1,
            let port = UInt16(trimmed[trimmed.index(after: idx)...]) {
             return (String(trimmed[..<idx]), port)

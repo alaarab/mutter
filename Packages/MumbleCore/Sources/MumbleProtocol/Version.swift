@@ -1,8 +1,5 @@
 import Foundation
 
-/// Mumble protocol version. Two encodings exist on the wire:
-///  - `version_v1` (uint32): major in the top two bytes, minor and patch one byte each. Saturates at 255.
-///  - `version_v2` (uint64): major<<48 | minor<<32 | patch<<16 (bottom 16 bits reserved).
 public struct ProtocolVersion: Comparable, Hashable, CustomStringConvertible, Sendable {
     public var major: UInt16
     public var minor: UInt16
@@ -14,11 +11,8 @@ public struct ProtocolVersion: Comparable, Hashable, CustomStringConvertible, Se
         self.patch = patch
     }
 
-    /// The version this client announces. 1.5.x means the server will speak the
-    /// protobuf UDP format to us; we speak whichever format matches the server.
     public static let client = ProtocolVersion(1, 5, 735)
 
-    /// Servers at or above this version use protobuf-encoded UDP packets.
     public static let protobufUDPIntroduced = ProtocolVersion(1, 5, 0)
 
     public static let unknown = ProtocolVersion(0, 0, 0)

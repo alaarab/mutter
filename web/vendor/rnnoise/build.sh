@@ -1,17 +1,8 @@
 #!/usr/bin/env sh
-# Builds web/app/rnnoise.wasm from RNNoise (xiph.org, BSD-3-Clause) — the classic 2018 model,
-# the one Mumble desktop ships. Needs either Zig (bundles clang + lld; a tarball from
-# ziglang.org is enough, no install) or clang with the wasm32 target plus wasm-ld.
-#
-#   sh web/vendor/rnnoise/build.sh            # uses `zig` from PATH, or ZIG=/path/to/zig
-#
-# Output: web/app/rnnoise.wasm exporting rnnoise_get_size, rnnoise_init, rnnoise_process_frame,
-# malloc and free. wasm32-wasi in reactor mode gives us libc/libm compiled in; the module needs
-# no imports at runtime.
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT="$HERE/../../app/rnnoise.wasm"
-COMMIT=1cbdbcf1283499bbb2230a6b0f126eb9b236defd   # "Correct #endif in rnn.h", 2021 — the classic model, the commit Jitsi pins
+COMMIT=1cbdbcf1283499bbb2230a6b0f126eb9b236defd
 SRC=${RNNOISE_SRC:-/tmp/rnnoise-src}
 
 if [ ! -d "$SRC/src" ]; then

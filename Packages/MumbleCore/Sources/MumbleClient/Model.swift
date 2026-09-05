@@ -58,7 +58,6 @@ public struct User: Identifiable, Hashable, Sendable {
     public var textureHash: Data?
     public var listeningChannels: Set<UInt32> = []
 
-    // Local-only state
     public var isTalking = false
     public var talkingContext: AudioContext = .normal
     public var isLocallyMuted = false
@@ -73,7 +72,6 @@ public struct User: Identifiable, Hashable, Sendable {
 
     public var isRegistered: Bool { userID != nil }
 
-    /// True when the user can't be heard (any mute or suppression).
     public var isSilenced: Bool { isMuted || isSelfMuted || isSuppressed }
 }
 
@@ -183,10 +181,10 @@ public enum ConnectionError: Error, LocalizedError, Sendable {
             return type.userMessage
         case .certificateChanged: return "The server's certificate has changed since you last connected."
         case .certificateRejected: return "You declined the server's certificate."
-        case .network(let s): return s
+        case .network(let message): return message
         case .closedByServer: return "The server closed the connection."
         case .timeout: return "The server stopped responding."
-        case .invalidResponse(let s): return "Unexpected data from server: \(s)"
+        case .invalidResponse(let detail): return "Unexpected data from server: \(detail)"
         }
     }
 }
@@ -203,19 +201,19 @@ public enum SessionNotice: Hashable, Sendable {
 
     public var text: String {
         switch self {
-        case .userJoined(let n): return "\(n) connected"
-        case .userLeft(let n, let reason, let kicked, let banned):
-            var s = banned ? "\(n) was banned" : (kicked ? "\(n) was kicked" : "\(n) disconnected")
-            if let reason, !reason.isEmpty { s += " (\(reason))" }
-            return s
-        case .userMoved(let n, let ch, let actor):
-            if let actor { return "\(actor) moved \(n) to \(ch)" }
-            return "\(n) moved to \(ch)"
-        case .permissionDenied(let s): return s
-        case .textMessage(let m): return "\(m.senderName): \(m.html)"
-        case .disconnected(let r): return r.map { "Disconnected: \($0)" } ?? "Disconnected"
+        case .userJoined(let name): return "\(name) connected"
+        case .userLeft(let name, let reason, let kicked, let banned):
+            var text = banned ? "\(name) was banned" : (kicked ? "\(name) was kicked" : "\(name) disconnected")
+            if let reason, !reason.isEmpty { text += " (\(reason))" }
+            return text
+        case .userMoved(let name, let channel, let actor):
+            if let actor { return "\(actor) moved \(name) to \(channel)" }
+            return "\(name) moved to \(channel)"
+        case .permissionDenied(let message): return message
+        case .textMessage(let message): return "\(message.senderName): \(message.html)"
+        case .disconnected(let reason): return reason.map { "Disconnected: \($0)" } ?? "Disconnected"
         case .connected: return "Connected"
-        case .info(let s): return s
+        case .info(let message): return message
         }
     }
 }

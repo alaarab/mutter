@@ -71,8 +71,7 @@ struct IdentitiesView: View {
                 Section { Text(errorText).foregroundStyle(Theme.danger).font(.footnote) }
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(Theme.background)
+        .themedList()
         .navigationTitle("Certificates")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -166,20 +165,20 @@ struct CreateIdentitySheet: View {
 
     private func create() {
         working = true
-        let cn = name.trimmingCharacters(in: .whitespaces)
+        let commonName = name.trimmingCharacters(in: .whitespaces)
         let mail = email.trimmingCharacters(in: .whitespaces)
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result { try IdentityStore.shared.create(name: cn, commonName: cn, email: mail.isEmpty ? nil : mail) }
-            DispatchQueue.main.async {
-                working = false
-                switch result {
-                case .success(let identity):
-                    if model.settings.defaultIdentityID == nil { model.settings.defaultIdentityID = identity.id }
-                    model.reloadIdentities()
-                    dismiss()
-                case .failure(let error):
-                    errorText = error.localizedDescription
-                }
+        Task {
+            let result = await Task.detached(priority: .userInitiated) {
+                Result { try IdentityStore.shared.create(name: commonName, commonName: commonName, email: mail.isEmpty ? nil : mail) }
+            }.value
+            working = false
+            switch result {
+            case .success(let identity):
+                if model.settings.defaultIdentityID == nil { model.settings.defaultIdentityID = identity.id }
+                model.reloadIdentities()
+                dismiss()
+            case .failure(let error):
+                errorText = error.localizedDescription
             }
         }
     }

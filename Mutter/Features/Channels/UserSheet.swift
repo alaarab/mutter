@@ -121,10 +121,9 @@ struct UserSheet: View {
                         }
                     } header: { SectionLabel(text: "Details") }
                 }
-                .scrollContentBackground(.hidden)
-                .background(Theme.background)
+                .themedList()
                 .navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+                .doneToolbar(dismiss)
                 .onAppear {
                     volume = user.localVolume
                     model.client.requestStats(session: sessionID)
@@ -147,7 +146,7 @@ struct UserSheet: View {
                 }
             } else {
                 EmptyState(symbol: "person.slash", title: "Gone", message: "This person has left the server.")
-                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+                    .doneToolbar(dismiss)
             }
         }
         .presentationDetents([.medium, .large])
@@ -155,8 +154,8 @@ struct UserSheet: View {
 
     @ViewBuilder
     private func statsRows(_ stats: UserStatsMessage) -> some View {
-        if let v = stats.version {
-            LabeledContent("Client", value: [v.release, v.os].compactMap { $0 }.joined(separator: " on "))
+        if let version = stats.version {
+            LabeledContent("Client", value: [version.release, version.os].compactMap { $0 }.joined(separator: " on "))
         }
         if let secs = stats.onlineSeconds {
             LabeledContent("Online for", value: Duration.seconds(Double(secs)).formatted(.units(allowed: [.days, .hours, .minutes], width: .abbreviated)))

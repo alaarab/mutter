@@ -2,7 +2,6 @@ import SwiftUI
 import MumbleProtocol
 import MumbleClient
 
-/// The server's registered accounts. Admins can rename or remove them.
 struct RegisteredUsersView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -16,10 +15,10 @@ struct RegisteredUsersView: View {
     private var canEdit: Bool { session.serverInfo.permissions.contains(.register) || session.serverInfo.permissions.contains(.write) }
 
     private var users: [RegisteredUser] {
-        let q = search.trimmingCharacters(in: .whitespaces)
+        let query = search.trimmingCharacters(in: .whitespaces)
         let list = session.registeredUsers.sorted { ($0.name ?? "").localizedCaseInsensitiveCompare($1.name ?? "") == .orderedAscending }
-        guard !q.isEmpty else { return list }
-        return list.filter { ($0.name ?? "").localizedCaseInsensitiveContains(q) }
+        guard !query.isEmpty else { return list }
+        return list.filter { ($0.name ?? "").localizedCaseInsensitiveContains(query) }
     }
 
     var body: some View {
@@ -53,24 +52,23 @@ struct RegisteredUsersView: View {
                     }
                 }
             }
-            .scrollContentBackground(.hidden)
-            .background(Theme.background)
+            .themedList()
             .searchable(text: $search, prompt: "Find an account")
             .navigationTitle("Registered users")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .doneToolbar(dismiss)
             .onAppear { model.client.requestRegisteredUsers() }
-            .alert("Rename account", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            .alert("Rename account", isPresented: Binding(isPresent: $renaming)) {
                 TextField("Name", text: $newName)
                 Button("Rename") {
-                    if let r = renaming { model.client.renameRegisteredUser(id: r.userId, name: newName) }
+                    if let target = renaming { model.client.renameRegisteredUser(id: target.userId, name: newName) }
                     renaming = nil
                 }
                 Button("Cancel", role: .cancel) { renaming = nil }
             }
-            .confirmationDialog("Remove “\(removing?.name ?? "")” from the server’s accounts?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible) {
+            .confirmationDialog("Remove “\(removing?.name ?? "")” from the server’s accounts?", isPresented: Binding(isPresent: $removing), titleVisibility: .visible) {
                 Button("Remove", role: .destructive) {
-                    if let r = removing { model.client.removeRegisteredUser(id: r.userId) }
+                    if let target = removing { model.client.removeRegisteredUser(id: target.userId) }
                     removing = nil
                 }
             }

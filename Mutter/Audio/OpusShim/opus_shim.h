@@ -1,4 +1,3 @@
-// Thin C wrappers around libopus' variadic opus_*_ctl() calls, which Swift cannot call directly.
 #ifndef OPUS_SHIM_H
 #define OPUS_SHIM_H
 

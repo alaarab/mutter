@@ -1,149 +1,264 @@
-// Signal processing shared by the capture worklet and the tests. Plain ES module, no DOM, so
-// it runs on the audio render thread and under Node alike.
+const FRAME = 1024;
+const HOP = 512;
+const HALF = 512;
+const LOW_CUT_BIN = 2;
+const WARMUP_FRAMES = 8;
+const LOW_BAND_TOP_BIN = 22;
+const HIGH_BAND_FROM_BIN = 64;
+const CLICK_DUCK_FROM_BIN = 32;
+const CLICK_DUCK_GAIN = 0.1;
+const CLICK_JUMP_DB = 12;
+const MAX_CLICK_RUN = 3;
+const NOISE_FLOOR = 1e-8;
 
-/// In-place radix-2 complex FFT. `re`/`im` are Float32Arrays whose length is a power of two.
-export class FFT {
-  constructor(n) {
-    this.n = n;
-    this.rev = new Uint32Array(n);
-    const bits = Math.log2(n);
-    for (let i = 0; i < n; i++) { let r = 0; for (let b = 0; b < bits; b++) r = (r << 1) | ((i >> b) & 1); this.rev[i] = r; }
-    this.cos = new Float32Array(n / 2); this.sin = new Float32Array(n / 2);
-    for (let i = 0; i < n / 2; i++) { this.cos[i] = Math.cos(2 * Math.PI * i / n); this.sin[i] = Math.sin(2 * Math.PI * i / n); }
+export function feedBlocks(input, block, filled, onFull) {
+  let offset = 0;
+  while (offset < input.length) {
+    const take = Math.min(input.length - offset, block.length - filled);
+    block.set(input.subarray(offset, offset + take), filled);
+    filled += take;
+    offset += take;
+    if (filled === block.length) {
+      filled = onFull() ?? 0;
+    }
   }
+  return filled;
+}
+
+function swap(array, i, j) {
+  const held = array[i];
+  array[i] = array[j];
+  array[j] = held;
+}
+
+export class FFT {
+  constructor(size) {
+    this.size = size;
+    this.reversed = new Uint32Array(size);
+    const bits = Math.log2(size);
+    for (let i = 0; i < size; i++) {
+      let reversed = 0;
+      for (let bit = 0; bit < bits; bit++) {
+        reversed = (reversed << 1) | ((i >> bit) & 1);
+      }
+      this.reversed[i] = reversed;
+    }
+    this.cos = new Float32Array(size / 2);
+    this.sin = new Float32Array(size / 2);
+    for (let i = 0; i < size / 2; i++) {
+      this.cos[i] = Math.cos((2 * Math.PI * i) / size);
+      this.sin[i] = Math.sin((2 * Math.PI * i) / size);
+    }
+  }
+
   transform(re, im, inverse = false) {
-    const { n, rev, cos, sin } = this;
-    for (let i = 0; i < n; i++) { const j = rev[i]; if (j > i) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; } }
-    for (let size = 2; size <= n; size <<= 1) {
-      const half = size >> 1, step = n / size;
-      for (let start = 0; start < n; start += size) {
-        for (let k = 0, t = 0; k < half; k++, t += step) {
-          const wr = cos[t], wi = inverse ? sin[t] : -sin[t];
-          const a = start + k, b = a + half;
-          const xr = re[b] * wr - im[b] * wi, xi = re[b] * wi + im[b] * wr;
-          re[b] = re[a] - xr; im[b] = im[a] - xi;
-          re[a] += xr; im[a] += xi;
+    const { size, reversed, cos, sin } = this;
+    for (let i = 0; i < size; i++) {
+      const j = reversed[i];
+      if (j > i) {
+        swap(re, i, j);
+        swap(im, i, j);
+      }
+    }
+    for (let span = 2; span <= size; span <<= 1) {
+      const half = span >> 1;
+      const step = size / span;
+      for (let start = 0; start < size; start += span) {
+        for (let k = 0, twiddle = 0; k < half; k++, twiddle += step) {
+          const wr = cos[twiddle];
+          const wi = inverse ? sin[twiddle] : -sin[twiddle];
+          const a = start + k;
+          const b = a + half;
+          const xr = re[b] * wr - im[b] * wi;
+          const xi = re[b] * wi + im[b] * wr;
+          re[b] = re[a] - xr;
+          im[b] = im[a] - xi;
+          re[a] += xr;
+          im[a] += xi;
         }
       }
     }
   }
 }
 
-/// Streaming spectral noise suppressor — a port of NoiseSuppressor.swift from the iOS app.
-///
-/// 1024-point frames at 48 kHz with 50% overlap and sqrt-Hann windows, a per-bin noise
-/// estimate that adapts quickly to noise-like frames and slowly during speech, a
-/// decision-directed a-priori SNR (Ephraim–Malah) and a Wiener gain with a floor against
-/// musical noise. Bins below ~90 Hz are dropped, which doubles as a rumble filter. Removes
-/// stationary noise (hiss, fans, hum) on top of whatever the browser's own suppression does.
 export class NoiseSuppressor {
   static LEVELS = {
     off: { gainFloor: 1, overSubtraction: 1 },
-    light: { gainFloor: 0.316, overSubtraction: 1.2 },     // floor −10 dB
-    strong: { gainFloor: 0.08, overSubtraction: 1.6 },     // floor −22 dB
+    light: { gainFloor: 0.316, overSubtraction: 1.2 },
+    strong: { gainFloor: 0.08, overSubtraction: 1.6 },
   };
 
   constructor(level = 'strong') {
-    this.n = 1024; this.hop = 512; this.half = 512; this.lowCutBin = 2;
-    this.fft = new FFT(this.n);
-    this.window = new Float32Array(this.n);
-    for (let k = 0; k < this.n; k++) this.window[k] = Math.sqrt(0.5 - 0.5 * Math.cos(2 * Math.PI * k / this.n));
-    this.re = new Float32Array(this.n); this.im = new Float32Array(this.n);
-    this.inBuf = new Float32Array(this.n); this.inFill = 0;
-    this.overlap = new Float32Array(this.n);
-    this.noise = new Float32Array(this.half + 1).fill(1e-6);
-    this.prevGain = new Float32Array(this.half + 1).fill(1);
-    this.prevPower = new Float32Array(this.half + 1);
-    this.gain = new Float32Array(this.half + 1).fill(1);
-    this.power = new Float32Array(this.half + 1);
-    this.frameCount = 0;
     this.level = level;
-    this.hfEnvDb = -60; this.lfEnvDb = -60; this.clickRun = 0;   // click detector state
+    this.fft = new FFT(FRAME);
+    this.window = new Float32Array(FRAME);
+    for (let k = 0; k < FRAME; k++) {
+      this.window[k] = Math.sqrt(0.5 - 0.5 * Math.cos((2 * Math.PI * k) / FRAME));
+    }
+    this.re = new Float32Array(FRAME);
+    this.im = new Float32Array(FRAME);
+    this.inputBuffer = new Float32Array(FRAME);
+    this.inputFill = 0;
+    this.overlap = new Float32Array(FRAME);
+    this.noise = new Float32Array(HALF + 1).fill(1e-6);
+    this.prevGain = new Float32Array(HALF + 1).fill(1);
+    this.prevPower = new Float32Array(HALF + 1);
+    this.gain = new Float32Array(HALF + 1).fill(1);
+    this.power = new Float32Array(HALF + 1);
+    this.frameCount = 0;
+    this.highEnvelopeDb = -60;
+    this.lowEnvelopeDb = -60;
+    this.clickRun = 0;
     this.clicks = 0;
   }
 
-  /// Feed samples in, get processed samples out: a Float32Array whose length is whatever the
-  /// overlap-add has completed (multiples of 512, ~10 ms behind). Off passes input straight
-  /// through with no delay.
   process(input) {
-    if (this.level === 'off') { if (this.inFill) this.reset(); return input; }
-    const chunks = [];
-    let i = 0;
-    while (i < input.length) {
-      const take = Math.min(this.n - this.inFill, input.length - i);
-      this.inBuf.set(input.subarray(i, i + take), this.inFill);
-      this.inFill += take; i += take;
-      if (this.inFill === this.n) {
-        this._frame();
-        chunks.push(this.overlap.slice(0, this.hop));
-        this.overlap.copyWithin(0, this.hop); this.overlap.fill(0, this.n - this.hop);
-        this.inBuf.copyWithin(0, this.hop); this.inFill = this.n - this.hop;
+    if (this.level === 'off') {
+      if (this.inputFill) {
+        this.reset();
       }
+      return input;
     }
-    if (chunks.length === 1) return chunks[0];
-    const out = new Float32Array(chunks.reduce((n, c) => n + c.length, 0));
-    let o = 0;
-    for (const c of chunks) { out.set(c, o); o += c.length; }
-    return out;
+    const chunks = [];
+    this.inputFill = feedBlocks(input, this.inputBuffer, this.inputFill, () => {
+      this.processFrame();
+      chunks.push(this.overlap.slice(0, HOP));
+      this.overlap.copyWithin(0, HOP);
+      this.overlap.fill(0, FRAME - HOP);
+      this.inputBuffer.copyWithin(0, HOP);
+      return FRAME - HOP;
+    });
+    return chunks.length === 1 ? chunks[0] : concatFloat(chunks);
   }
 
   reset() {
-    this.inFill = 0; this.inBuf.fill(0); this.overlap.fill(0);
-    this.noise.fill(1e-6); this.prevGain.fill(1); this.prevPower.fill(0); this.frameCount = 0;
-    this.hfEnvDb = -60; this.lfEnvDb = -60; this.clickRun = 0;
+    this.inputFill = 0;
+    this.inputBuffer.fill(0);
+    this.overlap.fill(0);
+    this.noise.fill(1e-6);
+    this.prevGain.fill(1);
+    this.prevPower.fill(0);
+    this.frameCount = 0;
+    this.highEnvelopeDb = -60;
+    this.lowEnvelopeDb = -60;
+    this.clickRun = 0;
   }
 
-  _frame() {
-    const { n, half, re, im, window, noise, prevGain, prevPower, gain, power } = this;
-    const { gainFloor, overSubtraction } = NoiseSuppressor.LEVELS[this.level] ?? NoiseSuppressor.LEVELS.strong;
-    for (let k = 0; k < n; k++) { re[k] = this.inBuf[k] * window[k]; im[k] = 0; }
-    this.fft.transform(re, im);
-    for (let k = 0; k <= half; k++) power[k] = re[k] * re[k] + im[k] * im[k];
+  processFrame() {
+    const { re, im, window, noise, prevGain, prevPower, gain, power } = this;
+    const levels = NoiseSuppressor.LEVELS[this.level] ?? NoiseSuppressor.LEVELS.strong;
+    const { gainFloor, overSubtraction } = levels;
 
-    // Keyboard clicks: a sudden broadband burst whose energy sits above 3 kHz while the voice
-    // band under 1 kHz barely moved. Spectral subtraction can't see them (they aren't
-    // stationary), so on Strong the frame's high band is ducked instead. Voiced speech onsets
-    // carry low-band energy and are left alone; an isolated "s" loses at most one 10 ms frame.
-    let total = 0, lf = 0, hf = 0;
-    for (let k = 1; k <= half; k++) { const p = power[k]; total += p; if (k < 22) lf += p; else if (k >= 64) hf += p; }
-    const lfDb = 10 * Math.log10(lf / n + 1e-12), hfDb = 10 * Math.log10(hf / n + 1e-12);
-    // The high band jumped ≥12 dB over its own envelope, and either the frame is mostly high band
-    // (click in silence) or the voice band held steady (click over speech). Three frames at most,
-    // so a sustained "s" is speech, not a click.
-    const click = this.level === 'strong' && this.frameCount > 8 && hfDb - this.hfEnvDb > 12 && (hf / (total + 1e-12) > 0.55 || lfDb - this.lfEnvDb < 6) && this.clickRun < 3;
-    if (click) { this.clickRun++; this.clicks++; }
-    else { this.clickRun = 0; this.hfEnvDb += (hfDb > this.hfEnvDb ? 0.08 : 0.02) * (hfDb - this.hfEnvDb); this.lfEnvDb += (lfDb > this.lfEnvDb ? 0.08 : 0.02) * (lfDb - this.lfEnvDb); }
-
-    const warmingUp = ++this.frameCount <= 8;
-    for (let k = 0; k <= half; k++) {
-      const p = power[k];
-      if (warmingUp) noise[k] = Math.max(p, 1e-8);
-      else if (!click) {
-        const post = p / Math.max(noise[k], 1e-10);
-        noise[k] = Math.max(noise[k] + (post < 3 ? 0.06 : 0.0025) * (p - noise[k]), 1e-8);
-      }
-      const nEst = noise[k] * overSubtraction;
-      const instantaneous = Math.max(p / nEst - 1, 0);
-      const prior = 0.98 * (prevGain[k] * prevGain[k] * prevPower[k] / nEst) + 0.02 * instantaneous;
-      let g = Math.max(prior / (1 + prior), gainFloor);
-      if (k < this.lowCutBin) g = 0;
-      gain[k] = g; prevGain[k] = g; prevPower[k] = p;
+    for (let k = 0; k < FRAME; k++) {
+      re[k] = this.inputBuffer[k] * window[k];
+      im[k] = 0;
     }
-    let prev = gain[0];
-    for (let k = 1; k < half; k++) { const cur = gain[k]; gain[k] = 0.25 * prev + 0.5 * cur + 0.25 * gain[k + 1]; prev = cur; }
-    if (click) for (let k = 32; k <= half; k++) gain[k] *= 0.1;       // −20 dB above 1.5 kHz for this frame
+    this.fft.transform(re, im);
+    for (let k = 0; k <= HALF; k++) {
+      power[k] = re[k] * re[k] + im[k] * im[k];
+    }
 
-    for (let k = 0; k <= half; k++) { re[k] *= gain[k]; im[k] *= gain[k]; }
-    for (let k = 1; k < half; k++) { re[n - k] = re[k]; im[n - k] = -im[k]; }   // keep the spectrum Hermitian
+    const click = this.detectClick();
+    const warmingUp = ++this.frameCount <= WARMUP_FRAMES;
+    for (let k = 0; k <= HALF; k++) {
+      const binPower = power[k];
+      if (warmingUp) {
+        noise[k] = Math.max(binPower, NOISE_FLOOR);
+      } else if (!click) {
+        const posterior = binPower / Math.max(noise[k], 1e-10);
+        const rate = posterior < 3 ? 0.06 : 0.0025;
+        noise[k] = Math.max(noise[k] + rate * (binPower - noise[k]), NOISE_FLOOR);
+      }
+      const noiseEstimate = noise[k] * overSubtraction;
+      const instantaneous = Math.max(binPower / noiseEstimate - 1, 0);
+      const prior = 0.98 * ((prevGain[k] * prevGain[k] * prevPower[k]) / noiseEstimate) + 0.02 * instantaneous;
+      let binGain = Math.max(prior / (1 + prior), gainFloor);
+      if (k < LOW_CUT_BIN) {
+        binGain = 0;
+      }
+      gain[k] = binGain;
+      prevGain[k] = binGain;
+      prevPower[k] = binPower;
+    }
+
+    let previous = gain[0];
+    for (let k = 1; k < HALF; k++) {
+      const current = gain[k];
+      gain[k] = 0.25 * previous + 0.5 * current + 0.25 * gain[k + 1];
+      previous = current;
+    }
+    if (click) {
+      for (let k = CLICK_DUCK_FROM_BIN; k <= HALF; k++) {
+        gain[k] *= CLICK_DUCK_GAIN;
+      }
+    }
+
+    for (let k = 0; k <= HALF; k++) {
+      re[k] *= gain[k];
+      im[k] *= gain[k];
+    }
+    for (let k = 1; k < HALF; k++) {
+      re[FRAME - k] = re[k];
+      im[FRAME - k] = -im[k];
+    }
     this.fft.transform(re, im, true);
-    const scale = 1 / n;
-    for (let k = 0; k < n; k++) this.overlap[k] += re[k] * scale * window[k];
+    const scale = 1 / FRAME;
+    for (let k = 0; k < FRAME; k++) {
+      this.overlap[k] += re[k] * scale * window[k];
+    }
+  }
+
+  detectClick() {
+    const { power } = this;
+    let total = 0;
+    let low = 0;
+    let high = 0;
+    for (let k = 1; k <= HALF; k++) {
+      const binPower = power[k];
+      total += binPower;
+      if (k < LOW_BAND_TOP_BIN) {
+        low += binPower;
+      } else if (k >= HIGH_BAND_FROM_BIN) {
+        high += binPower;
+      }
+    }
+    const lowDb = 10 * Math.log10(low / FRAME + 1e-12);
+    const highDb = 10 * Math.log10(high / FRAME + 1e-12);
+    const highJumped = highDb - this.highEnvelopeDb > CLICK_JUMP_DB;
+    const mostlyHighBand = high / (total + 1e-12) > 0.55;
+    const lowHeldSteady = lowDb - this.lowEnvelopeDb < 6;
+    const click =
+      this.level === 'strong' &&
+      this.frameCount > WARMUP_FRAMES &&
+      highJumped &&
+      (mostlyHighBand || lowHeldSteady) &&
+      this.clickRun < MAX_CLICK_RUN;
+    if (click) {
+      this.clickRun++;
+      this.clicks++;
+      return true;
+    }
+    this.clickRun = 0;
+    this.highEnvelopeDb += (highDb > this.highEnvelopeDb ? 0.08 : 0.02) * (highDb - this.highEnvelopeDb);
+    this.lowEnvelopeDb += (lowDb > this.lowEnvelopeDb ? 0.08 : 0.02) * (lowDb - this.lowEnvelopeDb);
+    return false;
   }
 }
 
-/// RMS level in dBFS of a Float32Array.
+function concatFloat(chunks) {
+  const out = new Float32Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return out;
+}
+
 export function dbfs(samples) {
   let sum = 0;
-  for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
+  for (let i = 0; i < samples.length; i++) {
+    sum += samples[i] * samples[i];
+  }
   return 20 * Math.log10(Math.sqrt(sum / samples.length) + 1e-9);
 }

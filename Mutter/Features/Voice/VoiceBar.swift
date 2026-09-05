@@ -1,7 +1,6 @@
 import SwiftUI
 import MumbleClient
 
-/// Persistent voice controls shown above the tab strip while connected.
 struct VoiceBar: View {
     @Environment(AppModel.self) private var model
     @State private var showTargets = false
@@ -23,8 +22,8 @@ struct VoiceBar: View {
                             .truncationMode(.tail)
                     }
                     HStack(spacing: -6) {
-                        ForEach(session.talkingUsers.prefix(5)) { u in
-                            Avatar(name: u.name, texture: u.texture, size: 18)
+                        ForEach(session.talkingUsers.prefix(5)) { user in
+                            Avatar(name: user.name, texture: user.texture, size: 18)
                                 .overlay(Circle().strokeBorder(Theme.surface, lineWidth: 1.5))
                         }
                         if session.talkingUsers.isEmpty {
@@ -68,9 +67,12 @@ struct VoiceBar: View {
                 Menu {
                     Picker("Audio output", selection: Binding(
                         get: { model.settings.audioRoute },
-                        set: { model.settings.audioRoute = $0; audio.route = $0 }
+                        set: {
+                            model.settings.audioRoute = $0
+                            audio.route = $0
+                        }
                     )) {
-                        ForEach(AudioRoute.allCases) { r in Label(r.title, systemImage: r.symbol).tag(r) }
+                        ForEach(AudioRoute.allCases) { route in Label(route.title, systemImage: route.symbol).tag(route) }
                     }
                 } label: {
                     Image(systemName: model.settings.audioRoute.symbol)
@@ -84,9 +86,12 @@ struct VoiceBar: View {
                 Menu {
                     Picker("Transmit", selection: Binding(
                         get: { model.settings.transmitMode },
-                        set: { model.settings.transmitMode = $0; audio.transmitMode = $0 }
+                        set: {
+                            model.settings.transmitMode = $0
+                            audio.transmitMode = $0
+                        }
                     )) {
-                        ForEach(TransmitMode.allCases) { m in Label(m.title, systemImage: m.symbol).tag(m) }
+                        ForEach(TransmitMode.allCases) { mode in Label(mode.title, systemImage: mode.symbol).tag(mode) }
                     }
                     Button { showTargets = true } label: {
                         Label(model.whisperTarget == nil ? "Whisper or shout…" : "Whisper target: \(model.whisperTarget!.title(in: session))", systemImage: "person.wave.2")
@@ -146,10 +151,8 @@ struct VoiceBar: View {
     }
 }
 
-/// Hold to send your voice to the whisper/shout target instead of the channel.
 struct WhisperHoldButton: View {
     @Environment(AppModel.self) private var model
-    @State private var pressed = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -161,19 +164,12 @@ struct WhisperHoldButton: View {
         .frame(height: 48)
         .background(model.isWhisperHeld ? Theme.whisper : Theme.whisper.opacity(0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    if !pressed {
-                        pressed = true
-                        model.setWhisperHeld(true)
-                        UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
-                    }
-                }
-                .onEnded { _ in
-                    pressed = false
-                    model.setWhisperHeld(false)
-                }
+        .onHold(
+            onPress: {
+                model.setWhisperHeld(true)
+                Haptics.impact(.rigid)
+            },
+            onRelease: { model.setWhisperHeld(false) }
         )
         .accessibilityLabel("Hold to whisper")
     }
@@ -181,7 +177,6 @@ struct WhisperHoldButton: View {
 
 struct PushToTalkButton: View {
     @Environment(AppModel.self) private var model
-    @State private var pressed = false
 
     private var isOn: Bool { model.audio.isPushToTalkPressed }
 
@@ -191,24 +186,17 @@ struct PushToTalkButton: View {
             if toggle {
                 Button {
                     model.audio.isPushToTalkPressed.toggle()
-                    UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+                    Haptics.impact(.rigid)
                 } label: { label }
                 .buttonStyle(.plain)
             } else {
                 label
-                    .gesture(
-                        DragGesture(minimumDistance: 0)
-                            .onChanged { _ in
-                                if !pressed {
-                                    pressed = true
-                                    model.audio.isPushToTalkPressed = true
-                                    UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
-                                }
-                            }
-                            .onEnded { _ in
-                                pressed = false
-                                model.audio.isPushToTalkPressed = false
-                            }
+                    .onHold(
+                        onPress: {
+                            model.audio.isPushToTalkPressed = true
+                            Haptics.impact(.rigid)
+                        },
+                        onRelease: { model.audio.isPushToTalkPressed = false }
                     )
             }
         }

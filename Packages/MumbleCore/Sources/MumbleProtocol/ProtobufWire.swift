@@ -1,7 +1,5 @@
 import Foundation
 
-/// Minimal protocol-buffers wire codec. Mumble's messages only use varint, 32-bit,
-/// 64-bit and length-delimited fields, so this covers everything without a code generator.
 public enum WireType: UInt8 {
     case varint = 0
     case fixed64 = 1
@@ -21,12 +19,12 @@ public struct ProtobufWriter {
     }
 
     public mutating func writeRawVarint(_ value: UInt64) {
-        var v = value
-        while v >= 0x80 {
-            data.append(UInt8(v & 0x7F) | 0x80)
-            v >>= 7
+        var remaining = value
+        while remaining >= 0x80 {
+            data.append(UInt8(remaining & 0x7F) | 0x80)
+            remaining >>= 7
         }
-        data.append(UInt8(v))
+        data.append(UInt8(remaining))
     }
 
     public mutating func uint32(_ field: Int, _ value: UInt32?) {
@@ -44,7 +42,6 @@ public struct ProtobufWriter {
     public mutating func int32(_ field: Int, _ value: Int32?) {
         guard let value else { return }
         key(field, .varint)
-        // Negative int32 is sign-extended to 10 bytes in protobuf.
         writeRawVarint(UInt64(bitPattern: Int64(value)))
     }
 
@@ -78,19 +75,19 @@ public struct ProtobufWriter {
     }
 
     public mutating func repeatedUInt32(_ field: Int, _ values: [UInt32]) {
-        for v in values { uint32(field, v) }
+        for value in values { uint32(field, value) }
     }
 
     public mutating func repeatedInt32(_ field: Int, _ values: [Int32]) {
-        for v in values { int32(field, v) }
+        for value in values { int32(field, value) }
     }
 
     public mutating func repeatedString(_ field: Int, _ values: [String]) {
-        for v in values { string(field, v) }
+        for value in values { string(field, value) }
     }
 
     public mutating func repeatedFloat(_ field: Int, _ values: [Float]) {
-        for v in values { float(field, v) }
+        for value in values { float(field, value) }
     }
 }
 
@@ -129,65 +126,64 @@ public struct ProtobufReader {
 
     public var isAtEnd: Bool { cursor >= data.count }
 
-    private func byte(at i: Int) -> UInt8? {
-        let idx = data.startIndex + i
-        return idx < data.endIndex ? data[idx] : nil
+    private func byte(at index: Int) -> UInt8? {
+        let position = data.startIndex + index
+        return position < data.endIndex ? data[position] : nil
     }
 
     public mutating func readRawVarint() throws -> UInt64 {
         var result: UInt64 = 0
         var shift: UInt64 = 0
         while true {
-            guard let b = byte(at: cursor) else { throw ProtobufError.truncated }
+            guard let byte = byte(at: cursor) else { throw ProtobufError.truncated }
             cursor += 1
-            result |= UInt64(b & 0x7F) << shift
-            if b & 0x80 == 0 { return result }
+            result |= UInt64(byte & 0x7F) << shift
+            if byte & 0x80 == 0 { return result }
             shift += 7
             if shift > 63 { throw ProtobufError.truncated }
         }
+    }
+
+    private mutating func readFixed(_ count: Int) throws -> Data {
+        guard cursor + count <= data.count else { throw ProtobufError.truncated }
+        let start = data.startIndex + cursor
+        let slice = data[start..<(start + count)]
+        cursor += count
+        return Data(slice)
     }
 
     public mutating func next() throws -> ProtobufField? {
         if isAtEnd { return nil }
         let key = try readRawVarint()
         let number = Int(key >> 3)
-        guard let wt = WireType(rawValue: UInt8(key & 0x07)) else { throw ProtobufError.badWireType }
-        switch wt {
+        guard let wireType = WireType(rawValue: UInt8(key & 0x07)) else { throw ProtobufError.badWireType }
+        switch wireType {
         case .varint:
-            let v = try readRawVarint()
-            return ProtobufField(number: number, wireType: wt, varint: v, payload: Data())
+            let value = try readRawVarint()
+            return ProtobufField(number: number, wireType: wireType, varint: value, payload: Data())
         case .fixed64:
-            guard cursor + 8 <= data.count else { throw ProtobufError.truncated }
-            let start = data.startIndex + cursor
-            let slice = data[start..<(start + 8)]
-            cursor += 8
-            var v: UInt64 = 0
-            withUnsafeMutableBytes(of: &v) { $0.copyBytes(from: slice) }
-            return ProtobufField(number: number, wireType: wt, varint: UInt64(littleEndian: v), payload: Data(slice))
+            let slice = try readFixed(8)
+            var value: UInt64 = 0
+            withUnsafeMutableBytes(of: &value) { $0.copyBytes(from: slice) }
+            return ProtobufField(number: number, wireType: wireType, varint: UInt64(littleEndian: value), payload: slice)
         case .fixed32:
-            guard cursor + 4 <= data.count else { throw ProtobufError.truncated }
-            let start = data.startIndex + cursor
-            let slice = data[start..<(start + 4)]
-            cursor += 4
-            var v: UInt32 = 0
-            withUnsafeMutableBytes(of: &v) { $0.copyBytes(from: slice) }
-            return ProtobufField(number: number, wireType: wt, varint: UInt64(UInt32(littleEndian: v)), payload: Data(slice))
+            let slice = try readFixed(4)
+            var value: UInt32 = 0
+            withUnsafeMutableBytes(of: &value) { $0.copyBytes(from: slice) }
+            return ProtobufField(number: number, wireType: wireType, varint: UInt64(UInt32(littleEndian: value)), payload: slice)
         case .lengthDelimited:
-            let len = Int(try readRawVarint())
-            guard len >= 0, cursor + len <= data.count else { throw ProtobufError.truncated }
-            let start = data.startIndex + cursor
-            let slice = Data(data[start..<(start + len)])
-            cursor += len
-            return ProtobufField(number: number, wireType: wt, varint: 0, payload: slice)
+            let length = Int(try readRawVarint())
+            guard length >= 0 else { throw ProtobufError.truncated }
+            let slice = try readFixed(length)
+            return ProtobufField(number: number, wireType: wireType, varint: 0, payload: slice)
         case .startGroup, .endGroup:
             throw ProtobufError.badWireType
         }
     }
 
-    /// Iterates every field, handing each to `handler`. Unknown fields are simply skipped by the caller.
     public mutating func forEachField(_ handler: (ProtobufField) throws -> Void) throws {
-        while let f = try next() {
-            try handler(f)
+        while let field = try next() {
+            try handler(field)
         }
     }
 }

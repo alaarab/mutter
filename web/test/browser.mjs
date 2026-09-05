@@ -1,11 +1,3 @@
-// Drives headless Chromium over the DevTools protocol with nothing but Node's built-in
-// WebSocket, so the test suite keeps the project's zero-dependency rule.
-//
-//   const b = await launch();
-//   const page = await b.newPage('http://localhost:8788');
-//   console.log(await page.eval('document.title'));
-//   await b.close();
-
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import fs from 'node:fs';
@@ -13,115 +5,185 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-/// Runs web/bridge/server.mjs on a free port. Pages must come from http://localhost: WebCodecs
-/// and getUserMedia only exist in secure contexts, and about:blank isn't one.
+const BRIDGE_PORT_BASE = 8800;
+const BRIDGE_PORT_SPREAD = 400;
+const DEBUG_PORT_BASE = 9300;
+const DEBUG_PORT_SPREAD = 600;
+const STARTUP_ATTEMPTS = 100;
+const STARTUP_POLL_MS = 100;
+const VIEWPORT = { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false };
+
+function randomPort(base, spread) {
+  return base + Math.floor(Math.random() * spread);
+}
+
 export async function startBridge({ verbose = !!process.env.VERBOSE } = {}) {
-  const port = 8800 + Math.floor(Math.random() * 400);
+  const port = randomPort(BRIDGE_PORT_BASE, BRIDGE_PORT_SPREAD);
   const script = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bridge', 'server.mjs');
-  const proc = spawn(process.execPath, [script], { env: { ...process.env, PORT: String(port), NO_OPEN: '1' }, stdio: ['ignore', verbose ? 'inherit' : 'ignore', 'inherit'] });
-  for (let i = 0; i < 50; i++) {
-    try { await fetch(`http://localhost:${port}/`); return { port, url: `http://localhost:${port}`, proc, close: () => proc.kill() }; } catch { await sleep(100); }
+  const child = spawn(process.execPath, [script], {
+    env: { ...process.env, PORT: String(port), NO_OPEN: '1' },
+    stdio: ['ignore', verbose ? 'inherit' : 'ignore', 'inherit'],
+  });
+  const url = `http://localhost:${port}`;
+  for (let attempt = 0; attempt < STARTUP_ATTEMPTS / 2; attempt++) {
+    try {
+      await fetch(`${url}/`);
+      return { port, url, proc: child, close: () => child.kill() };
+    } catch {
+      await sleep(STARTUP_POLL_MS);
+    }
   }
-  proc.kill();
+  child.kill();
   throw new Error('bridge did not start');
 }
 
-export async function launch({ fakeMedia = true, args: extra = [], verbose = !!process.env.VERBOSE } = {}) {
-  const bin = process.env.CHROME ?? 'chromium';
-  const port = 9300 + Math.floor(Math.random() * 600);
+export async function launch({ fakeMedia = true, args: extraArgs = [], verbose = !!process.env.VERBOSE } = {}) {
+  const binary = process.env.CHROME ?? 'chromium';
+  const debugPort = randomPort(DEBUG_PORT_BASE, DEBUG_PORT_SPREAD);
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'mutter-chrome-'));
   const args = [
-    '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--no-sandbox',
-    `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`,
+    '--headless=new',
+    '--disable-gpu',
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--no-sandbox',
+    `--remote-debugging-port=${debugPort}`,
+    `--user-data-dir=${profile}`,
     '--autoplay-policy=no-user-gesture-required',
     '--enable-features=WebCodecs',
     ...(fakeMedia ? ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] : []),
-    ...extra, 'about:blank',
+    ...extraArgs,
+    'about:blank',
   ];
-  const proc = spawn(bin, args, { stdio: ['ignore', 'ignore', verbose ? 'inherit' : 'ignore'] });
-  let version;
-  for (let i = 0; i < 100 && !version; i++) {
-    try { version = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json(); } catch { await sleep(100); }
+  const child = spawn(binary, args, { stdio: ['ignore', 'ignore', verbose ? 'inherit' : 'ignore'] });
+  let version = null;
+  for (let attempt = 0; attempt < STARTUP_ATTEMPTS && !version; attempt++) {
+    try {
+      version = await (await fetch(`http://127.0.0.1:${debugPort}/json/version`)).json();
+    } catch {
+      await sleep(STARTUP_POLL_MS);
+    }
   }
-  if (!version) { proc.kill(); throw new Error('Chromium did not start'); }
-  const cdp = new CDP(version.webSocketDebuggerUrl);
-  await cdp.ready;
-  return new Browser(cdp, proc, profile, verbose);
+  if (!version) {
+    child.kill();
+    throw new Error('Chromium did not start');
+  }
+  const devtools = new DevToolsConnection(version.webSocketDebuggerUrl);
+  await devtools.ready;
+  return new Browser(devtools, child, profile, verbose);
 }
 
 class Browser {
-  constructor(cdp, proc, profile, verbose) { this.cdp = cdp; this.proc = proc; this.profile = profile; this.verbose = verbose; }
+  constructor(devtools, child, profile, verbose) {
+    this.devtools = devtools;
+    this.child = child;
+    this.profile = profile;
+    this.verbose = verbose;
+  }
 
   async newPage(url) {
-    const { targetId } = await this.cdp.send('Target.createTarget', { url: 'about:blank' });
-    const { sessionId } = await this.cdp.send('Target.attachToTarget', { targetId, flatten: true });
+    const { targetId } = await this.devtools.send('Target.createTarget', { url: 'about:blank' });
+    const { sessionId } = await this.devtools.send('Target.attachToTarget', { targetId, flatten: true });
     const page = new Page(this, sessionId, targetId);
     await page.send('Runtime.enable');
     await page.send('Page.enable');
-    await page.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
-    if (url) await page.goto(url);
+    await page.send('Emulation.setDeviceMetricsOverride', VIEWPORT);
+    if (url) {
+      await page.goto(url);
+    }
     return page;
   }
 
   async close() {
-    try { await Promise.race([this.cdp.send('Browser.close'), sleep(1500)]); } catch {}
-    this.proc.kill('SIGKILL');
-    try { this.cdp.ws.close(); } catch {}
+    try {
+      await Promise.race([this.devtools.send('Browser.close'), sleep(1500)]);
+    } catch {}
+    this.child.kill('SIGKILL');
+    try {
+      this.devtools.socket.close();
+    } catch {}
     fs.rmSync(this.profile, { recursive: true, force: true });
   }
 }
 
 class Page {
   constructor(browser, sessionId, targetId) {
-    this.browser = browser; this.sessionId = sessionId; this.targetId = targetId;
+    this.browser = browser;
+    this.sessionId = sessionId;
+    this.targetId = targetId;
     this.logs = [];
-    browser.cdp.on('Runtime.consoleAPICalled', (p, sid) => {
-      if (sid !== sessionId) return;
-      const text = p.args.map(a => a.value !== undefined ? String(a.value) : a.description ?? a.type).join(' ');
-      this.logs.push({ type: p.type, text });
-      if (browser.verbose) console.log(`  [page ${p.type}] ${text}`);
+    browser.devtools.on('Runtime.consoleAPICalled', (params, session) => {
+      if (session !== sessionId) {
+        return;
+      }
+      const text = params.args
+        .map((argument) => (argument.value !== undefined ? String(argument.value) : argument.description ?? argument.type))
+        .join(' ');
+      this.logs.push({ type: params.type, text });
+      if (browser.verbose) {
+        console.log(`  [page ${params.type}] ${text}`);
+      }
     });
-    browser.cdp.on('Runtime.exceptionThrown', (p, sid) => {
-      if (sid !== sessionId) return;
-      const text = p.exceptionDetails.exception?.description ?? p.exceptionDetails.text;
+    browser.devtools.on('Runtime.exceptionThrown', (params, session) => {
+      if (session !== sessionId) {
+        return;
+      }
+      const text = params.exceptionDetails.exception?.description ?? params.exceptionDetails.text;
       this.logs.push({ type: 'exception', text });
       console.error(`  [page exception] ${text}`);
     });
   }
 
-  send(method, params = {}) { return this.browser.cdp.send(method, params, this.sessionId); }
+  send(method, params = {}) {
+    return this.browser.devtools.send(method, params, this.sessionId);
+  }
 
   async goto(url) {
-    const loaded = this.browser.cdp.once('Page.loadEventFired', this.sessionId);
-    const nav = await this.send('Page.navigate', { url });
-    if (nav.errorText) throw new Error(`navigate ${url}: ${nav.errorText}`);
+    const loaded = this.browser.devtools.once('Page.loadEventFired', this.sessionId);
+    const navigation = await this.send('Page.navigate', { url });
+    if (navigation.errorText) {
+      throw new Error(`navigate ${url}: ${navigation.errorText}`);
+    }
     await loaded;
   }
 
-  /// Evaluates an expression (awaiting it if it's a promise) and returns the JSON value.
   async eval(expression) {
-    const r = await this.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
-    if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text);
-    return r.result.value;
+    const result = await this.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
+    if (result.exceptionDetails) {
+      throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text);
+    }
+    return result.result.value;
   }
 
-  /// Polls an expression until it's truthy; returns the value.
   async waitFor(expression, { timeout = 10_000, interval = 100, label = expression } = {}) {
     const deadline = Date.now() + timeout;
     while (Date.now() < deadline) {
-      const v = await this.eval(expression);
-      if (v) return v;
+      const value = await this.eval(expression);
+      if (value) {
+        return value;
+      }
       await sleep(interval);
     }
     throw new Error(`timed out waiting for: ${label}`);
   }
 
   async click(selector) {
-    await this.eval(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) throw new Error('no element ' + ${JSON.stringify(selector)}); el.click(); return true; })()`);
+    const quoted = JSON.stringify(selector);
+    await this.eval(`(() => {
+      const element = document.querySelector(${quoted});
+      if (!element) throw new Error('no element ' + ${quoted});
+      element.click();
+      return true;
+    })()`);
   }
 
   async type(selector, value) {
-    await this.eval(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); el.value = ${JSON.stringify(value)}; el.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+    await this.eval(`(() => {
+      const element = document.querySelector(${JSON.stringify(selector)});
+      element.value = ${JSON.stringify(value)};
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`);
   }
 
   async screenshot(file) {
@@ -130,44 +192,87 @@ class Page {
     return file;
   }
 
-  /// Presses and releases a key; `hold` keeps it down until you call the returned release().
   async key(code, key, { down = true, up = true } = {}) {
-    const ev = { key, code, windowsVirtualKeyCode: code === 'Space' ? 32 : undefined, text: key.length === 1 ? key : undefined };
-    if (down) await this.send('Input.dispatchKeyEvent', { type: 'keyDown', ...ev });
-    if (up) await this.send('Input.dispatchKeyEvent', { type: 'keyUp', ...ev });
+    const event = {
+      key,
+      code,
+      windowsVirtualKeyCode: code === 'Space' ? 32 : undefined,
+      text: key.length === 1 ? key : undefined,
+    };
+    if (down) {
+      await this.send('Input.dispatchKeyEvent', { type: 'keyDown', ...event });
+    }
+    if (up) {
+      await this.send('Input.dispatchKeyEvent', { type: 'keyUp', ...event });
+    }
   }
 
-  errors() { return this.logs.filter(l => l.type === 'exception' || l.type === 'error').map(l => l.text); }
+  errors() {
+    return this.logs.filter((entry) => entry.type === 'exception' || entry.type === 'error').map((entry) => entry.text);
+  }
 
-  close() { return this.browser.cdp.send('Target.closeTarget', { targetId: this.targetId }); }
+  close() {
+    return this.browser.devtools.send('Target.closeTarget', { targetId: this.targetId });
+  }
 }
 
-class CDP {
+class DevToolsConnection {
   constructor(url) {
-    this.ws = new WebSocket(url);
-    this.id = 0; this.pending = new Map(); this.listeners = new Map();
-    this.ready = new Promise((res, rej) => { this.ws.onopen = res; this.ws.onerror = () => rej(new Error('CDP socket failed')); });
-    this.ws.onmessage = ev => {
-      const m = JSON.parse(ev.data);
-      if (m.id) {
-        const p = this.pending.get(m.id); this.pending.delete(m.id);
-        if (!p) return;
-        m.error ? p.reject(new Error(`${m.error.message}${m.error.data ? ` (${m.error.data})` : ''}`)) : p.resolve(m.result ?? {});
-      } else {
-        for (const fn of this.listeners.get(m.method) ?? []) fn(m.params, m.sessionId);
-      }
-    };
+    this.socket = new WebSocket(url);
+    this.nextId = 0;
+    this.pending = new Map();
+    this.listeners = new Map();
+    this.ready = new Promise((resolve, reject) => {
+      this.socket.onopen = resolve;
+      this.socket.onerror = () => reject(new Error('CDP socket failed'));
+    });
+    this.socket.onmessage = (event) => this.receive(JSON.parse(event.data));
   }
+
+  receive(message) {
+    if (message.id) {
+      const pending = this.pending.get(message.id);
+      this.pending.delete(message.id);
+      if (!pending) {
+        return;
+      }
+      if (message.error) {
+        const detail = message.error.data ? ` (${message.error.data})` : '';
+        pending.reject(new Error(`${message.error.message}${detail}`));
+      } else {
+        pending.resolve(message.result ?? {});
+      }
+      return;
+    }
+    for (const listener of this.listeners.get(message.method) ?? []) {
+      listener(message.params, message.sessionId);
+    }
+  }
+
   send(method, params = {}, sessionId) {
-    const id = ++this.id;
-    this.ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
+    const id = ++this.nextId;
+    this.socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
     return new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }));
   }
-  on(method, fn) { (this.listeners.get(method) ?? this.listeners.set(method, []).get(method)).push(fn); }
+
+  on(method, listener) {
+    if (!this.listeners.has(method)) {
+      this.listeners.set(method, []);
+    }
+    this.listeners.get(method).push(listener);
+  }
+
   once(method, sessionId) {
-    return new Promise(res => {
-      const fn = (params, sid) => { if (sid === sessionId) { const l = this.listeners.get(method); l.splice(l.indexOf(fn), 1); res(params); } };
-      this.on(method, fn);
+    return new Promise((resolve) => {
+      const listener = (params, session) => {
+        if (session !== sessionId) {
+          return;
+        }
+        const listeners = this.listeners.get(method);
+        listeners.splice(listeners.indexOf(listener), 1);
+        resolve(params);
+      };
+      this.on(method, listener);
     });
   }
 }

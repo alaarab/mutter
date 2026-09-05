@@ -12,22 +12,19 @@ public enum CertificateError: Error, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .keyGeneration(let s): return "Couldn't create a key: \(s)"
-        case .signing(let s): return "Couldn't sign the certificate: \(s)"
+        case .keyGeneration(let reason): return "Couldn't create a key: \(reason)"
+        case .signing(let reason): return "Couldn't sign the certificate: \(reason)"
         case .encoding: return "Couldn't encode the certificate."
-        case .keychain(let s): return "Keychain error \(s)."
-        case .importFailed(let s):
-            if s == errSecAuthFailed { return "Wrong password for that certificate file." }
-            return "Couldn't import the certificate (error \(s))."
+        case .keychain(let status): return "Keychain error \(status)."
+        case .importFailed(let status):
+            if status == errSecAuthFailed { return "Wrong password for that certificate file." }
+            return "Couldn't import the certificate (error \(status))."
         case .notFound: return "Certificate not found."
         }
     }
 }
 
-/// Builds self-signed X.509 client certificates the way the desktop Mumble client does
-/// (RSA-2048, SHA-256, CN + optional email), using only the Security framework.
 public enum CertificateGenerator {
-
     public struct Result {
         public let certificate: SecCertificate
         public let privateKey: SecKey
@@ -81,7 +78,7 @@ public enum CertificateGenerator {
         let keyUsage = DER.sequence([
             DER.oid("2.5.29.15"),
             DER.boolean(true),
-            DER.octetString(DER.bitString(Data([0xA0]), unusedBits: 5)), // digitalSignature, keyEncipherment
+            DER.octetString(DER.bitString(Data([0xA0]), unusedBits: 5)),
         ])
         let extKeyUsage = DER.sequence([
             DER.oid("2.5.29.37"),

@@ -11,11 +11,9 @@ struct TrustPrompt: Identifiable {
     let respond: (Bool) -> Void
 }
 
-/// Composition root: wires the Mumble client, the audio engine, saved servers and settings.
 @MainActor
 @Observable
 final class AppModel {
-    /// Set on init so App Intents (Siri, Shortcuts, Action button, lock screen) can reach the running app.
     static weak var shared: AppModel?
 
     let settings = AppSettings()
@@ -26,12 +24,8 @@ final class AppModel {
 
     private(set) var identities: [ClientIdentity] = IdentityStore.shared.identities
     private(set) var activeServer: SavedServer?
-    /// Back-arrow returns to the server list without leaving the call; this hides the session UI
-    /// while the connection keeps running. Leaving is the explicit Disconnect in the voice-bar menu.
     var isSessionMinimized = false
-    /// Registered as voice target 1 on the server; nil means whispering is off.
     private(set) var whisperTarget: WhisperTarget?
-    /// Route all speech to the whisper target (for voice-activity and always-on modes).
     var isWhisperMode = false { didSet { syncTransmitTarget() } }
     private(set) var isWhisperHeld = false
 
@@ -41,12 +35,10 @@ final class AppModel {
     var trustPrompt: TrustPrompt?
     var toast: SessionNotice?
     var pendingChatScope: MessageScope?
-    /// Channel IDs the user collapsed in the tree, per server.
     var collapsedChannels: [UUID: Set<UInt32>] = [:]
 
     @ObservationIgnored private var toastTask: Task<Void, Never>?
     @ObservationIgnored private var lastNoticeCount = 0
-    @ObservationIgnored private var lastMessageCount = 0
 
     var session: ServerSession { client.session }
 
@@ -55,15 +47,18 @@ final class AppModel {
         screenShare = ScreenShareModel(client: client)
         client.voiceSink = audio
         AppModel.shared = self
-        client.onPluginData = { [weak self] p in
-            guard p.dataId == RTCSignal.dataId else { return }
-            self?.screenShare.handle(p)
+        client.onPluginData = { [weak self] plugin in
+            guard plugin.dataId == RTCSignal.dataId else { return }
+            self?.screenShare.handle(plugin)
         }
 
         client.certificateTrust = { [weak self] question in
             await withCheckedContinuation { continuation in
                 Task { @MainActor in
-                    guard let self else { continuation.resume(returning: false); return }
+                    guard let self else {
+                        continuation.resume(returning: false)
+                        return
+                    }
                     self.trustPrompt = TrustPrompt(question: question) { ok in
                         self.trustPrompt = nil
                         continuation.resume(returning: ok)
@@ -85,7 +80,7 @@ final class AppModel {
                 guard let self else { return }
                 self.client.setTransmitting(on)
                 if self.settings.hapticsOnTransmit && self.settings.transmitMode == .voiceActivity {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    Haptics.impact(.light)
                 }
                 self.refreshPresence()
             }
@@ -110,26 +105,23 @@ final class AppModel {
         applyAudioSettings()
     }
 
-    // MARK: - Connecting
-
     func connect(_ server: SavedServer) {
-        var s = server
-        if s.username.isEmpty { s.username = settings.defaultUsername.isEmpty ? "Mutter" : settings.defaultUsername }
-        activeServer = s
-        var options = ConnectionOptions(username: s.username, password: servers.password(for: s))
-        options.tokens = s.tokens
-        options.expectedFingerprint = s.certificateFingerprint
+        var target = server
+        if target.username.isEmpty { target.username = settings.defaultUsername.isEmpty ? "Mutter" : settings.defaultUsername }
+        activeServer = target
+        var options = ConnectionOptions(username: target.username, password: servers.password(for: target))
+        options.tokens = target.tokens
+        options.expectedFingerprint = target.certificateFingerprint
         options.osVersion = UIDevice.current.systemVersion
-        options.clientRelease = "Mutter \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1")"
-        if let identityID = s.identityID ?? settings.defaultIdentityID,
+        options.clientRelease = "Mutter \(Bundle.main.shortVersion ?? "0.1")"
+        if let identityID = target.identityID ?? settings.defaultIdentityID,
            let identity = identities.first(where: { $0.id == identityID }) {
             options.identity = IdentityStore.shared.secIdentity(for: identity)
         }
-        collapsedChannels[s.id] = collapsedChannels[s.id] ?? []
+        collapsedChannels[target.id] = collapsedChannels[target.id] ?? []
         isSessionMinimized = false
         lastNoticeCount = 0
-        lastMessageCount = 0
-        client.connect(to: s.endpoint, options: options)
+        client.connect(to: target.endpoint, options: options)
         requestNotificationPermission()
     }
 
@@ -148,7 +140,6 @@ final class AppModel {
         stopPresence()
     }
 
-    /// Called by the root view whenever the session state changes.
     func sessionStateDidChange(_ state: ConnectionState) {
         DiagnosticsLog.shared.add("connection", "state → \(state)\(session.lastError.map { " (\($0))" } ?? "")")
         switch state {
@@ -170,8 +161,6 @@ final class AppModel {
         }
     }
 
-    /// Coming back on screen, make sure playback survived whatever else was using the audio
-    /// hardware while we were away.
     func setBackgrounded(_ backgrounded: Bool) {
         guard session.state.isActive, !backgrounded else { return }
         audio.ensureRunning()
@@ -194,8 +183,6 @@ final class AppModel {
         audio.useVoiceProcessing = settings.voiceProcessing
     }
 
-    // MARK: - Voice controls
-
     var isMuted: Bool { session.me?.isSelfMuted ?? false }
     var isDeafened: Bool { session.me?.isSelfDeafened ?? false }
 
@@ -204,7 +191,7 @@ final class AppModel {
         client.setSelfMute(next)
         audio.isMuted = next
         if !next { audio.isDeafened = false }
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        Haptics.impact(.medium)
     }
 
     func toggleDeafen() {
@@ -212,22 +199,18 @@ final class AppModel {
         client.setSelfDeaf(next)
         audio.isDeafened = next
         if next { audio.isMuted = true }
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        Haptics.impact(.medium)
     }
 
-    /// Lock screen / Action button / headset: toggles the talk button in push-to-talk mode,
-    /// otherwise toggles mute.
     func toggleTalk() {
         if settings.transmitMode == .pushToTalk {
             audio.isPushToTalkPressed.toggle()
-            UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+            Haptics.impact(.rigid)
         } else {
             toggleMute()
         }
         refreshPresence()
     }
-
-    // MARK: - Whisper / shout
 
     func setWhisperTarget(_ target: WhisperTarget?) {
         whisperTarget = target
@@ -240,7 +223,6 @@ final class AppModel {
         syncTransmitTarget()
     }
 
-    /// Hold-to-whisper button: transmits to the whisper target while held, in any transmit mode.
     func setWhisperHeld(_ held: Bool) {
         guard whisperTarget != nil, !isMuted else { return }
         isWhisperHeld = held
@@ -256,8 +238,6 @@ final class AppModel {
     }
 
     var isWhisperingNow: Bool { audio.transmitTarget != .normal }
-
-    // MARK: - Lock screen presence (Live Activity + Now Playing)
 
     private func startPresence() {
         remote.activate()
@@ -312,7 +292,7 @@ final class AppModel {
 
     func join(_ channel: Channel) {
         client.join(channel: channel.id)
-        UISelectionFeedbackGenerator().selectionChanged()
+        Haptics.selection()
     }
 
     func toggleCollapsed(_ channelID: UInt32) {
@@ -327,25 +307,23 @@ final class AppModel {
         return collapsedChannels[id]?.contains(channelID) ?? false
     }
 
-    // MARK: - Identities
-
     func reloadIdentities() {
         identities = IdentityStore.shared.identities
     }
 
-    // MARK: - Notices, toasts, notifications
-
-    /// Called by the root view when the session's notice list grows.
     func noticesDidChange(scenePhase: ScenePhase) {
         let notices = session.notices
-        guard notices.count > lastNoticeCount else { lastNoticeCount = notices.count; return }
+        guard notices.count > lastNoticeCount else {
+            lastNoticeCount = notices.count
+            return
+        }
         let fresh = notices[lastNoticeCount...]
         lastNoticeCount = notices.count
         for notice in fresh {
             switch notice {
-            case .textMessage(let m):
+            case .textMessage(let message):
                 if scenePhase != .active && settings.notifyOnMessage {
-                    postNotification(title: m.senderName, body: HTMLText.plainText(m.html))
+                    postNotification(title: message.senderName, body: HTMLText.plainText(message.html))
                 }
             case .userJoined, .userLeft, .userMoved:
                 if settings.showPresenceNotices { showToast(notice) }

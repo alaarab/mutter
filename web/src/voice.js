@@ -1,120 +1,311 @@
-// Voice packet codec: both Mumble UDP wire formats, carried over the TCP control channel via
-// UDPTunnel so the browser never touches the UDP crypto. Port of VoicePacket.swift.
-//
-// The format is chosen by the SERVER's announced version: 1.5.0+ speaks protobuf, older
-// servers use the legacy header-byte layout.
-
 import { Reader, Writer } from './protobuf.js';
 
-export const OPUS = 4;                     // legacy audio type
-const TERMINATOR = 0x2000;                 // legacy: high bit of the length field
+const OPUS = 4;
+const LEGACY_PING = 1;
+const TERMINATOR_BIT = 0x2000n;
+const LENGTH_MASK = 0x1fffn;
+const TARGET_MASK = 0x1f;
+const PROTOBUF_AUDIO = 0;
+const PROTOBUF_PING = 1;
 
-/// Mumble's own varint (NOT protobuf's). Only needed for the legacy layout.
-export const MumbleVarint = {
-  encode(value, out) {
-    let v = BigInt(value);
-    if (v < 0n) {
-      if (v >= -4n) { out.push(0xFC | Number(~v & 0x03n)); return; }
-      out.push(0xF8); this.encode(~v, out); return;
-    }
-    if (v < 0x80n) out.push(Number(v));
-    else if (v < 0x4000n) out.push(Number(v >> 8n) | 0x80, Number(v & 0xFFn));
-    else if (v < 0x200000n) out.push(Number(v >> 16n) | 0xC0, Number((v >> 8n) & 0xFFn), Number(v & 0xFFn));
-    else if (v < 0x10000000n) out.push(Number(v >> 24n) | 0xE0, Number((v >> 16n) & 0xFFn), Number((v >> 8n) & 0xFFn), Number(v & 0xFFn));
-    else if (v < 0x100000000n) out.push(0xF0, Number((v >> 24n) & 0xFFn), Number((v >> 16n) & 0xFFn), Number((v >> 8n) & 0xFFn), Number(v & 0xFFn));
-    else { out.push(0xF4); for (let s = 56n; s >= 0n; s -= 8n) out.push(Number((v >> s) & 0xFFn)); }
-  },
-  /// Returns [value, newOffset] or null on truncation.
-  decode(b, i) {
-    if (i >= b.length) return null;
-    const v = b[i];
-    if ((v & 0x80) === 0) return [BigInt(v & 0x7F), i + 1];
-    if ((v & 0xC0) === 0x80) return i + 1 < b.length ? [BigInt(((v & 0x3F) << 8) | b[i + 1]), i + 2] : null;
-    if ((v & 0xE0) === 0xC0) return i + 2 < b.length ? [BigInt(((v & 0x1F) << 16) | (b[i + 1] << 8) | b[i + 2]), i + 3] : null;
-    if ((v & 0xF0) === 0xE0) return i + 3 < b.length ? [BigInt(((v & 0x0F) << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3]) & 0xFFFFFFFFn, i + 4] : null;
-    switch (v & 0xFC) {
-      case 0xF0: return i + 4 < b.length ? [BigInt(((b[i + 1] << 24) | (b[i + 2] << 16) | (b[i + 3] << 8) | b[i + 4]) >>> 0), i + 5] : null;
-      case 0xF4: { if (i + 8 >= b.length) return null; let r = 0n; for (let k = 1; k <= 8; k++) r = (r << 8n) | BigInt(b[i + k]); return [BigInt.asIntN(64, r), i + 9]; }
-      case 0xF8: { const inner = this.decode(b, i + 1); return inner ? [~inner[0], inner[1]] : null; }
-      case 0xFC: return [~BigInt(v & 0x03), i + 1];
-    }
+function pushBigEndian(out, value, byteCount) {
+  for (let shift = BigInt(8 * (byteCount - 1)); shift >= 0n; shift -= 8n) {
+    out.push(Number((value >> shift) & 0xffn));
+  }
+}
+
+function readBigEndian(bytes, offset, byteCount, highBits, signed = false) {
+  if (offset + byteCount >= bytes.length) {
     return null;
+  }
+  let value = BigInt(highBits);
+  for (let i = 1; i <= byteCount; i++) {
+    value = (value << 8n) | BigInt(bytes[offset + i]);
+  }
+  return [signed ? BigInt.asIntN(64, value) : value, offset + byteCount + 1];
+}
+
+const MumbleVarint = {
+  encode(value, out) {
+    const big = BigInt(value);
+    if (big < 0n) {
+      if (big >= -4n) {
+        out.push(0xfc | Number(~big & 0x03n));
+        return;
+      }
+      out.push(0xf8);
+      this.encode(~big, out);
+      return;
+    }
+    if (big < 0x80n) {
+      out.push(Number(big));
+    } else if (big < 0x4000n) {
+      out.push(Number(big >> 8n) | 0x80);
+      pushBigEndian(out, big, 1);
+    } else if (big < 0x200000n) {
+      out.push(Number(big >> 16n) | 0xc0);
+      pushBigEndian(out, big, 2);
+    } else if (big < 0x10000000n) {
+      out.push(Number(big >> 24n) | 0xe0);
+      pushBigEndian(out, big, 3);
+    } else if (big < 0x100000000n) {
+      out.push(0xf0);
+      pushBigEndian(out, big, 4);
+    } else {
+      out.push(0xf4);
+      pushBigEndian(out, big, 8);
+    }
+  },
+
+  decode(bytes, offset) {
+    if (offset >= bytes.length) {
+      return null;
+    }
+    const first = bytes[offset];
+    if ((first & 0x80) === 0) {
+      return [BigInt(first & 0x7f), offset + 1];
+    }
+    if ((first & 0xc0) === 0x80) {
+      return readBigEndian(bytes, offset, 1, first & 0x3f);
+    }
+    if ((first & 0xe0) === 0xc0) {
+      return readBigEndian(bytes, offset, 2, first & 0x1f);
+    }
+    if ((first & 0xf0) === 0xe0) {
+      return readBigEndian(bytes, offset, 3, first & 0x0f);
+    }
+    switch (first & 0xfc) {
+      case 0xf0:
+        return readBigEndian(bytes, offset, 4, 0);
+      case 0xf4:
+        return readBigEndian(bytes, offset, 8, 0, true);
+      case 0xf8: {
+        const inner = this.decode(bytes, offset + 1);
+        return inner ? [~inner[0], inner[1]] : null;
+      }
+      case 0xfc:
+        return [~BigInt(first & 0x03), offset + 1];
+      default:
+        return null;
+    }
   },
 };
 
-/// Outgoing audio (client → server). `frameNumber` is the sequence of the first frame.
+function readVarints(bytes, offset, count) {
+  const values = [];
+  for (let i = 0; i < count; i++) {
+    const decoded = MumbleVarint.decode(bytes, offset);
+    if (!decoded) {
+      return null;
+    }
+    values.push(decoded[0]);
+    offset = decoded[1];
+  }
+  return { values, offset };
+}
+
+function legacyLengthField(opus, isTerminator) {
+  return (BigInt(opus.length) & LENGTH_MASK) | (isTerminator ? TERMINATOR_BIT : 0n);
+}
+
+function legacyOpusSlice(bytes, offset, lengthField) {
+  const length = Number(lengthField & LENGTH_MASK);
+  if (offset + length > bytes.length) {
+    return null;
+  }
+  return bytes.subarray(offset, offset + length);
+}
+
+function isTerminatorField(lengthField) {
+  return (lengthField & TERMINATOR_BIT) !== 0n;
+}
+
+function encodeLegacy(headerByte, varints, opus) {
+  const header = [headerByte];
+  for (const value of varints) {
+    MumbleVarint.encode(value, header);
+  }
+  const packet = new Uint8Array(header.length + opus.length);
+  packet.set(header);
+  packet.set(opus, header.length);
+  return packet;
+}
+
+function withHeader(headerByte, body) {
+  const packet = new Uint8Array(body.length + 1);
+  packet[0] = headerByte;
+  packet.set(body, 1);
+  return packet;
+}
+
+function protobufAudio(writer, frameNumber, opus, isTerminator) {
+  writer.uint(4, frameNumber).bytes(5, opus);
+  if (isTerminator) {
+    writer.bool(16, true);
+  }
+  return withHeader(PROTOBUF_AUDIO, writer.finish());
+}
+
 export function encodeAudio({ target = 0, frameNumber = 0, opus, isTerminator = false }, format) {
   if (format === 'legacy') {
-    const out = [(OPUS << 5) | (target & 0x1F)];
-    MumbleVarint.encode(frameNumber, out);
-    MumbleVarint.encode((opus.length & 0x1FFF) | (isTerminator ? TERMINATOR : 0), out);
-    const head = Uint8Array.from(out);
-    const pkt = new Uint8Array(head.length + opus.length);
-    pkt.set(head); pkt.set(opus, head.length);
-    return pkt;
+    const headerByte = (OPUS << 5) | (target & TARGET_MASK);
+    return encodeLegacy(headerByte, [frameNumber, legacyLengthField(opus, isTerminator)], opus);
   }
-  // protobuf: 1=target 4=frame_number 5=opus_data 16=is_terminator, prefixed by UDPMessageType 0
-  const w = new Writer().uint(1, target & 0x1F).uint(4, frameNumber).bytes(5, opus);
-  if (isTerminator) w.bool(16, true);
-  const body = w.finish();
-  const pkt = new Uint8Array(body.length + 1);
-  pkt[0] = 0; pkt.set(body, 1);
-  return pkt;
+  return protobufAudio(new Writer().uint(1, target & TARGET_MASK), frameNumber, opus, isTerminator);
 }
 
-/// UDP ping (client → server). The server echoes the timestamp, which gives the round trip.
-export function encodePing(timestampMicros, format) {
-  if (format === 'legacy') { const out = [0x20]; MumbleVarint.encode(timestampMicros, out); return Uint8Array.from(out); }
-  const body = new Writer().uint(1, timestampMicros).finish();
-  const pkt = new Uint8Array(body.length + 1);
-  pkt[0] = 1; pkt.set(body, 1);
-  return pkt;
-}
-
-/// Incoming packet from the server (via UDPTunnel). Returns { kind: 'audio'|'ping', ... } or null.
-export function decodeVoice(b, format) {
-  if (!b.length) return null;
+export function encodeServerAudio({ session, context = 0, frameNumber = 0, opus, isTerminator = false }, format) {
   if (format === 'legacy') {
-    const type = b[0] >> 5;
-    if (type === 1) { const t = MumbleVarint.decode(b, 1); return t ? { kind: 'ping', timestamp: t[0] } : null; }
-    if (type !== OPUS) return null;                 // CELT/Speex are long dead
-    const context = b[0] & 0x1F;
-    let r = MumbleVarint.decode(b, 1); if (!r) return null; const [session, i1] = r;
-    r = MumbleVarint.decode(b, i1); if (!r) return null; const [seq, i2] = r;
-    r = MumbleVarint.decode(b, i2); if (!r) return null; const [lenField, i3] = r;
-    const len = Number(lenField & 0x1FFFn);
-    if (i3 + len > b.length) return null;
-    return { kind: 'audio', session: Number(session), frameNumber: seq, context, isTerminator: (lenField & BigInt(TERMINATOR)) !== 0n, opus: b.subarray(i3, i3 + len) };
+    const headerByte = (OPUS << 5) | (context & TARGET_MASK);
+    return encodeLegacy(headerByte, [session, frameNumber, legacyLengthField(opus, isTerminator)], opus);
   }
-  const body = b.subarray(1);
-  if (b[0] === 0) {
-    const p = { kind: 'audio', target: 0, context: 0, session: 0, frameNumber: 0n, opus: new Uint8Array(0), isTerminator: false, volume: 0 };
-    new Reader(body).forEachField(f => {
-      switch (f.number) {
-        case 1: p.target = f.uint; break;
-        case 2: p.context = f.uint; break;
-        case 3: p.session = f.uint; break;
-        case 4: p.frameNumber = BigInt(f.uint); break;
-        case 5: p.opus = f.payload; break;
-        case 7: if (f.payload?.length === 4) p.volume = new DataView(f.payload.buffer, f.payload.byteOffset).getFloat32(0, true); break;
-        case 16: p.isTerminator = f.bool; break;
-      }
-    });
-    return p;
+  return protobufAudio(new Writer().uint(2, context).uint(3, session), frameNumber, opus, isTerminator);
+}
+
+export function encodePing(timestampMicros, format) {
+  if (format === 'legacy') {
+    return encodeLegacy(LEGACY_PING << 5, [timestampMicros], new Uint8Array(0));
   }
-  if (b[0] === 1) {
-    const p = { kind: 'ping', timestamp: 0n };
-    new Reader(body).forEachField(f => { if (f.number === 1) p.timestamp = BigInt(f.uint); });
-    return p;
+  return withHeader(PROTOBUF_PING, new Writer().uint(1, timestampMicros).finish());
+}
+
+export function isPingPacket(bytes, format) {
+  if (!bytes.length) {
+    return false;
+  }
+  return format === 'legacy' ? bytes[0] >> 5 === LEGACY_PING : bytes[0] === PROTOBUF_PING;
+}
+
+function decodeLegacyServerAudio(bytes) {
+  const header = readVarints(bytes, 1, 3);
+  if (!header) {
+    return null;
+  }
+  const [session, frameNumber, lengthField] = header.values;
+  const opus = legacyOpusSlice(bytes, header.offset, lengthField);
+  if (!opus) {
+    return null;
+  }
+  return {
+    kind: 'audio',
+    session: Number(session),
+    frameNumber,
+    context: bytes[0] & TARGET_MASK,
+    isTerminator: isTerminatorField(lengthField),
+    opus,
+  };
+}
+
+function decodeLegacyClientAudio(bytes) {
+  const header = readVarints(bytes, 1, 2);
+  if (!header) {
+    return null;
+  }
+  const [frameNumber, lengthField] = header.values;
+  const opus = legacyOpusSlice(bytes, header.offset, lengthField);
+  if (!opus) {
+    return null;
+  }
+  return { target: bytes[0] & TARGET_MASK, frameNumber, isTerminator: isTerminatorField(lengthField), opus };
+}
+
+function decodeProtobufAudio(body) {
+  const packet = {
+    kind: 'audio',
+    target: 0,
+    context: 0,
+    session: 0,
+    frameNumber: 0n,
+    opus: new Uint8Array(0),
+    isTerminator: false,
+    volume: 0,
+  };
+  new Reader(body).forEachField((field) => {
+    switch (field.number) {
+      case 1:
+        packet.target = field.uint;
+        break;
+      case 2:
+        packet.context = field.uint;
+        break;
+      case 3:
+        packet.session = field.uint;
+        break;
+      case 4:
+        packet.frameNumber = BigInt(field.uint);
+        break;
+      case 5:
+        packet.opus = field.payload;
+        break;
+      case 7:
+        if (field.payload?.length === 4) {
+          packet.volume = new DataView(field.payload.buffer, field.payload.byteOffset).getFloat32(0, true);
+        }
+        break;
+      case 16:
+        packet.isTerminator = field.bool;
+        break;
+      default:
+        break;
+    }
+  });
+  return packet;
+}
+
+function decodeProtobufPing(body) {
+  const packet = { kind: 'ping', timestamp: 0n };
+  new Reader(body).forEachField((field) => {
+    if (field.number === 1) {
+      packet.timestamp = BigInt(field.uint);
+    }
+  });
+  return packet;
+}
+
+export function decodeVoice(bytes, format) {
+  if (!bytes.length) {
+    return null;
+  }
+  if (format === 'legacy') {
+    if (isPingPacket(bytes, format)) {
+      const timestamp = MumbleVarint.decode(bytes, 1);
+      return timestamp ? { kind: 'ping', timestamp: timestamp[0] } : null;
+    }
+    return bytes[0] >> 5 === OPUS ? decodeLegacyServerAudio(bytes) : null;
+  }
+  const body = bytes.subarray(1);
+  if (bytes[0] === PROTOBUF_AUDIO) {
+    return decodeProtobufAudio(body);
+  }
+  if (bytes[0] === PROTOBUF_PING) {
+    return decodeProtobufPing(body);
   }
   return null;
 }
 
-/// Wire format from the server's Version message (v2 is 64-bit: major<<48 | minor<<32 | patch<<16).
+export function decodeClientAudio(bytes, format) {
+  if (!bytes.length) {
+    return null;
+  }
+  if (format === 'legacy') {
+    return bytes[0] >> 5 === OPUS ? decodeLegacyClientAudio(bytes) : null;
+  }
+  return bytes[0] === PROTOBUF_AUDIO ? decodeProtobufAudio(bytes.subarray(1)) : null;
+}
+
 export function wireFormatFor({ v1, v2 }) {
-  let major, minor;
-  if (v2) { const big = BigInt(v2); major = Number((big >> 48n) & 0xFFFFn); minor = Number((big >> 32n) & 0xFFFFn); }
-  else if (v1) { major = (v1 >> 16) & 0xFFFF; minor = (v1 >> 8) & 0xFF; }
-  else return 'legacy';
-  return major > 1 || (major === 1 && minor >= 5) ? 'protobuf' : 'legacy';
+  let major;
+  let minor;
+  if (v2) {
+    const big = BigInt(v2);
+    major = Number((big >> 48n) & 0xffffn);
+    minor = Number((big >> 32n) & 0xffffn);
+  } else if (v1) {
+    major = (v1 >> 16) & 0xffff;
+    minor = (v1 >> 8) & 0xff;
+  } else {
+    return 'legacy';
+  }
+  const isModern = major > 1 || (major === 1 && minor >= 5);
+  return isModern ? 'protobuf' : 'legacy';
 }

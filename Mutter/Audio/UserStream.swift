@@ -2,11 +2,6 @@ import Foundation
 import os
 import MumbleProtocol
 
-/// Decoded audio for one remote speaker with a small jitter buffer.
-///
-/// Packets are decoded as they arrive (on the network queue) into a PCM ring; the render
-/// thread drains it. Playback for a stream starts once `prebufferSamples` have accumulated,
-/// and gaps are filled with Opus packet-loss concealment while the stream is considered live.
 final class UserStream {
     let session: UInt32
     var volume: Float = 1.0
@@ -19,8 +14,7 @@ final class UserStream {
     private var started = false
     private var lastFrameNumber: UInt64 = 0
     private var lastPacketAt = Date()
-    private var lock = os_unfair_lock()
-    /// Ramp applied at stream start so the first samples don't click.
+    private let lock = OSAllocatedUnfairLock()
     private var fadeIn = 0
     private let rampSamples = 96
 
@@ -31,22 +25,23 @@ final class UserStream {
         self.session = session
         decoder = try OpusDecoderWrapper()
         prebufferSamples = 48 * prebufferMs
-        capacity = 48_000 // one second
+        capacity = 48_000
         ring = [Float](repeating: 0, count: capacity)
     }
 
     var isIdle: Bool {
-        os_unfair_lock_lock(&lock)
-        defer { os_unfair_lock_unlock(&lock) }
-        return available == 0 && Date().timeIntervalSince(lastPacketAt) > 1.0
+        synchronized { available == 0 && Date().timeIntervalSince(lastPacketAt) > 1.0 }
     }
 
-    // MARK: Network side
+    private func synchronized<Result>(_ body: () -> Result) -> Result {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
 
     func push(_ packet: AudioPacket) {
         let expected = lastFrameNumber
         let missing = packet.frameNumber > expected && expected != 0 ? Int(packet.frameNumber - expected) : 0
-        // Conceal small gaps (up to 3 packets); beyond that just resync.
         if missing > 0 && missing <= 3, let samplesPerPacket = lastPacketSamples {
             for _ in 0..<missing {
                 if let plc = try? decoder.decode(nil, plcSamples: samplesPerPacket) { write(plc) }
@@ -61,75 +56,67 @@ final class UserStream {
             lastFrameNumber = 0
             decoder.reset()
         }
-        os_unfair_lock_lock(&lock)
-        lastPacketAt = Date()
-        os_unfair_lock_unlock(&lock)
+        synchronized { lastPacketAt = Date() }
     }
 
     private var lastPacketSamples: Int?
 
     private func write(_ pcm: [Float]) {
-        os_unfair_lock_lock(&lock)
-        defer { os_unfair_lock_unlock(&lock) }
-        for s in pcm {
-            if available == capacity {
-                // Overrun: drop the oldest sample.
-                readIndex = (readIndex + 1) % capacity
-                available -= 1
+        synchronized {
+            for sample in pcm {
+                if available == capacity {
+                    readIndex = (readIndex + 1) % capacity
+                    available -= 1
+                }
+                ring[writeIndex] = sample
+                writeIndex = (writeIndex + 1) % capacity
+                available += 1
             }
-            ring[writeIndex] = s
-            writeIndex = (writeIndex + 1) % capacity
-            available += 1
-        }
-        if !started && available >= prebufferSamples {
-            started = true
-            fadeIn = rampSamples
+            if !started && available >= prebufferSamples {
+                started = true
+                fadeIn = rampSamples
+            }
         }
     }
 
-    // MARK: Render side
-
-    /// Mixes up to `frames` samples into `out`, scaled by `volume` and `masterGain`. Returns samples mixed.
     @discardableResult
     func mix(into out: UnsafeMutablePointer<Float>, frames: Int, masterGain: Float) -> Int {
-        os_unfair_lock_lock(&lock)
-        defer { os_unfair_lock_unlock(&lock) }
-        guard started else { return 0 }
-        let n = min(frames, available)
-        if n == 0 {
-            // Underrun: wait for the buffer to refill before resuming.
-            started = false
-            return 0
-        }
-        let gain = volume * masterGain
-        // If this call drains the buffer, fade the tail out so the coming silence doesn't click.
-        let draining = n < frames || available - n < 48
-        let rampOut = draining ? min(n, rampSamples) : 0
-        for i in 0..<n {
-            var g = gain
-            if fadeIn > 0 {
-                g *= Float(rampSamples - fadeIn) / Float(rampSamples)
-                fadeIn -= 1
+        synchronized { () -> Int in
+            guard started else { return 0 }
+            let count = min(frames, available)
+            if count == 0 {
+                started = false
+                return 0
             }
-            if rampOut > 0 && i >= n - rampOut {
-                g *= Float(n - i) / Float(rampOut)
+            let gain = volume * masterGain
+            let draining = count < frames || available - count < 48
+            let rampOut = draining ? min(count, rampSamples) : 0
+            for index in 0..<count {
+                var sampleGain = gain
+                if fadeIn > 0 {
+                    sampleGain *= Float(rampSamples - fadeIn) / Float(rampSamples)
+                    fadeIn -= 1
+                }
+                if rampOut > 0 && index >= count - rampOut {
+                    sampleGain *= Float(count - index) / Float(rampOut)
+                }
+                out[index] += ring[readIndex] * sampleGain
+                readIndex = (readIndex + 1) % capacity
             }
-            out[i] += ring[readIndex] * g
-            readIndex = (readIndex + 1) % capacity
+            available -= count
+            if count < frames { started = false }
+            return count
         }
-        available -= n
-        if n < frames { started = false }
-        return n
     }
 
     func reset() {
-        os_unfair_lock_lock(&lock)
-        readIndex = 0
-        writeIndex = 0
-        available = 0
-        started = false
-        fadeIn = 0
-        os_unfair_lock_unlock(&lock)
+        synchronized {
+            readIndex = 0
+            writeIndex = 0
+            available = 0
+            started = false
+            fadeIn = 0
+        }
         decoder.reset()
         lastFrameNumber = 0
     }

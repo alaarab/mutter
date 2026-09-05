@@ -4,56 +4,228 @@
 <meta name="color-scheme" content="dark">
 <title>Share your screen</title>
 <style>
-  :root { color-scheme: dark; }
-  body { margin: 0; background: #111113; color: #FAFAFA; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; user-select: none; }
-  header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px 8px; }
-  h1 { margin: 0; font-size: 15px; font-weight: 600; }
-  .tabs { display: inline-flex; background: #08080A; border-radius: 8px; padding: 3px; }
-  .tabs button { border: 0; background: none; color: #B9B9BC; font: inherit; padding: 5px 12px; border-radius: 6px; cursor: pointer; }
-  .tabs button.on { background: #1A1A1D; color: #FAFAFA; }
-  main { height: 440px; overflow: auto; padding: 6px 18px 12px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; align-content: start; }
-  .src { background: #08080A; border: 2px solid #242427; border-radius: 10px; padding: 8px; cursor: pointer; text-align: left; color: inherit; font: inherit; }
-  .src:hover { border-color: #7C7C80; }
-  .src.on { border-color: #EDEDF0; }
-  .src img.thumb { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #000; border-radius: 6px; }
-  .src .name { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12.5px; color: #B9B9BC; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .src .name img { width: 14px; height: 14px; flex: none; }
-  footer { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 18px 14px; border-top: 1px solid #242427; }
-  footer button { border: 0; border-radius: 8px; padding: 8px 16px; font: inherit; font-weight: 600; cursor: pointer; }
-  #cancel { background: #1A1A1D; color: #FAFAFA; }
-  #share { background: #EDEDF0; color: #0A0A0B; }
-  #share:disabled { opacity: .4; cursor: default; }
-  .empty { grid-column: 1 / -1; color: #7C7C80; padding: 40px 0; text-align: center; }
+  :root {
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    background: #111113;
+    color: #FAFAFA;
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+    user-select: none;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px 8px;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  .tabs {
+    display: inline-flex;
+    background: #08080A;
+    border-radius: 8px;
+    padding: 3px;
+  }
+
+  .tabs button {
+    border: 0;
+    background: none;
+    color: #B9B9BC;
+    font: inherit;
+    padding: 5px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .tabs button.on {
+    background: #1A1A1D;
+    color: #FAFAFA;
+  }
+
+  main {
+    height: 440px;
+    overflow: auto;
+    padding: 6px 18px 12px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    align-content: start;
+  }
+
+  .src {
+    background: #08080A;
+    border: 2px solid #242427;
+    border-radius: 10px;
+    padding: 8px;
+    cursor: pointer;
+    text-align: left;
+    color: inherit;
+    font: inherit;
+  }
+
+  .src:hover {
+    border-color: #7C7C80;
+  }
+
+  .src.on {
+    border-color: #EDEDF0;
+  }
+
+  .src img.thumb {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    object-fit: contain;
+    background: #000;
+    border-radius: 6px;
+  }
+
+  .src .name {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    font-size: 12.5px;
+    color: #B9B9BC;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .src .name img {
+    width: 14px;
+    height: 14px;
+    flex: none;
+  }
+
+  footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 10px 18px 14px;
+    border-top: 1px solid #242427;
+  }
+
+  footer button {
+    border: 0;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  #cancel {
+    background: #1A1A1D;
+    color: #FAFAFA;
+  }
+
+  #share {
+    background: #EDEDF0;
+    color: #0A0A0B;
+  }
+
+  #share:disabled {
+    opacity: .4;
+    cursor: default;
+  }
+
+  .empty {
+    grid-column: 1 / -1;
+    color: #7C7C80;
+    padding: 40px 0;
+    text-align: center;
+  }
 </style>
 <header>
   <h1>Share your screen</h1>
-  <div class="tabs"><button class="on" data-kind="screen">Screens</button><button data-kind="window">Windows</button></div>
+  <div class="tabs">
+    <button class="on" data-kind="screen">Screens</button>
+    <button data-kind="window">Windows</button>
+  </div>
 </header>
 <main id="grid"><div class="empty">Looking…</div></main>
-<footer><button id="cancel">Cancel</button><button id="share" disabled>Share</button></footer>
+<footer>
+  <button id="cancel">Cancel</button>
+  <button id="share" disabled>Share</button>
+</footer>
 <script>
-  let all = [], kind = 'screen', chosen = null;
-  const grid = document.getElementById('grid'), share = document.getElementById('share');
+  let sources = [];
+  let kind = 'screen';
+  let chosen = null;
+  const grid = document.getElementById('grid');
+  const shareButton = document.getElementById('share');
+
+  function sourceCard(source) {
+    const card = document.createElement('button');
+    card.className = 'src' + (chosen === source.id ? ' on' : '');
+    card.innerHTML = `<img class="thumb" alt=""><span class="name">${source.icon ? '<img alt="">' : ''}<span></span></span>`;
+    card.querySelector('.thumb').src = source.thumb;
+    if (source.icon) {
+      card.querySelector('.name img').src = source.icon;
+    }
+    card.querySelector('.name span').textContent = source.name;
+    card.onclick = () => {
+      chosen = source.id;
+      shareButton.disabled = false;
+      render();
+    };
+    card.ondblclick = () => window.picker.choose(source.id);
+    return card;
+  }
+
   function render() {
     grid.replaceChildren();
-    const list = all.filter(s => s.kind === kind);
-    if (!list.length) { grid.innerHTML = '<div class="empty">Nothing to show here.</div>'; return; }
-    for (const s of list) {
-      const b = document.createElement('button');
-      b.className = 'src' + (chosen === s.id ? ' on' : '');
-      b.innerHTML = `<img class="thumb" alt=""><span class="name">${s.icon ? '<img alt="">' : ''}<span></span></span>`;
-      b.querySelector('.thumb').src = s.thumb;
-      if (s.icon) b.querySelector('.name img').src = s.icon;
-      b.querySelector('.name span').textContent = s.name;
-      b.onclick = () => { chosen = s.id; share.disabled = false; render(); };
-      b.ondblclick = () => window.picker.choose(s.id);
-      grid.append(b);
+    const visible = sources.filter((source) => source.kind === kind);
+    if (!visible.length) {
+      grid.innerHTML = '<div class="empty">Nothing to show here.</div>';
+      return;
+    }
+    for (const source of visible) {
+      grid.append(sourceCard(source));
     }
   }
-  for (const t of document.querySelectorAll('.tabs button')) t.onclick = () => { kind = t.dataset.kind; for (const o of t.parentElement.children) o.classList.toggle('on', o === t); render(); };
-  window.picker.onSources(s => { all = s; if (!all.some(x => x.kind === 'screen')) kind = 'window'; render(); });
-  share.onclick = () => chosen && window.picker.choose(chosen);
+
+  for (const tab of document.querySelectorAll('.tabs button')) {
+    tab.onclick = () => {
+      kind = tab.dataset.kind;
+      for (const other of tab.parentElement.children) {
+        other.classList.toggle('on', other === tab);
+      }
+      render();
+    };
+  }
+
+  window.picker.onSources((list) => {
+    sources = list;
+    if (!sources.some((source) => source.kind === 'screen')) {
+      kind = 'window';
+    }
+    render();
+  });
+
+  shareButton.onclick = () => {
+    if (chosen) {
+      window.picker.choose(chosen);
+    }
+  };
   document.getElementById('cancel').onclick = () => window.close();
-  addEventListener('keydown', e => { if (e.key === 'Escape') window.close(); if (e.key === 'Enter' && chosen) window.picker.choose(chosen); });
+  addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      window.close();
+    }
+    if (event.key === 'Enter' && chosen) {
+      window.picker.choose(chosen);
+    }
+  });
 </script>
 </html>

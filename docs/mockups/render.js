@@ -13,7 +13,6 @@ const path = require('path');
     await el.screenshot({ path: path.join(dir, `${id}.png`), omitBackground: false });
     console.log('wrote', id);
   }
-  // Overview: all phones in one image
   const stage = await page.$('.stage');
   await page.setViewportSize({ width: 3100, height: 1000 });
   await page.waitForTimeout(200);

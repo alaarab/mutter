@@ -59,11 +59,11 @@ struct ChannelTreeView: View {
 
     @ViewBuilder
     private var searchResults: some View {
-        let q = search.trimmingCharacters(in: .whitespaces)
-        let channels = session.channels.values.filter { $0.name.localizedCaseInsensitiveContains(q) }.sorted { $0.name < $1.name }
-        let users = session.users.values.filter { $0.name.localizedCaseInsensitiveContains(q) }.sorted { $0.name < $1.name }
+        let query = search.trimmingCharacters(in: .whitespaces)
+        let channels = session.channels.values.filter { $0.name.localizedCaseInsensitiveContains(query) }.sorted { $0.name < $1.name }
+        let users = session.users.values.filter { $0.name.localizedCaseInsensitiveContains(query) }.sorted { $0.name < $1.name }
         if channels.isEmpty && users.isEmpty {
-            EmptyState(symbol: "magnifyingglass", title: "Nothing found", message: "No channels or people match “\(q)”.")
+            EmptyState(symbol: "magnifyingglass", title: "Nothing found", message: "No channels or people match “\(query)”.")
                 .listRowSeparator(.hidden)
         }
         if !channels.isEmpty {
@@ -83,7 +83,6 @@ struct ChannelTreeView: View {
     }
 }
 
-/// One channel with its users and (unless collapsed) its sub-channels. Recursive.
 struct ChannelNode: View {
     @Environment(AppModel.self) private var model
     var channel: Channel
@@ -107,7 +106,6 @@ struct ChannelNode: View {
 }
 
 extension ChannelNode {
-    /// With "hide empty channels" on, skip sub-trees nobody is in (but never the one we're in).
     func visibleChildren(_ session: ServerSession) -> [Channel] {
         let children = session.children(of: channel.id)
         guard model.settings.hideEmptyChannels else { return children }

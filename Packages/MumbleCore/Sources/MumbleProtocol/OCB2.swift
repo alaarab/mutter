@@ -1,23 +1,18 @@
 import Foundation
 
-/// A 128-bit block cipher. OCB2 only ever needs single-block ECB operations.
 public protocol BlockCipher {
     func encryptBlock(_ input: [UInt8]) -> [UInt8]
     func decryptBlock(_ input: [UInt8]) -> [UInt8]
 }
 
-/// Port of Mumble's `CryptStateOCB2` (OCB2-AES128, public-domain algorithm design).
-/// Packet layout on the wire: `[iv byte][tag0][tag1][tag2][ciphertext...]`.
-///
-/// Not thread-safe; callers serialize access on their own queue.
 public final class CryptState {
     public static let blockSize = 16
-    private static let shiftBits = 7
+    private static let headerBytes = 4
+    private static let reorderWindow = 30
 
     private var cipher: BlockCipher?
-    private var rawKey = [UInt8](repeating: 0, count: 16)
-    private(set) public var encryptIV = [UInt8](repeating: 0, count: 16)
-    private(set) public var decryptIV = [UInt8](repeating: 0, count: 16)
+    private(set) public var encryptIV = CryptState.zeroBlock
+    private(set) public var decryptIV = CryptState.zeroBlock
     private var decryptHistory = [UInt8](repeating: 0, count: 256)
 
     public private(set) var good: UInt32 = 0
@@ -35,259 +30,253 @@ public final class CryptState {
         self.makeCipher = cipherFactory
     }
 
-    // MARK: Key management
+    private static var zeroBlock: [UInt8] { [UInt8](repeating: 0, count: blockSize) }
 
     public func setKey(_ key: [UInt8], encryptIV: [UInt8], decryptIV: [UInt8]) -> Bool {
-        guard key.count == 16, encryptIV.count == 16, decryptIV.count == 16 else { return false }
-        rawKey = key
+        let blockSize = Self.blockSize
+        guard key.count == blockSize, encryptIV.count == blockSize, decryptIV.count == blockSize else { return false }
         self.encryptIV = encryptIV
         self.decryptIV = decryptIV
         cipher = makeCipher(key)
         decryptHistory = [UInt8](repeating: 0, count: 256)
-        good = 0; late = 0; lost = 0; resync = 0
+        good = 0
+        late = 0
+        lost = 0
+        resync = 0
         return true
     }
 
-    /// Client side: key from CryptSetup, our nonce (client_nonce) encrypts, the server's nonce decrypts.
     public func setKey(_ key: Data, clientNonce: Data, serverNonce: Data) -> Bool {
         setKey([UInt8](key), encryptIV: [UInt8](clientNonce), decryptIV: [UInt8](serverNonce))
     }
 
     public func setDecryptIV(_ iv: [UInt8]) -> Bool {
-        guard iv.count == 16 else { return false }
+        guard iv.count == Self.blockSize else { return false }
         decryptIV = iv
         resync += 1
         return true
     }
 
     public func setEncryptIV(_ iv: [UInt8]) -> Bool {
-        guard iv.count == 16 else { return false }
+        guard iv.count == Self.blockSize else { return false }
         encryptIV = iv
         return true
     }
 
-    public func markResyncRequested() { lastRequest = Date() }
-
-    // MARK: Packet crypto
+    public func markResyncRequested() {
+        lastRequest = Date()
+    }
 
     public func encrypt(_ plain: Data) -> Data? {
         guard cipher != nil else { return nil }
-        for i in 0..<16 {
-            encryptIV[i] &+= 1
-            if encryptIV[i] != 0 { break }
-        }
-        let (ct, tag) = ocbEncrypt([UInt8](plain), nonce: encryptIV)
-        var out = [UInt8](repeating: 0, count: 4 + ct.count)
-        out[0] = encryptIV[0]
-        out[1] = tag[0]
-        out[2] = tag[1]
-        out[3] = tag[2]
-        if !ct.isEmpty { out.replaceSubrange(4..., with: ct) }
-        return Data(out)
+        Self.increment(&encryptIV, from: 0)
+        let (ciphertext, tag) = ocbEncrypt([UInt8](plain), nonce: encryptIV)
+        var packet = [encryptIV[0], tag[0], tag[1], tag[2]]
+        packet.append(contentsOf: ciphertext)
+        return Data(packet)
     }
 
     public func decrypt(_ crypted: Data) -> Data? {
-        guard cipher != nil, crypted.count >= 4 else { return nil }
-        let src = [UInt8](crypted)
-        let ivByte = src[0]
+        guard cipher != nil, crypted.count >= Self.headerBytes else { return nil }
+        let source = [UInt8](crypted)
         let saved = decryptIV
-        var restore = false
-        var lostDelta = 0
-        var lateDelta = 0
-
-        if (decryptIV[0] &+ 1) == ivByte {
-            // In order as expected.
-            if ivByte > decryptIV[0] {
-                decryptIV[0] = ivByte
-            } else if ivByte < decryptIV[0] {
-                decryptIV[0] = ivByte
-                for i in 1..<16 {
-                    decryptIV[i] &+= 1
-                    if decryptIV[i] != 0 { break }
-                }
-            } else {
-                return nil
-            }
-        } else {
-            // Out of order or repeat.
-            var diff = Int(ivByte) - Int(decryptIV[0])
-            if diff > 128 { diff -= 256 } else if diff < -128 { diff += 256 }
-
-            if ivByte < decryptIV[0] && diff > -30 && diff < 0 {
-                // Late packet, no wraparound.
-                lateDelta = 1
-                lostDelta = -1
-                decryptIV[0] = ivByte
-                restore = true
-            } else if ivByte > decryptIV[0] && diff > -30 && diff < 0 {
-                // Last was 0x02, here comes 0xff from the previous round.
-                lateDelta = 1
-                lostDelta = -1
-                decryptIV[0] = ivByte
-                for i in 1..<16 {
-                    let before = decryptIV[i]
-                    decryptIV[i] &-= 1
-                    if before != 0 { break }
-                }
-                restore = true
-            } else if ivByte > decryptIV[0] && diff > 0 {
-                // Lost a few packets, but beyond that we're good.
-                lostDelta = Int(ivByte) - Int(decryptIV[0]) - 1
-                decryptIV[0] = ivByte
-            } else if ivByte < decryptIV[0] && diff > 0 {
-                // Lost a few packets and wrapped around.
-                lostDelta = 256 - Int(decryptIV[0]) + Int(ivByte) - 1
-                decryptIV[0] = ivByte
-                for i in 1..<16 {
-                    decryptIV[i] &+= 1
-                    if decryptIV[i] != 0 { break }
-                }
-            } else {
-                return nil
-            }
-
-            if decryptHistory[Int(decryptIV[0])] == decryptIV[1] {
-                decryptIV = saved
-                return nil
-            }
+        guard let adjustment = advanceDecryptIV(to: source[0]) else {
+            decryptIV = saved
+            return nil
         }
-
-        let (plain, tag, ok) = ocbDecrypt(Array(src[4...]), nonce: decryptIV)
-        if !ok || tag[0] != src[1] || tag[1] != src[2] || tag[2] != src[3] {
+        let (plain, tag, ok) = ocbDecrypt(Array(source[Self.headerBytes...]), nonce: decryptIV)
+        let tagMatches = tag[0] == source[1] && tag[1] == source[2] && tag[2] == source[3]
+        guard ok, tagMatches else {
             decryptIV = saved
             return nil
         }
         decryptHistory[Int(decryptIV[0])] = decryptIV[1]
-        if restore { decryptIV = saved }
-
+        if adjustment.restore { decryptIV = saved }
         good &+= 1
-        if lateDelta > 0 { late &+= UInt32(lateDelta) } else if Int(late) > -lateDelta { late -= UInt32(-lateDelta) }
-        if lostDelta > 0 { lost &+= UInt32(lostDelta) } else if Int(lost) > -lostDelta { lost -= UInt32(-lostDelta) }
+        late = Self.adjusted(late, by: adjustment.late)
+        lost = Self.adjusted(lost, by: adjustment.lost)
         lastGood = Date()
         return Data(plain)
     }
 
-    // MARK: OCB2 core
-
-    /// Doubles the block in GF(2^128) (shift left by one, reduce with 0x87).
-    static func s2(_ block: inout [UInt8]) {
-        let carry = block[0] >> 7
-        for i in 0..<15 {
-            block[i] = (block[i] << 1) | (block[i + 1] >> 7)
+    private func advanceDecryptIV(to ivByte: UInt8) -> (restore: Bool, lost: Int, late: Int)? {
+        let current = decryptIV[0]
+        if current &+ 1 == ivByte {
+            if ivByte > current {
+                decryptIV[0] = ivByte
+            } else if ivByte < current {
+                decryptIV[0] = ivByte
+                Self.increment(&decryptIV, from: 1)
+            } else {
+                return nil
+            }
+            return (restore: false, lost: 0, late: 0)
         }
-        block[15] = (block[15] << 1) ^ (carry &* 0x87)
+        var diff = Int(ivByte) - Int(current)
+        if diff > 128 {
+            diff -= 256
+        } else if diff < -128 {
+            diff += 256
+        }
+        let isLate = diff > -Self.reorderWindow && diff < 0
+        var restore = false
+        var lost = 0
+        var late = 0
+        if ivByte < current && isLate {
+            late = 1
+            lost = -1
+            decryptIV[0] = ivByte
+            restore = true
+        } else if ivByte > current && isLate {
+            late = 1
+            lost = -1
+            decryptIV[0] = ivByte
+            Self.decrement(&decryptIV, from: 1)
+            restore = true
+        } else if ivByte > current && diff > 0 {
+            lost = Int(ivByte) - Int(current) - 1
+            decryptIV[0] = ivByte
+        } else if ivByte < current && diff > 0 {
+            lost = 256 - Int(current) + Int(ivByte) - 1
+            decryptIV[0] = ivByte
+            Self.increment(&decryptIV, from: 1)
+        } else {
+            return nil
+        }
+        if decryptHistory[Int(decryptIV[0])] == decryptIV[1] { return nil }
+        return (restore: restore, lost: lost, late: late)
     }
 
-    /// Triples the block: block ^= s2(block).
-    static func s3(_ block: inout [UInt8]) {
+    private static func adjusted(_ counter: UInt32, by delta: Int) -> UInt32 {
+        if delta > 0 { return counter &+ UInt32(delta) }
+        if Int(counter) > -delta { return counter - UInt32(-delta) }
+        return counter
+    }
+
+    private static func increment(_ iv: inout [UInt8], from start: Int) {
+        for index in start..<blockSize {
+            iv[index] &+= 1
+            if iv[index] != 0 { break }
+        }
+    }
+
+    private static func decrement(_ iv: inout [UInt8], from start: Int) {
+        for index in start..<blockSize {
+            let before = iv[index]
+            iv[index] &-= 1
+            if before != 0 { break }
+        }
+    }
+
+    static func double(_ block: inout [UInt8]) {
+        let carry = block[0] >> 7
+        for index in 0..<(blockSize - 1) {
+            block[index] = (block[index] << 1) | (block[index + 1] >> 7)
+        }
+        block[blockSize - 1] = (block[blockSize - 1] << 1) ^ (carry &* 0x87)
+    }
+
+    static func triple(_ block: inout [UInt8]) {
         var doubled = block
-        s2(&doubled)
-        for i in 0..<16 { block[i] ^= doubled[i] }
+        double(&doubled)
+        for index in 0..<blockSize { block[index] ^= doubled[index] }
     }
 
     @inline(__always)
-    private static func xor(_ a: [UInt8], _ b: [UInt8]) -> [UInt8] {
-        var out = [UInt8](repeating: 0, count: 16)
-        for i in 0..<16 { out[i] = a[i] ^ b[i] }
+    private static func xor(_ left: [UInt8], _ right: [UInt8]) -> [UInt8] {
+        var out = zeroBlock
+        for index in 0..<blockSize { out[index] = left[index] ^ right[index] }
         return out
     }
 
-    /// Returns (ciphertext, tag). Mirrors `ocb_encrypt` including the XEX* counter-cryptanalysis bit flip.
-    public func ocbEncrypt(_ plain: [UInt8], nonce: [UInt8]) -> ([UInt8], [UInt8]) {
-        guard let cipher else { return ([], [UInt8](repeating: 0, count: 16)) }
-        var delta = cipher.encryptBlock(nonce)
-        var checksum = [UInt8](repeating: 0, count: 16)
-        var out = [UInt8](repeating: 0, count: plain.count)
-        var len = plain.count
-        var off = 0
+    private static func lengthBlock(_ byteCount: Int) -> [UInt8] {
+        var block = zeroBlock
+        let bits = UInt32(byteCount * 8)
+        block[12] = UInt8((bits >> 24) & 0xFF)
+        block[13] = UInt8((bits >> 16) & 0xFF)
+        block[14] = UInt8((bits >> 8) & 0xFF)
+        block[15] = UInt8(bits & 0xFF)
+        return block
+    }
 
-        while len > 16 {
-            let block = Array(plain[off..<(off + 16)])
-            // Counter-cryptanalysis (https://eprint.iacr.org/2019/311 section 9): if the second-to-last
-            // block is all zero apart from its last byte, flip a bit so the packet can't be exploited.
-            var flipABit = false
-            if len - 16 <= 16 {
-                var sum: UInt8 = 0
-                for i in 0..<15 { sum |= block[i] }
-                if sum == 0 { flipABit = true }
-            }
-            CryptState.s2(&delta)
-            var tmp = CryptState.xor(delta, block)
-            if flipABit { tmp[0] ^= 1 }
-            tmp = cipher.encryptBlock(tmp)
-            let enc = CryptState.xor(delta, tmp)
-            out.replaceSubrange(off..<(off + 16), with: enc)
-            checksum = CryptState.xor(checksum, block)
-            if flipABit { checksum[0] ^= 1 }
-            len -= 16
-            off += 16
+    private static func isZeroExceptLastByte(_ block: [UInt8]) -> Bool {
+        var sum: UInt8 = 0
+        for index in 0..<(blockSize - 1) { sum |= block[index] }
+        return sum == 0
+    }
+
+    private static func prefixMatches(_ left: [UInt8], _ right: [UInt8]) -> Bool {
+        for index in 0..<(blockSize - 1) where left[index] != right[index] { return false }
+        return true
+    }
+
+    public func ocbEncrypt(_ plain: [UInt8], nonce: [UInt8]) -> ([UInt8], [UInt8]) {
+        guard let cipher else { return ([], Self.zeroBlock) }
+        let blockSize = Self.blockSize
+        var delta = cipher.encryptBlock(nonce)
+        var checksum = Self.zeroBlock
+        var out = [UInt8](repeating: 0, count: plain.count)
+        var remaining = plain.count
+        var offset = 0
+
+        while remaining > blockSize {
+            let block = Array(plain[offset..<(offset + blockSize)])
+            let flipBit = remaining - blockSize <= blockSize && Self.isZeroExceptLastByte(block)
+            Self.double(&delta)
+            var masked = Self.xor(delta, block)
+            if flipBit { masked[0] ^= 1 }
+            let encrypted = Self.xor(delta, cipher.encryptBlock(masked))
+            out.replaceSubrange(offset..<(offset + blockSize), with: encrypted)
+            checksum = Self.xor(checksum, block)
+            if flipBit { checksum[0] ^= 1 }
+            remaining -= blockSize
+            offset += blockSize
         }
 
-        CryptState.s2(&delta)
-        var tmp = [UInt8](repeating: 0, count: 16)
-        let bits = UInt32(len * 8)
-        tmp[12] = UInt8((bits >> 24) & 0xFF)
-        tmp[13] = UInt8((bits >> 16) & 0xFF)
-        tmp[14] = UInt8((bits >> 8) & 0xFF)
-        tmp[15] = UInt8(bits & 0xFF)
-        tmp = CryptState.xor(tmp, delta)
-        let pad = cipher.encryptBlock(tmp)
-        var tail = [UInt8](repeating: 0, count: 16)
-        for i in 0..<len { tail[i] = plain[off + i] }
-        for i in len..<16 { tail[i] = pad[i] }
-        checksum = CryptState.xor(checksum, tail)
-        tail = CryptState.xor(pad, tail)
-        for i in 0..<len { out[off + i] = tail[i] }
+        Self.double(&delta)
+        let pad = cipher.encryptBlock(Self.xor(Self.lengthBlock(remaining), delta))
+        var tail = Self.zeroBlock
+        for index in 0..<remaining { tail[index] = plain[offset + index] }
+        for index in remaining..<blockSize { tail[index] = pad[index] }
+        checksum = Self.xor(checksum, tail)
+        let encryptedTail = Self.xor(pad, tail)
+        for index in 0..<remaining { out[offset + index] = encryptedTail[index] }
 
-        CryptState.s3(&delta)
-        let tag = cipher.encryptBlock(CryptState.xor(delta, checksum))
+        Self.triple(&delta)
+        let tag = cipher.encryptBlock(Self.xor(delta, checksum))
         return (out, tag)
     }
 
-    /// Returns (plaintext, tag, success). `success` is false when the packet looks like an XEX* attack.
     public func ocbDecrypt(_ encrypted: [UInt8], nonce: [UInt8]) -> ([UInt8], [UInt8], Bool) {
-        guard let cipher else { return ([], [UInt8](repeating: 0, count: 16), false) }
+        guard let cipher else { return ([], Self.zeroBlock, false) }
+        let blockSize = Self.blockSize
         var delta = cipher.encryptBlock(nonce)
-        var checksum = [UInt8](repeating: 0, count: 16)
+        var checksum = Self.zeroBlock
         var out = [UInt8](repeating: 0, count: encrypted.count)
-        var len = encrypted.count
-        var off = 0
-        var success = true
+        var remaining = encrypted.count
+        var offset = 0
 
-        while len > 16 {
-            let block = Array(encrypted[off..<(off + 16)])
-            CryptState.s2(&delta)
-            var tmp = CryptState.xor(delta, block)
-            tmp = cipher.decryptBlock(tmp)
-            let plain = CryptState.xor(delta, tmp)
-            out.replaceSubrange(off..<(off + 16), with: plain)
-            checksum = CryptState.xor(checksum, plain)
-            len -= 16
-            off += 16
+        while remaining > blockSize {
+            let block = Array(encrypted[offset..<(offset + blockSize)])
+            Self.double(&delta)
+            let plain = Self.xor(delta, cipher.decryptBlock(Self.xor(delta, block)))
+            out.replaceSubrange(offset..<(offset + blockSize), with: plain)
+            checksum = Self.xor(checksum, plain)
+            remaining -= blockSize
+            offset += blockSize
         }
 
-        CryptState.s2(&delta)
-        var tmp = [UInt8](repeating: 0, count: 16)
-        let bits = UInt32(len * 8)
-        tmp[12] = UInt8((bits >> 24) & 0xFF)
-        tmp[13] = UInt8((bits >> 16) & 0xFF)
-        tmp[14] = UInt8((bits >> 8) & 0xFF)
-        tmp[15] = UInt8(bits & 0xFF)
-        tmp = CryptState.xor(tmp, delta)
-        let pad = cipher.encryptBlock(tmp)
-        var tail = [UInt8](repeating: 0, count: 16)
-        for i in 0..<len { tail[i] = encrypted[off + i] }
-        tail = CryptState.xor(tail, pad)
-        checksum = CryptState.xor(checksum, tail)
-        for i in 0..<len { out[off + i] = tail[i] }
+        Self.double(&delta)
+        let pad = cipher.encryptBlock(Self.xor(Self.lengthBlock(remaining), delta))
+        var tail = Self.zeroBlock
+        for index in 0..<remaining { tail[index] = encrypted[offset + index] }
+        tail = Self.xor(tail, pad)
+        checksum = Self.xor(checksum, tail)
+        for index in 0..<remaining { out[offset + index] = tail[index] }
+        let success = !Self.prefixMatches(tail, delta)
 
-        // Attack detection: the decrypted last block would equal delta ^ len(128).
-        var matches = true
-        for i in 0..<15 where tail[i] != delta[i] { matches = false; break }
-        if matches { success = false }
-
-        CryptState.s3(&delta)
-        let tag = cipher.encryptBlock(CryptState.xor(delta, checksum))
+        Self.triple(&delta)
+        let tag = cipher.encryptBlock(Self.xor(delta, checksum))
         return (out, tag, success)
     }
 }

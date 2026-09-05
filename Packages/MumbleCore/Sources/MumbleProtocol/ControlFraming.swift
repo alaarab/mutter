@@ -1,9 +1,7 @@
 import Foundation
 
-/// TCP control channel framing: 2-byte big-endian type, 4-byte big-endian payload length, payload.
 public enum ControlFraming {
     public static let headerSize = 6
-    /// Servers reject anything larger; keeps a hostile peer from making us allocate unbounded memory.
     public static let maxPayload = 8 * 1024 * 1024
 
     public static func frame(type: UInt16, payload: Data) -> Data {
@@ -38,7 +36,6 @@ public enum ControlFramingError: Error {
     case payloadTooLarge(Int)
 }
 
-/// Accumulates bytes from the socket and yields complete frames.
 public struct ControlFrameParser {
     private var buffer = Data()
 
@@ -50,15 +47,15 @@ public struct ControlFrameParser {
 
     public mutating func nextFrame() throws -> ControlFrame? {
         guard buffer.count >= ControlFraming.headerSize else { return nil }
-        let b = buffer
-        let s = b.startIndex
-        let type = UInt16(b[s]) << 8 | UInt16(b[s + 1])
-        let len = Int(UInt32(b[s + 2]) << 24 | UInt32(b[s + 3]) << 16 | UInt32(b[s + 4]) << 8 | UInt32(b[s + 5]))
-        if len > ControlFraming.maxPayload { throw ControlFramingError.payloadTooLarge(len) }
-        let total = ControlFraming.headerSize + len
-        guard b.count >= total else { return nil }
-        let payload = Data(b[(s + ControlFraming.headerSize)..<(s + total)])
-        buffer = Data(b[(s + total)...])
+        let bytes = buffer
+        let start = bytes.startIndex
+        let type = UInt16(bytes[start]) << 8 | UInt16(bytes[start + 1])
+        let length = Int(UInt32(bytes[start + 2]) << 24 | UInt32(bytes[start + 3]) << 16 | UInt32(bytes[start + 4]) << 8 | UInt32(bytes[start + 5]))
+        if length > ControlFraming.maxPayload { throw ControlFramingError.payloadTooLarge(length) }
+        let total = ControlFraming.headerSize + length
+        guard bytes.count >= total else { return nil }
+        let payload = Data(bytes[(start + ControlFraming.headerSize)..<(start + total)])
+        buffer = Data(bytes[(start + total)...])
         return ControlFrame(type: type, payload: payload)
     }
 

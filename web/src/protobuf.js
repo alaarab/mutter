@@ -1,73 +1,141 @@
-// Minimal protobuf reader/writer — the same hand-rolled subset MumbleProtocol uses on iOS,
-// ported so the browser and the bridge share one implementation with no dependencies.
+const WIRE_VARINT = 0;
+const WIRE_FIXED64 = 1;
+const WIRE_LENGTH_DELIMITED = 2;
+const WIRE_FIXED32 = 5;
+
+const textDecoder = new TextDecoder();
+const textEncoder = new TextEncoder();
 
 export class Reader {
-  constructor(bytes) { this.b = bytes; this.i = 0; }
-  get done() { return this.i >= this.b.length; }
+  constructor(bytes) {
+    this.bytes = bytes;
+    this.offset = 0;
+  }
+
+  get done() {
+    return this.offset >= this.bytes.length;
+  }
 
   varint() {
-    let result = 0n, shift = 0n;
-    while (this.i < this.b.length) {
-      const byte = this.b[this.i++];
+    let result = 0n;
+    let shift = 0n;
+    while (this.offset < this.bytes.length) {
+      const byte = this.bytes[this.offset++];
       result |= BigInt(byte & 0x7f) << shift;
-      if ((byte & 0x80) === 0) break;
+      if ((byte & 0x80) === 0) {
+        break;
+      }
       shift += 7n;
     }
     return result;
   }
 
-  /// Calls fn({ number, wire, ... }) for each field in the message.
-  forEachField(fn) {
+  take(length) {
+    const slice = this.bytes.subarray(this.offset, this.offset + length);
+    this.offset += length;
+    return slice;
+  }
+
+  forEachField(handler) {
     while (!this.done) {
       const key = Number(this.varint());
-      const number = key >>> 3, wire = key & 7;
-      let value = null, payload = null;
-      if (wire === 0) value = this.varint();
-      else if (wire === 2) {
-        const len = Number(this.varint());
-        payload = this.b.subarray(this.i, this.i + len);
-        this.i += len;
-      } else if (wire === 5) { payload = this.b.subarray(this.i, this.i + 4); this.i += 4; }
-      else if (wire === 1) { payload = this.b.subarray(this.i, this.i + 8); this.i += 8; }
-      else break;
-      fn({
-        number, wire, payload,
+      const number = key >>> 3;
+      const wire = key & 7;
+      let value = null;
+      let payload = null;
+      if (wire === WIRE_VARINT) {
+        value = this.varint();
+      } else if (wire === WIRE_LENGTH_DELIMITED) {
+        payload = this.take(Number(this.varint()));
+      } else if (wire === WIRE_FIXED32) {
+        payload = this.take(4);
+      } else if (wire === WIRE_FIXED64) {
+        payload = this.take(8);
+      } else {
+        break;
+      }
+      handler({
+        number,
+        wire,
+        payload,
         uint: value === null ? 0 : Number(value),
         bool: value === null ? false : value !== 0n,
-        string: payload ? new TextDecoder().decode(payload) : undefined,
+        string: payload ? textDecoder.decode(payload) : undefined,
       });
     }
   }
 }
 
 export class Writer {
-  constructor() { this.parts = []; }
-  _varint(n) {
-    let v = BigInt(n), out = [];
-    do { let byte = Number(v & 0x7fn); v >>= 7n; if (v > 0n) byte |= 0x80; out.push(byte); } while (v > 0n);
-    this.parts.push(Uint8Array.from(out));
+  constructor() {
+    this.parts = [];
   }
-  _key(field, wire) { this._varint((field << 3) | wire); }
 
-  uint(field, value) { if (value === undefined || value === null) return this; this._key(field, 0); this._varint(value); return this; }
-  bool(field, value) { if (value === undefined || value === null) return this; this._key(field, 0); this._varint(value ? 1 : 0); return this; }
-  string(field, value) {
-    if (value === undefined || value === null) return this;
-    const bytes = new TextEncoder().encode(value);
-    this._key(field, 2); this._varint(bytes.length); this.parts.push(bytes);
+  uint(field, value) {
+    if (value === undefined || value === null) {
+      return this;
+    }
+    this.key(field, WIRE_VARINT);
+    this.varint(value);
     return this;
   }
+
+  bool(field, value) {
+    if (value === undefined || value === null) {
+      return this;
+    }
+    this.key(field, WIRE_VARINT);
+    this.varint(value ? 1 : 0);
+    return this;
+  }
+
+  string(field, value) {
+    if (value === undefined || value === null) {
+      return this;
+    }
+    return this.bytes(field, textEncoder.encode(value));
+  }
+
   bytes(field, value) {
-    if (!value) return this;
-    this._key(field, 2); this._varint(value.length); this.parts.push(value);
+    if (!value) {
+      return this;
+    }
+    this.key(field, WIRE_LENGTH_DELIMITED);
+    this.varint(value.length);
+    this.parts.push(value);
     return this;
   }
 
   finish() {
-    const total = this.parts.reduce((n, p) => n + p.length, 0);
-    const out = new Uint8Array(total);
-    let o = 0;
-    for (const p of this.parts) { out.set(p, o); o += p.length; }
-    return out;
+    return concatBytes(this.parts);
   }
+
+  key(field, wire) {
+    this.varint((field << 3) | wire);
+  }
+
+  varint(value) {
+    let remaining = BigInt(value);
+    const encoded = [];
+    do {
+      let byte = Number(remaining & 0x7fn);
+      remaining >>= 7n;
+      if (remaining > 0n) {
+        byte |= 0x80;
+      }
+      encoded.push(byte);
+    } while (remaining > 0n);
+    this.parts.push(Uint8Array.from(encoded));
+  }
+}
+
+export function concatBytes(parts) {
+  const total = parts.reduce((sum, part) => sum + part.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.length;
+  }
+  return out;
 }

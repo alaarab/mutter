@@ -53,43 +53,31 @@ enum AudioRoute: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-/// Captures the microphone, encodes Opus packets for the client, and plays back remote users.
 @Observable
 final class AudioEngine: VoiceSink {
-    // Observed by the UI (updated on main, ~20 Hz).
     private(set) var inputLevelDb: Float = -80
     private(set) var isTransmitting = false
     private(set) var isRunning = false
     private(set) var lastError: String?
     private(set) var currentRoute: String = ""
-    /// Estimated ambient noise level in dB, tracked while the gate is closed.
     private(set) var noiseFloorDb: Float = -60
-    /// The threshold the gate is actually using (auto or manual).
     private(set) var effectiveThresholdDb: Float = -38
 
-    // Configuration
-    var transmitMode: TransmitMode = .voiceActivity { didSet { updateGate(force: true) } }
+    var transmitMode: TransmitMode = .voiceActivity
     var vadThresholdDb: Float = -38
-    /// Derive the gate threshold from the measured noise floor instead of the manual slider.
     var autoSensitivity = true
-    /// Apple's voice processing I/O: echo cancellation, automatic gain, and the system
-    /// Voice Isolation mic mode. Changing it rebuilds the audio graph.
     var useVoiceProcessing = true { didSet { if oldValue != useVoiceProcessing { rebuildIfRunning() } } }
     var noiseSuppression: NoiseSuppressor.Level = .strong { didSet { processingQueue.async { self.suppressor?.level = self.noiseSuppression } } }
     var bitrate: Int32 = 40_000 { didSet { encoder?.setBitrate(bitrate) } }
     var frameMilliseconds: Int = 20
-    var isPushToTalkPressed = false { didSet { updateGate(force: false) } }
-    var isMuted = false { didSet { updateGate(force: true) } }
+    var isPushToTalkPressed = false
+    var isMuted = false
     var isDeafened = false
     var outputGain: Float = 1.0
     var route: AudioRoute = .speaker { didSet { applyOutputRoute() } }
-    /// Mix with other apps' audio instead of fighting over the session. This is what lets a
-    /// video or music app play without interrupting the call (and vice versa).
     var mixWithOthers = true { didSet { applyOutputRoute() } }
-    /// Voice target for outgoing packets: `.normal` for the channel, 1 for the whisper/shout target.
     var transmitTarget: VoiceTargetID = .normal
 
-    /// Encoded packets ready for the network. Called on the audio processing queue.
     var onEncodedPacket: ((Data, Int, Bool, VoiceTargetID) -> Void)?
     var onTransmitChanged: ((Bool) -> Void)?
 
@@ -102,17 +90,13 @@ final class AudioEngine: VoiceSink {
     @ObservationIgnored private var lastVoiceAt: TimeInterval = 0
     @ObservationIgnored private var sendTerminator = false
     @ObservationIgnored private var streams: [UInt32: UserStream] = [:]
-    @ObservationIgnored private var streamsLock = os_unfair_lock()
+    @ObservationIgnored private let streamsLock = OSAllocatedUnfairLock()
     @ObservationIgnored private var sourceNode: AVAudioSourceNode?
     @ObservationIgnored private var levelTick = 0
     @ObservationIgnored private var localVolumes: [UInt32: Float] = [:]
     @ObservationIgnored private var suppressor: NoiseSuppressor? = NoiseSuppressor()
     @ObservationIgnored private var floorDb: Float = -60
     @ObservationIgnored private var openFrames = 0
-    /// Guards graph recovery against itself. Reconfiguring the engine emits its own
-    /// AVAudioEngineConfigurationChange and route-change notifications; without these two flags a
-    /// rebuild re-triggers a rebuild forever, which pins the main thread, breaks the mic, and
-    /// storms SwiftUI into a layout crash.
     @ObservationIgnored private var isRebuilding = false
     @ObservationIgnored private var rebuildScheduled = false
 
@@ -128,19 +112,14 @@ final class AudioEngine: VoiceSink {
         observers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] note in
             self?.handleRouteChange(note)
         })
-        // When another app starts or stops playing, the engine's hardware configuration changes
-        // and AVAudioEngine silently tears down its connections. Without rebuilding here, we come
-        // back from a video with a running engine that produces no sound.
         observers.append(center.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
             self?.scheduleRebuild(reason: "engine configuration changed")
         })
     }
 
     deinit {
-        for o in observers { NotificationCenter.default.removeObserver(o) }
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
     }
-
-    // MARK: - Lifecycle
 
     func start() {
         guard !isRunning else { return }
@@ -175,8 +154,6 @@ final class AudioEngine: VoiceSink {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
-    /// Bluetooth is only in the category options when the user picked it, so "Earpiece"
-    /// and "Speaker" stay put even while a headset is connected.
     private var categoryOptions: AVAudioSession.CategoryOptions {
         var options: AVAudioSession.CategoryOptions
         switch route {
@@ -188,9 +165,6 @@ final class AudioEngine: VoiceSink {
         return options
     }
 
-    /// Brings audio back after an interruption, a route change, or time spent in the background.
-    /// `engine.isRunning` can be true while the graph is dead, so the session is reactivated and
-    /// the graph rebuilt rather than trusting that flag.
     func ensureRunning() {
         guard isRunning, !isRebuilding else { return }
         let session = AVAudioSession.sharedInstance()
@@ -202,9 +176,6 @@ final class AudioEngine: VoiceSink {
         }
     }
 
-    /// Coalesces a burst of route/configuration notifications into a single trailing rebuild, and
-    /// never queues one while a rebuild is already in flight (the rebuild emits those same
-    /// notifications itself).
     private func scheduleRebuild(reason: String) {
         guard isRunning, !isRebuilding, !rebuildScheduled else { return }
         rebuildScheduled = true
@@ -215,9 +186,6 @@ final class AudioEngine: VoiceSink {
         }
     }
 
-    /// Rebuilds the node graph against the current hardware format, keeping the connection and
-    /// decoder state intact. Deliberately does NOT reconfigure the audio session — that emits route
-    /// changes and is the session's job, not the graph's.
     private func rebuildGraph(reason: String = "recovery") {
         guard isRunning, !isRebuilding else { return }
         isRebuilding = true
@@ -238,8 +206,6 @@ final class AudioEngine: VoiceSink {
             DiagnosticsLog.shared.add("audio", "rebuild failed: \(error.localizedDescription)")
             lastError = error.localizedDescription
         }
-        // Ignore the configuration/route notifications this rebuild just emitted; clear the guard
-        // once they've settled.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
             self?.isRebuilding = false
         }
@@ -269,14 +235,10 @@ final class AudioEngine: VoiceSink {
 
     private func buildGraph() throws {
         let input = engine.inputNode
-        // Must happen before the tap is installed and before the engine starts. Only toggle when it
-        // actually differs: flipping voice processing rebuilds the input unit and emits its own
-        // configuration-change notification, which would feed the rebuild loop.
         if input.isVoiceProcessingEnabled != useVoiceProcessing {
             do {
                 try input.setVoiceProcessingEnabled(useVoiceProcessing)
             } catch {
-                // Some simulators and devices refuse; carry on without it.
             }
         }
         if useVoiceProcessing {
@@ -297,12 +259,12 @@ final class AudioEngine: VoiceSink {
 
         let source = AVAudioSourceNode(format: AudioEngine.format48kMono) { [weak self] _, _, frameCount, audioBufferList -> OSStatus in
             guard let self else { return noErr }
-            let abl = UnsafeMutableAudioBufferListPointer(audioBufferList)
-            guard let buf = abl.first?.mData else { return noErr }
-            let out = buf.assumingMemoryBound(to: Float.self)
-            let n = Int(frameCount)
-            for i in 0..<n { out[i] = 0 }
-            self.render(into: out, frames: n)
+            let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
+            guard let data = buffers.first?.mData else { return noErr }
+            let output = data.assumingMemoryBound(to: Float.self)
+            let frames = Int(frameCount)
+            for index in 0..<frames { output[index] = 0 }
+            self.render(into: output, frames: frames)
             return noErr
         }
         engine.attach(source)
@@ -311,8 +273,6 @@ final class AudioEngine: VoiceSink {
         sourceNode = source
         engine.prepare()
     }
-
-    // MARK: - Capture path
 
     private func handleInput(_ buffer: AVAudioPCMBuffer) {
         guard let converter else { return }
@@ -347,9 +307,8 @@ final class AudioEngine: VoiceSink {
     }
 
     private func encodeFrame(_ frame: [Float]) {
-        // Level metering
         var sum: Float = 0
-        for s in frame { sum += s * s }
+        for sample in frame { sum += sample * sample }
         let rms = sqrt(sum / Float(frame.count))
         let db = max(-80, 20 * log10(max(rms, 1e-9)))
         levelTick += 1
@@ -358,18 +317,20 @@ final class AudioEngine: VoiceSink {
             DispatchQueue.main.async { self.inputLevelDb = level }
         }
 
-        // Noise floor: drops instantly to any quieter frame, rises at ~0.5 dB/s while the gate is closed.
         if !gateOpen {
             if db < floorDb { floorDb = db } else { floorDb += 0.01 }
             floorDb = min(max(floorDb, -80), -20)
         }
         let threshold: Float = autoSensitivity ? min(max(floorDb + 12, -60), -15) : vadThresholdDb
         if levelTick % 5 == 0 {
-            let f = floorDb, t = threshold
-            DispatchQueue.main.async { self.noiseFloorDb = f; self.effectiveThresholdDb = t }
+            let floorSnapshot = floorDb
+            let thresholdSnapshot = threshold
+            DispatchQueue.main.async {
+                self.noiseFloorDb = floorSnapshot
+                self.effectiveThresholdDb = thresholdSnapshot
+            }
         }
 
-        // Gate decision
         let now = Date().timeIntervalSinceReferenceDate
         var shouldSend: Bool
         switch transmitMode {
@@ -378,7 +339,6 @@ final class AudioEngine: VoiceSink {
         case .continuous:
             shouldSend = true
         case .voiceActivity:
-            // Open after two consecutive loud frames (kills single clicks), close 350 ms after the last one.
             if db >= threshold {
                 openFrames += 1
                 if openFrames >= 2 || gateOpen { lastVoiceAt = now }
@@ -412,68 +372,59 @@ final class AudioEngine: VoiceSink {
         if terminator { encoder.reset() }
     }
 
-    private func updateGate(force: Bool) {
-        // Gate changes are evaluated per frame in encodeFrame; nothing else to do here.
-        _ = force
+    private func withStreams<Result>(_ body: () -> Result) -> Result {
+        streamsLock.lock()
+        defer { streamsLock.unlock() }
+        return body()
     }
-
-    // MARK: - Playback path (VoiceSink)
 
     func receiveAudio(_ packet: AudioPacket) {
         guard !isDeafened, let sender = packet.senderSession else { return }
-        os_unfair_lock_lock(&streamsLock)
-        var stream = streams[sender]
-        if stream == nil, let s = try? UserStream(session: sender) {
-            s.volume = localVolumes[sender] ?? 1.0
-            streams[sender] = s
-            stream = s
+        let stream = withStreams { () -> UserStream? in
+            if let existing = streams[sender] { return existing }
+            guard let created = try? UserStream(session: sender) else { return nil }
+            created.volume = localVolumes[sender] ?? 1.0
+            streams[sender] = created
+            return created
         }
-        os_unfair_lock_unlock(&streamsLock)
         stream?.push(packet)
         pruneIdleStreams()
     }
 
     func voiceStreamsDidReset() {
-        os_unfair_lock_lock(&streamsLock)
-        streams = [:]
-        os_unfair_lock_unlock(&streamsLock)
+        withStreams { streams = [:] }
     }
 
     func setVolume(_ volume: Float, for session: UInt32) {
-        os_unfair_lock_lock(&streamsLock)
-        localVolumes[session] = volume
-        streams[session]?.volume = volume
-        os_unfair_lock_unlock(&streamsLock)
+        withStreams {
+            localVolumes[session] = volume
+            streams[session]?.volume = volume
+        }
     }
 
     private var pruneCounter = 0
     private func pruneIdleStreams() {
         pruneCounter += 1
         guard pruneCounter % 200 == 0 else { return }
-        os_unfair_lock_lock(&streamsLock)
-        for (k, s) in streams where s.isIdle { streams[k] = nil }
-        os_unfair_lock_unlock(&streamsLock)
+        withStreams {
+            for (session, stream) in streams where stream.isIdle { streams[session] = nil }
+        }
     }
 
     private func render(into out: UnsafeMutablePointer<Float>, frames: Int) {
         guard !isDeafened else { return }
-        os_unfair_lock_lock(&streamsLock)
-        let active = Array(streams.values)
-        os_unfair_lock_unlock(&streamsLock)
-        for s in active { s.mix(into: out, frames: frames, masterGain: outputGain) }
-        // Soft limiter: transparent below 0.8, then rounds off instead of clipping (which sounds like static).
-        for i in 0..<frames {
-            let v = out[i]
-            let a = abs(v)
-            if a > 0.8 {
-                let over = a - 0.8
+        let active = withStreams { Array(streams.values) }
+        for stream in active { stream.mix(into: out, frames: frames, masterGain: outputGain) }
+        for index in 0..<frames {
+            let sample = out[index]
+            let magnitude = abs(sample)
+            if magnitude > 0.8 {
+                let over = magnitude - 0.8
                 let limited = 0.8 + 0.2 * (1 - exp(-over / 0.2))
-                out[i] = v < 0 ? -limited : limited
+                out[index] = sample < 0 ? -limited : limited
             }
         }
     }
-
-    // MARK: - Session events
 
     private func handleInterruption(_ note: Notification) {
         guard let info = note.userInfo,
@@ -487,7 +438,6 @@ final class AudioEngine: VoiceSink {
             let optionsRaw = info[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
             let options = AVAudioSession.InterruptionOptions(rawValue: optionsRaw)
             DiagnosticsLog.shared.add("audio", "interruption ended (shouldResume: \(options.contains(.shouldResume)))")
-            // Whoever interrupted us may have left the graph in pieces; reactivate and rebuild.
             try? AVAudioSession.sharedInstance().setActive(true)
             scheduleRebuild(reason: "interruption ended")
         @unknown default:
@@ -496,8 +446,6 @@ final class AudioEngine: VoiceSink {
     }
 
     private func handleRouteChange(_ note: Notification) {
-        // The input format can change with the route, so the tap and converter are rebuilt — but
-        // only for a real route change, and never for one our own rebuild just caused.
         guard !isRebuilding else { return }
         scheduleRebuild(reason: "route changed")
     }

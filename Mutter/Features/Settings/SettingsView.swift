@@ -83,7 +83,7 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")
+                    LabeledContent("Version", value: Bundle.main.shortVersion ?? "")
                     LabeledContent("Protocol", value: "Mumble 1.5 (works with 1.2+ servers)")
                     Link(destination: URL(string: "https://www.mumble.info")!) {
                         Label("About Mumble", systemImage: "arrow.up.right.square")
@@ -92,20 +92,15 @@ struct SettingsView: View {
                     Text("An independent Mumble client. Voice and chat are encrypted.")
                 }
             }
-            .scrollContentBackground(.hidden)
-            .background(Theme.background)
+            .themedList()
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-            .onChange(of: settings.turnURL) { _, _ in model.applyShareSettings() }
-            .onChange(of: settings.turnUsername) { _, _ in model.applyShareSettings() }
-            .onChange(of: settings.turnPassword) { _, _ in model.applyShareSettings() }
+            .doneToolbar(dismiss)
+            .onChange(of: settings.turnPreferences) { _, _ in model.applyShareSettings() }
         }
     }
 }
 
-/// Swatch row for picking the app theme: a circle per theme in its accent color on its
-/// dark background, ringed when selected.
 struct ThemePickerRow: View {
     @Binding var selection: ThemeStyle
 
@@ -114,19 +109,19 @@ struct ThemePickerRow: View {
             Text("Theme")
             HStack(spacing: 14) {
                 ForEach(ThemeStyle.allCases) { style in
-                    let p = style.palette
+                    let palette = style.palette
                     Button {
                         selection = style
                     } label: {
                         VStack(spacing: 5) {
                             ZStack {
-                                Circle().fill(Color(hex: p.background.dark))
-                                Circle().fill(Color(hex: p.accent)).padding(9)
+                                Circle().fill(Color(hex: palette.background.dark))
+                                Circle().fill(Color(hex: palette.accent)).padding(9)
                             }
                             .frame(width: 40, height: 40)
                             .overlay(
                                 Circle().strokeBorder(
-                                    selection == style ? Color(hex: p.accent) : Theme.separator,
+                                    selection == style ? Color(hex: palette.accent) : Theme.separator,
                                     lineWidth: selection == style ? 2.5 : 1
                                 )
                             )
@@ -231,19 +226,10 @@ struct AudioSettingsView: View {
                 Text("Phone is the earpiece; Speaker is the loudspeaker. Mixing lets videos and music play without pausing the call.")
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(Theme.background)
+        .themedList()
         .navigationTitle("Voice & audio")
         .navigationBarTitleDisplayMode(.inline)
-        .onChange(of: settings.transmitMode) { _, _ in model.applyAudioSettings() }
-        .onChange(of: settings.vadThresholdDb) { _, _ in model.applyAudioSettings() }
-        .onChange(of: settings.bitrate) { _, _ in model.applyAudioSettings() }
-        .onChange(of: settings.frameMilliseconds) { _, _ in model.applyAudioSettings() }
-        .onChange(of: settings.audioRoute) { _, _ in model.applyAudioSettings() }
-        .onChange(of: settings.mixWithOthers) { _, _ in model.applyAudioSettings() }
-        .onChange(of: settings.noiseSuppression) { _, _ in model.applyAudioSettings() }
-        .onChange(of: settings.voiceProcessing) { _, _ in model.applyAudioSettings() }
-        .onChange(of: settings.autoSensitivity) { _, _ in model.applyAudioSettings() }
+        .onChange(of: settings.audioPreferences) { _, _ in model.applyAudioSettings() }
     }
 
     private var transmitFooter: String {
@@ -255,9 +241,6 @@ struct AudioSettingsView: View {
     }
 }
 
-/// Shows the system microphone mode (Standard / Voice Isolation / Wide Spectrum) and opens
-/// the Control Centre picker for it. Voice Isolation is only offered while a voice-processing
-/// audio session is active, i.e. while connected with echo cancellation on.
 struct MicrophoneModeRow: View {
     @Environment(AppModel.self) private var model
     @State private var mode = AVCaptureDevice.activeMicrophoneMode

@@ -1,7 +1,5 @@
 import Foundation
 
-/// Control-channel message types. The numeric value is the index of the message
-/// in Mumble.proto and is sent as the 2-byte big-endian type prefix on the TCP stream.
 public enum MessageType: UInt16, CaseIterable, Sendable {
     case version = 0
     case udpTunnel = 1
@@ -32,7 +30,6 @@ public enum MessageType: UInt16, CaseIterable, Sendable {
     case pluginDataTransmission = 26
 }
 
-/// Permission bits used in PermissionQuery / ServerSync / PermissionDenied.
 public struct Permissions: OptionSet, Hashable, Sendable {
     public let rawValue: UInt32
     public init(rawValue: UInt32) { self.rawValue = rawValue }

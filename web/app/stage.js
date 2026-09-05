@@ -1,105 +1,201 @@
-// The Screen tab: someone's shared screen with live stats, your own preview while you share, or
-// cards offering to watch. The tab only exists while there is something to show.
-
 import { ICON } from './icons.js';
 import { el } from './ui.js';
 
+const NO_CONNECTION_HINT =
+  'One of you is on a network that blocks direct connections. A relay (TURN) in Settings → Screen share fixes that.';
+
+function formatBitrate(kbps) {
+  return kbps >= 1000 ? `${(kbps / 1000).toFixed(1)} Mbit/s` : `${kbps} kbit/s`;
+}
+
+function formatStats({ w, h, fps, kbps, codec }) {
+  if (!w) {
+    return '';
+  }
+  return `${w}×${h} · ${fps} fps · ${formatBitrate(kbps)}${codec ? ` · ${codec}` : ''}`;
+}
+
+function iconButton(icon, title, onclick) {
+  return el('button', { type: 'button', className: 'icon', title, innerHTML: ICON[icon], onclick });
+}
+
+function contentHintPicker(value, onChange) {
+  const box = el('div', { className: 'segmented mini' });
+  for (const [hint, label] of [
+    ['detail', 'Text'],
+    ['motion', 'Motion'],
+  ]) {
+    box.append(
+      el('button', {
+        type: 'button',
+        className: hint === value ? 'on' : '',
+        textContent: label,
+        onclick: () => onChange(hint),
+      })
+    );
+  }
+  return box;
+}
+
+function titleBlock(strong, sub) {
+  return el('span', { className: 'title' }, el('strong', {}, strong), el('span', { className: 'sub', textContent: sub }));
+}
+
 export function mountStage({ share, client, stage, tabs, showTab, toast, applySink }) {
-  let video = null, wasSharing = false;
+  let video = null;
+  let wasSharing = false;
+
+  const nameOf = (session) => client.users.get(session)?.name ?? 'Someone';
 
   function render() {
-    const w = share.watching, s = share.sharing, offers = [...share.available].filter(([sender]) => sender !== w?.sender);
-    const show = !!(w || s || offers.length);
-    for (const tab of tabs) { tab.hidden = !show; tab.classList.toggle('live', !!(w || offers.length)); }
-    if (!show && document.body.dataset.tab === 'screen') showTab('chat');
-    if (s && !wasSharing) showTab('screen');          // your own share just started: show the preview
-    wasSharing = !!s;
-    stage.replaceChildren();
-    if (!show) { video = null; return; }
-
-    if (w) {
-      const name = client.users.get(w.sender)?.name ?? 'Someone';
-      if (!video) { video = el('video', { autoplay: true, playsInline: true, className: 'remote' }); video.srcObject = w.stream; applySink?.(video); }
-      const bar = el('div', { className: 'stage-bar' },
-        el('span', { className: 'title' }, el('strong', {}, name), el('span', { className: 'sub', textContent: share.available.get(w.sender)?.title ?? '' })),
-        el('span', { className: 'stats', id: 'shareStats' }),
-        el('span', { className: 'spacer' }),
-        iconBtn('pip', 'Picture in picture', () => video.requestPictureInPicture?.().catch(() => {})),
-        iconBtn('fullscreen', 'Full screen', () => video.requestFullscreen?.().catch(() => {})),
-        iconBtn('close', 'Stop watching', () => share.unwatch()));
-      const frame = el('div', { className: 'frame' }, video);
-      if (w.state !== 'connected') {
-        const failed = w.state === 'failed' || w.state === 'disconnected';
-        frame.append(el('div', { className: 'frame-note' },
-          el('span', { textContent: failed ? 'Couldn’t connect' : 'Connecting…' }),
-          ...(failed ? [
-            el('span', { className: 'sub', textContent: 'One of you is on a network that blocks direct connections. A relay (TURN) in Settings → Screen share fixes that.' }),
-            el('button', { type: 'button', className: 'ghost', textContent: 'Retry', onclick: () => share.watch(w.sender) }),
-          ] : [])));
-      }
-      stage.append(bar, frame);
-      renderStats();
-    } else video = null;
-
-    if (s) {
-      const preview = el('video', { autoplay: true, playsInline: true, muted: true, className: w ? 'preview small' : 'preview' });
-      preview.srcObject = s.stream;
-      const n = share.viewerCount;
-      const bar = el('div', { className: 'stage-bar own' },
-        el('span', { className: 'title' }, el('strong', {}, 'You’re sharing'), el('span', { className: 'sub', textContent: `${s.title} · ${n ? `${n} watching` : 'nobody watching yet'}` })),
-        el('span', { className: 'stats', id: 'shareOwnStats' }),
-        el('span', { className: 'spacer' }),
-        segmented(s.contentHint, v => share.setContentHint(v)),
-        el('button', { type: 'button', className: 'ghost danger', textContent: 'Stop', onclick: () => share.stop() }));
-      if (w) { stage.append(bar); stage.querySelector('.frame').append(preview); }
-      else stage.append(bar, el('div', { className: 'frame' }, preview));
+    const viewer = share.watching;
+    const own = share.sharing;
+    const offers = [...share.available].filter(([sender]) => sender !== viewer?.sender);
+    const showStage = !!(viewer || own || offers.length);
+    for (const tab of tabs) {
+      tab.hidden = !showStage;
+      tab.classList.toggle('live', !!(viewer || offers.length));
     }
-
+    if (!showStage && document.body.dataset.tab === 'screen') {
+      showTab('chat');
+    }
+    if (own && !wasSharing) {
+      showTab('screen');
+    }
+    wasSharing = !!own;
+    stage.replaceChildren();
+    if (!showStage) {
+      video = null;
+      return;
+    }
+    if (viewer) {
+      renderViewer(viewer);
+    } else {
+      video = null;
+    }
+    if (own) {
+      renderOwnShare(own, viewer);
+    }
     if (offers.length) {
-      const list = el('div', { className: 'offers' });
-      for (const [sender, a] of offers) {
-        const name = client.users.get(sender)?.name ?? 'Someone';
-        list.append(el('div', { className: 'offer' },
-          el('span', { className: 'offer-icon', innerHTML: ICON.screen }),
-          el('span', { className: 'title' }, el('strong', {}, `${name} is sharing`), el('span', { className: 'sub', textContent: `${a.title}${a.w ? ` · ${a.w}×${a.h}` : ''}${a.audio ? ' · audio' : ''}` })),
-          el('button', { type: 'button', className: 'watch', textContent: 'Watch', onclick: () => { share.watch(sender); showTab('screen'); } })));
-      }
-      stage.append(list);
+      renderOffers(offers);
     }
   }
 
-  function renderStats() {
-    const w = share.watching, out = document.getElementById('shareStats');
-    if (w && out) {
-      const { fps, kbps, w: vw, h: vh, codec } = w.stats;
-      out.textContent = vw ? `${vw}×${vh} · ${fps} fps · ${fmtKbps(kbps)}${codec ? ` · ${codec}` : ''}` : '';
+  function renderViewer(viewer) {
+    if (!video) {
+      video = el('video', { autoplay: true, playsInline: true, className: 'remote' });
+      video.srcObject = viewer.stream;
+      applySink?.(video);
     }
-    const s = share.sharing, own = document.getElementById('shareOwnStats');
-    if (s && own) {
-      const st = s.stats;
-      own.replaceChildren();
-      if (st?.w) {
-        own.append(`${st.w}×${st.h} · ${st.fps} fps · ${fmtKbps(st.kbps)}${st.codec ? ` · ${st.codec}` : ''}`);
-        if (st.limited) own.append(el('span', { className: 'limited', textContent: ` · limited by ${st.limited === 'cpu' ? 'CPU' : st.limited}` }));
+    const bar = el(
+      'div',
+      { className: 'stage-bar' },
+      titleBlock(nameOf(viewer.sender), share.available.get(viewer.sender)?.title ?? ''),
+      el('span', { className: 'stats', id: 'shareStats' }),
+      el('span', { className: 'spacer' }),
+      iconButton('pip', 'Picture in picture', () => video.requestPictureInPicture?.().catch(() => {})),
+      iconButton('fullscreen', 'Full screen', () => video.requestFullscreen?.().catch(() => {})),
+      iconButton('close', 'Stop watching', () => share.unwatch())
+    );
+    const frame = el('div', { className: 'frame' }, video);
+    if (viewer.state !== 'connected') {
+      frame.append(connectionNote(viewer));
+    }
+    stage.append(bar, frame);
+    renderStats();
+  }
+
+  function connectionNote(viewer) {
+    const failed = viewer.state === 'failed' || viewer.state === 'disconnected';
+    const note = el('div', { className: 'frame-note' }, el('span', { textContent: failed ? 'Couldn’t connect' : 'Connecting…' }));
+    if (failed) {
+      note.append(
+        el('span', { className: 'sub', textContent: NO_CONNECTION_HINT }),
+        el('button', { type: 'button', className: 'ghost', textContent: 'Retry', onclick: () => share.watch(viewer.sender) })
+      );
+    }
+    return note;
+  }
+
+  function renderOwnShare(own, viewer) {
+    const preview = el('video', { autoplay: true, playsInline: true, muted: true, className: viewer ? 'preview small' : 'preview' });
+    preview.srcObject = own.stream;
+    const watchers = share.viewerCount;
+    const bar = el(
+      'div',
+      { className: 'stage-bar own' },
+      titleBlock('You’re sharing', `${own.title} · ${watchers ? `${watchers} watching` : 'nobody watching yet'}`),
+      el('span', { className: 'stats', id: 'shareOwnStats' }),
+      el('span', { className: 'spacer' }),
+      contentHintPicker(own.contentHint, (hint) => share.setContentHint(hint)),
+      el('button', { type: 'button', className: 'ghost danger', textContent: 'Stop', onclick: () => share.stop() })
+    );
+    if (viewer) {
+      stage.append(bar);
+      stage.querySelector('.frame').append(preview);
+    } else {
+      stage.append(bar, el('div', { className: 'frame' }, preview));
+    }
+  }
+
+  function renderOffers(offers) {
+    const list = el('div', { className: 'offers' });
+    for (const [sender, offer] of offers) {
+      const details = `${offer.title}${offer.w ? ` · ${offer.w}×${offer.h}` : ''}${offer.audio ? ' · audio' : ''}`;
+      list.append(
+        el(
+          'div',
+          { className: 'offer' },
+          el('span', { className: 'offer-icon', innerHTML: ICON.screen }),
+          titleBlock(`${nameOf(sender)} is sharing`, details),
+          el('button', {
+            type: 'button',
+            className: 'watch',
+            textContent: 'Watch',
+            onclick: () => {
+              share.watch(sender);
+              showTab('screen');
+            },
+          })
+        )
+      );
+    }
+    stage.append(list);
+  }
+
+  function renderStats() {
+    const viewerStats = document.getElementById('shareStats');
+    if (share.watching && viewerStats) {
+      viewerStats.textContent = formatStats(share.watching.stats);
+    }
+    const ownStats = document.getElementById('shareOwnStats');
+    const own = share.sharing;
+    if (own && ownStats) {
+      ownStats.replaceChildren();
+      if (own.stats?.w) {
+        ownStats.append(formatStats(own.stats));
+        if (own.stats.limited) {
+          const cause = own.stats.limited === 'cpu' ? 'CPU' : own.stats.limited;
+          ownStats.append(el('span', { className: 'limited', textContent: ` · limited by ${cause}` }));
+        }
       }
     }
   }
 
   share.addEventListener('state', render);
-  share.addEventListener('stream', () => { if (video && share.watching) video.srcObject = share.watching.stream; video?.play().catch(() => {}); });
+  share.addEventListener('stream', () => {
+    if (video && share.watching) {
+      video.srcObject = share.watching.stream;
+    }
+    video?.play().catch(() => {});
+  });
   share.addEventListener('stats', renderStats);
-  share.addEventListener('available', e => {
+  share.addEventListener('available', (event) => {
     render();
-    if (e.detail?.fresh) toast(`${client.users.get(e.detail.sender)?.name ?? 'Someone'} started sharing`, 'join');
+    if (event.detail?.fresh) {
+      toast(`${nameOf(event.detail.sender)} started sharing`, 'join');
+    }
   });
   client.addEventListener('users', render);
   render();
-}
-
-const fmtKbps = k => k >= 1000 ? `${(k / 1000).toFixed(1)} Mbit/s` : `${k} kbit/s`;
-function iconBtn(icon, title, onclick) { return el('button', { type: 'button', className: 'icon', title, innerHTML: ICON[icon], onclick }); }
-function segmented(value, onChange) {
-  const box = el('div', { className: 'segmented mini' });
-  for (const [v, label] of [['detail', 'Text'], ['motion', 'Motion']]) box.append(el('button', { type: 'button', className: v === value ? 'on' : '', textContent: label, onclick: () => onChange(v) }));
-  return box;
 }

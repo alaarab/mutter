@@ -39,7 +39,34 @@ enum PushToTalkStyle: String, CaseIterable, Identifiable, Codable {
     var title: String { self == .hold ? "Hold to talk" : "Tap to toggle" }
 }
 
-/// User preferences, persisted in UserDefaults.
+struct AudioPreferences: Hashable {
+    var transmitMode: TransmitMode
+    var vadThresholdDb: Float
+    var bitrate: Int
+    var frameMilliseconds: Int
+    var audioRoute: AudioRoute
+    var mixWithOthers: Bool
+    var noiseSuppression: NoiseSuppressor.Level
+    var autoSensitivity: Bool
+    var voiceProcessing: Bool
+}
+
+struct TurnPreferences: Hashable {
+    var url: String
+    var username: String
+    var password: String
+}
+
+private extension UserDefaults {
+    func value<Value>(_ key: String, default fallback: Value) -> Value {
+        object(forKey: key) as? Value ?? fallback
+    }
+
+    func rawValue<Value: RawRepresentable>(_ key: String, default fallback: Value) -> Value where Value.RawValue == String {
+        string(forKey: key).flatMap(Value.init(rawValue:)) ?? fallback
+    }
+}
+
 @Observable
 final class AppSettings {
     @ObservationIgnored private let defaults: UserDefaults
@@ -71,32 +98,49 @@ final class AppSettings {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        transmitMode = TransmitMode(rawValue: defaults.string(forKey: "transmitMode") ?? "") ?? .voiceActivity
-        vadThresholdDb = defaults.object(forKey: "vadThresholdDb") as? Float ?? -38
-        bitrate = defaults.object(forKey: "bitrate") as? Int ?? 40_000
-        frameMilliseconds = defaults.object(forKey: "frameMilliseconds") as? Int ?? 20
-        pushToTalkStyle = PushToTalkStyle(rawValue: defaults.string(forKey: "pushToTalkStyle") ?? "") ?? .hold
-        // Migrates the old "speakerphone" bool: true was speaker, false was earpiece/Bluetooth.
+        transmitMode = defaults.rawValue("transmitMode", default: .voiceActivity)
+        vadThresholdDb = defaults.value("vadThresholdDb", default: -38)
+        bitrate = defaults.value("bitrate", default: 40_000)
+        frameMilliseconds = defaults.value("frameMilliseconds", default: 20)
+        pushToTalkStyle = defaults.rawValue("pushToTalkStyle", default: .hold)
         audioRoute = AudioRoute(rawValue: defaults.string(forKey: "audioRoute") ?? "")
-            ?? ((defaults.object(forKey: "speakerphone") as? Bool ?? true) ? .speaker : .earpiece)
-        mixWithOthers = defaults.object(forKey: "mixWithOthers") as? Bool ?? true
+            ?? (defaults.value("speakerphone", default: true) ? .speaker : .earpiece)
+        mixWithOthers = defaults.value("mixWithOthers", default: true)
         turnURL = defaults.string(forKey: "turnURL") ?? ""
         turnUsername = defaults.string(forKey: "turnUsername") ?? ""
         turnPassword = defaults.string(forKey: "turnPassword") ?? ""
-        appearance = Appearance(rawValue: defaults.string(forKey: "appearance") ?? "") ?? .system
-        theme = ThemeStyle(rawValue: defaults.string(forKey: "theme") ?? "") ?? .midnight
+        appearance = defaults.rawValue("appearance", default: .system)
+        theme = defaults.rawValue("theme", default: .midnight)
         defaultUsername = defaults.string(forKey: "defaultUsername") ?? ""
-        notifyOnMessage = defaults.object(forKey: "notifyOnMessage") as? Bool ?? true
-        showPresenceNotices = defaults.object(forKey: "showPresenceNotices") as? Bool ?? true
-        keepScreenAwake = defaults.object(forKey: "keepScreenAwake") as? Bool ?? false
-        hapticsOnTransmit = defaults.object(forKey: "hapticsOnTransmit") as? Bool ?? true
+        notifyOnMessage = defaults.value("notifyOnMessage", default: true)
+        showPresenceNotices = defaults.value("showPresenceNotices", default: true)
+        keepScreenAwake = defaults.value("keepScreenAwake", default: false)
+        hapticsOnTransmit = defaults.value("hapticsOnTransmit", default: true)
         defaultIdentityID = defaults.string(forKey: "defaultIdentityID").flatMap(UUID.init(uuidString:))
-        hasSeenWelcome = defaults.bool(forKey: "hasSeenWelcome")
-        hideEmptyChannels = defaults.bool(forKey: "hideEmptyChannels")
-        noiseSuppression = NoiseSuppressor.Level(rawValue: defaults.string(forKey: "noiseSuppression") ?? "") ?? .strong
-        voiceProcessing = defaults.object(forKey: "voiceProcessing") as? Bool ?? true
-        autoSensitivity = defaults.object(forKey: "autoSensitivity") as? Bool ?? true
-        headsetButtonAction = HeadsetAction(rawValue: defaults.string(forKey: "headsetButtonAction") ?? "") ?? .toggleMute
+        hasSeenWelcome = defaults.value("hasSeenWelcome", default: false)
+        hideEmptyChannels = defaults.value("hideEmptyChannels", default: false)
+        noiseSuppression = defaults.rawValue("noiseSuppression", default: .strong)
+        voiceProcessing = defaults.value("voiceProcessing", default: true)
+        autoSensitivity = defaults.value("autoSensitivity", default: true)
+        headsetButtonAction = defaults.rawValue("headsetButtonAction", default: .toggleMute)
         Theme.style = theme
+    }
+
+    var audioPreferences: AudioPreferences {
+        AudioPreferences(
+            transmitMode: transmitMode,
+            vadThresholdDb: vadThresholdDb,
+            bitrate: bitrate,
+            frameMilliseconds: frameMilliseconds,
+            audioRoute: audioRoute,
+            mixWithOthers: mixWithOthers,
+            noiseSuppression: noiseSuppression,
+            autoSensitivity: autoSensitivity,
+            voiceProcessing: voiceProcessing
+        )
+    }
+
+    var turnPreferences: TurnPreferences {
+        TurnPreferences(url: turnURL, username: turnUsername, password: turnPassword)
     }
 }

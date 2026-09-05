@@ -74,8 +74,7 @@ struct ServerInfoView: View {
                         Button { model.client.registerSelf() } label: { Label("Register on this server", systemImage: "checkmark.seal") }
                     }
                 }
-                let p = info.permissions
-                LabeledContent("Permissions", value: permissionSummary(p))
+                LabeledContent("Permissions", value: permissionSummary(info.permissions))
             } header: { SectionLabel(text: "You") }
 
             Section {
@@ -91,8 +90,7 @@ struct ServerInfoView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Theme.background)
+        .themedList()
         .confirmationDialog("Disconnect from this server?", isPresented: $showDisconnect, titleVisibility: .visible) {
             Button("Disconnect", role: .destructive) { model.disconnect() }
         }
@@ -103,18 +101,18 @@ struct ServerInfoView: View {
         ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .binary)
     }
 
-    private func permissionSummary(_ p: Permissions) -> String {
+    private func permissionSummary(_ permissions: Permissions) -> String {
         var parts: [String] = []
-        if p.contains(.speak) { parts.append("speak") }
-        if p.contains(.whisper) { parts.append("whisper") }
-        if p.contains(.textMessage) { parts.append("chat") }
-        if p.contains(.makeTempChannel) { parts.append("temp channels") }
-        if p.contains(.makeChannel) { parts.append("channels") }
-        if p.contains(.move) { parts.append("move") }
-        if p.contains(.muteDeafen) { parts.append("mute") }
-        if p.contains(.kick) { parts.append("kick") }
-        if p.contains(.ban) { parts.append("ban") }
-        if p.contains(.write) { parts.append("admin") }
+        if permissions.contains(.speak) { parts.append("speak") }
+        if permissions.contains(.whisper) { parts.append("whisper") }
+        if permissions.contains(.textMessage) { parts.append("chat") }
+        if permissions.contains(.makeTempChannel) { parts.append("temp channels") }
+        if permissions.contains(.makeChannel) { parts.append("channels") }
+        if permissions.contains(.move) { parts.append("move") }
+        if permissions.contains(.muteDeafen) { parts.append("mute") }
+        if permissions.contains(.kick) { parts.append("kick") }
+        if permissions.contains(.ban) { parts.append("ban") }
+        if permissions.contains(.write) { parts.append("admin") }
         return parts.isEmpty ? "listen only" : parts.joined(separator: ", ")
     }
 }

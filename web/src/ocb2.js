@@ -1,145 +1,301 @@
-// Mumble's voice-packet cipher: OCB2-AES128 with its nonce-recovery and replay rules — a port of
-// CryptStateOCB2.cpp via the iOS OCB2.swift. Wire layout: [iv byte][tag0][tag1][tag2][ciphertext].
-// Node only (the bridge and the fake server); the browser never touches UDP crypto.
-
 import crypto from 'node:crypto';
 
-/// Single-block AES-128. ECB with padding off is exactly "encrypt one 16-byte block".
-export function aes128(key) {
-  const enc = crypto.createCipheriv('aes-128-ecb', key, null); enc.setAutoPadding(false);
-  const dec = crypto.createDecipheriv('aes-128-ecb', key, null); dec.setAutoPadding(false);
-  return { encryptBlock: b => new Uint8Array(enc.update(b)), decryptBlock: b => new Uint8Array(dec.update(b)) };
+const BLOCK = 16;
+const TAG_BYTES = 3;
+const HEADER = 1 + TAG_BYTES;
+const REORDER_WINDOW = 30;
+
+function aes128(key) {
+  const encryptor = crypto.createCipheriv('aes-128-ecb', key, null);
+  encryptor.setAutoPadding(false);
+  const decryptor = crypto.createDecipheriv('aes-128-ecb', key, null);
+  decryptor.setAutoPadding(false);
+  return {
+    encryptBlock: (block) => new Uint8Array(encryptor.update(block)),
+    decryptBlock: (block) => new Uint8Array(decryptor.update(block)),
+  };
 }
 
-const xor = (a, b) => { const o = new Uint8Array(16); for (let i = 0; i < 16; i++) o[i] = a[i] ^ b[i]; return o; };
-/// Doubles the block in GF(2^128): shift left by one, reduce with 0x87.
-function s2(block) {
-  const carry = block[0] >> 7;
-  for (let i = 0; i < 15; i++) block[i] = ((block[i] << 1) | (block[i + 1] >> 7)) & 0xff;
-  block[15] = ((block[15] << 1) ^ (carry * 0x87)) & 0xff;
+function xor(a, b) {
+  const out = new Uint8Array(BLOCK);
+  for (let i = 0; i < BLOCK; i++) {
+    out[i] = a[i] ^ b[i];
+  }
+  return out;
 }
-function s3(block) { const d = Uint8Array.from(block); s2(d); for (let i = 0; i < 16; i++) block[i] ^= d[i]; }
+
+function double(block) {
+  const carry = block[0] >> 7;
+  for (let i = 0; i < BLOCK - 1; i++) {
+    block[i] = ((block[i] << 1) | (block[i + 1] >> 7)) & 0xff;
+  }
+  block[BLOCK - 1] = ((block[BLOCK - 1] << 1) ^ (carry * 0x87)) & 0xff;
+}
+
+function triple(block) {
+  const doubled = Uint8Array.from(block);
+  double(doubled);
+  for (let i = 0; i < BLOCK; i++) {
+    block[i] ^= doubled[i];
+  }
+}
+
+function lengthBlock(byteCount) {
+  const block = new Uint8Array(BLOCK);
+  const bits = byteCount * 8;
+  block[12] = (bits >>> 24) & 0xff;
+  block[13] = (bits >>> 16) & 0xff;
+  block[14] = (bits >>> 8) & 0xff;
+  block[15] = bits & 0xff;
+  return block;
+}
+
+function incrementFrom(iv, start) {
+  for (let i = start; i < BLOCK; i++) {
+    iv[i] = (iv[i] + 1) & 0xff;
+    if (iv[i]) {
+      break;
+    }
+  }
+}
+
+function decrementFrom(iv, start) {
+  for (let i = start; i < BLOCK; i++) {
+    const before = iv[i];
+    iv[i] = (iv[i] - 1) & 0xff;
+    if (before) {
+      break;
+    }
+  }
+}
 
 export class CryptState {
   constructor(cipherFactory = aes128) {
     this.makeCipher = cipherFactory;
     this.cipher = null;
-    this.encryptIV = new Uint8Array(16); this.decryptIV = new Uint8Array(16);
+    this.encryptIV = new Uint8Array(BLOCK);
+    this.decryptIV = new Uint8Array(BLOCK);
     this.history = new Uint8Array(256);
-    this.good = 0; this.late = 0; this.lost = 0; this.resync = 0;
+    this.good = 0;
+    this.late = 0;
+    this.lost = 0;
+    this.resync = 0;
     this.lastGood = 0;
   }
-  get isValid() { return !!this.cipher; }
 
-  /// Client side: `encryptIV` is our nonce (client_nonce), `decryptIV` the server's. Servers swap them.
+  get isValid() {
+    return !!this.cipher;
+  }
+
   setKey(key, encryptIV, decryptIV) {
-    if (key.length !== 16 || encryptIV.length !== 16 || decryptIV.length !== 16) return false;
+    if (key.length !== BLOCK || encryptIV.length !== BLOCK || decryptIV.length !== BLOCK) {
+      return false;
+    }
     this.cipher = this.makeCipher(Uint8Array.from(key));
-    this.encryptIV = Uint8Array.from(encryptIV); this.decryptIV = Uint8Array.from(decryptIV);
-    this.history.fill(0); this.good = this.late = this.lost = this.resync = 0;
+    this.encryptIV = Uint8Array.from(encryptIV);
+    this.decryptIV = Uint8Array.from(decryptIV);
+    this.history.fill(0);
+    this.good = 0;
+    this.late = 0;
+    this.lost = 0;
+    this.resync = 0;
     return true;
   }
-  setDecryptIV(iv) { if (iv.length !== 16) return false; this.decryptIV = Uint8Array.from(iv); this.resync++; return true; }
+
+  setDecryptIV(iv) {
+    if (iv.length !== BLOCK) {
+      return false;
+    }
+    this.decryptIV = Uint8Array.from(iv);
+    this.resync++;
+    return true;
+  }
 
   encrypt(plain) {
-    if (!this.cipher) return null;
-    for (let i = 0; i < 16; i++) { this.encryptIV[i] = (this.encryptIV[i] + 1) & 0xff; if (this.encryptIV[i]) break; }
-    const { ct, tag } = this._ocbEncrypt(plain, this.encryptIV);
-    const out = new Uint8Array(4 + ct.length);
-    out[0] = this.encryptIV[0]; out[1] = tag[0]; out[2] = tag[1]; out[3] = tag[2];
-    out.set(ct, 4);
+    if (!this.cipher) {
+      return null;
+    }
+    incrementFrom(this.encryptIV, 0);
+    const { ciphertext, tag } = this.ocbEncrypt(plain, this.encryptIV);
+    const out = new Uint8Array(HEADER + ciphertext.length);
+    out[0] = this.encryptIV[0];
+    out[1] = tag[0];
+    out[2] = tag[1];
+    out[3] = tag[2];
+    out.set(ciphertext, HEADER);
     return out;
   }
 
   decrypt(crypted) {
-    if (!this.cipher || crypted.length < 4) return null;
-    const ivByte = crypted[0], saved = Uint8Array.from(this.decryptIV), iv = this.decryptIV;
-    let restore = false, lostDelta = 0, lateDelta = 0;
+    if (!this.cipher || crypted.length < HEADER) {
+      return null;
+    }
+    const ivByte = crypted[0];
+    const saved = Uint8Array.from(this.decryptIV);
+    const iv = this.decryptIV;
+    let restoreAfter = false;
+    let lostDelta = 0;
+    let lateDelta = 0;
+
     if (((iv[0] + 1) & 0xff) === ivByte) {
-      if (ivByte > iv[0]) iv[0] = ivByte;
-      else if (ivByte < iv[0]) { iv[0] = ivByte; for (let i = 1; i < 16; i++) { iv[i] = (iv[i] + 1) & 0xff; if (iv[i]) break; } }
-      else return null;
+      if (ivByte > iv[0]) {
+        iv[0] = ivByte;
+      } else if (ivByte < iv[0]) {
+        iv[0] = ivByte;
+        incrementFrom(iv, 1);
+      } else {
+        return null;
+      }
     } else {
       let diff = ivByte - iv[0];
-      if (diff > 128) diff -= 256; else if (diff < -128) diff += 256;
-      if (ivByte < iv[0] && diff > -30 && diff < 0) { lateDelta = 1; lostDelta = -1; iv[0] = ivByte; restore = true; }
-      else if (ivByte > iv[0] && diff > -30 && diff < 0) {
-        lateDelta = 1; lostDelta = -1; iv[0] = ivByte; restore = true;
-        for (let i = 1; i < 16; i++) { const before = iv[i]; iv[i] = (iv[i] - 1) & 0xff; if (before) break; }
-      } else if (ivByte > iv[0] && diff > 0) { lostDelta = ivByte - iv[0] - 1; iv[0] = ivByte; }
-      else if (ivByte < iv[0] && diff > 0) { lostDelta = 256 - iv[0] + ivByte - 1; iv[0] = ivByte; for (let i = 1; i < 16; i++) { iv[i] = (iv[i] + 1) & 0xff; if (iv[i]) break; } }
-      else return null;
-      if (this.history[iv[0]] === iv[1]) { this.decryptIV = saved; return null; }
+      if (diff > 128) {
+        diff -= 256;
+      } else if (diff < -128) {
+        diff += 256;
+      }
+      const isLate = diff > -REORDER_WINDOW && diff < 0;
+      if (ivByte < iv[0] && isLate) {
+        lateDelta = 1;
+        lostDelta = -1;
+        iv[0] = ivByte;
+        restoreAfter = true;
+      } else if (ivByte > iv[0] && isLate) {
+        lateDelta = 1;
+        lostDelta = -1;
+        iv[0] = ivByte;
+        restoreAfter = true;
+        decrementFrom(iv, 1);
+      } else if (ivByte > iv[0] && diff > 0) {
+        lostDelta = ivByte - iv[0] - 1;
+        iv[0] = ivByte;
+      } else if (ivByte < iv[0] && diff > 0) {
+        lostDelta = 256 - iv[0] + ivByte - 1;
+        iv[0] = ivByte;
+        incrementFrom(iv, 1);
+      } else {
+        return null;
+      }
+      if (this.history[iv[0]] === iv[1]) {
+        this.decryptIV = saved;
+        return null;
+      }
     }
-    const { plain, tag, ok } = this._ocbDecrypt(crypted.subarray(4), iv);
-    if (!ok || tag[0] !== crypted[1] || tag[1] !== crypted[2] || tag[2] !== crypted[3]) { this.decryptIV = saved; return null; }
+
+    const { plain, tag, ok } = this.ocbDecrypt(crypted.subarray(HEADER), iv);
+    const tagMatches = tag[0] === crypted[1] && tag[1] === crypted[2] && tag[2] === crypted[3];
+    if (!ok || !tagMatches) {
+      this.decryptIV = saved;
+      return null;
+    }
     this.history[iv[0]] = iv[1];
-    if (restore) this.decryptIV = saved;
+    if (restoreAfter) {
+      this.decryptIV = saved;
+    }
     this.good++;
-    if (lateDelta > 0) this.late += lateDelta; else if (this.late > -lateDelta) this.late += lateDelta;
-    if (lostDelta > 0) this.lost += lostDelta; else if (this.lost > -lostDelta) this.lost += lostDelta;
+    this.late = adjustCounter(this.late, lateDelta);
+    this.lost = adjustCounter(this.lost, lostDelta);
     this.lastGood = Date.now();
     return plain;
   }
 
-  _ocbEncrypt(plain, nonce) {
-    const c = this.cipher;
-    let delta = c.encryptBlock(nonce), checksum = new Uint8Array(16);
+  ocbEncrypt(plain, nonce) {
+    const cipher = this.cipher;
+    const delta = cipher.encryptBlock(nonce);
+    let checksum = new Uint8Array(BLOCK);
     const out = new Uint8Array(plain.length);
-    let len = plain.length, off = 0;
-    while (len > 16) {
-      const block = plain.subarray(off, off + 16);
-      // Counter-cryptanalysis (eprint 2019/311 §9): a second-to-last block that is zero apart from
-      // its last byte gets a bit flipped so the packet can't be exploited.
-      let flip = false;
-      if (len - 16 <= 16) { let sum = 0; for (let i = 0; i < 15; i++) sum |= block[i]; flip = sum === 0; }
-      s2(delta);
-      let tmp = xor(delta, block);
-      if (flip) tmp[0] ^= 1;
-      tmp = c.encryptBlock(tmp);
-      out.set(xor(delta, tmp), off);
+    let remaining = plain.length;
+    let offset = 0;
+    while (remaining > BLOCK) {
+      const block = plain.subarray(offset, offset + BLOCK);
+      const flipBit = remaining - BLOCK <= BLOCK && isZeroExceptLastByte(block);
+      double(delta);
+      let masked = xor(delta, block);
+      if (flipBit) {
+        masked[0] ^= 1;
+      }
+      masked = cipher.encryptBlock(masked);
+      out.set(xor(delta, masked), offset);
       checksum = xor(checksum, block);
-      if (flip) checksum[0] ^= 1;
-      len -= 16; off += 16;
+      if (flipBit) {
+        checksum[0] ^= 1;
+      }
+      remaining -= BLOCK;
+      offset += BLOCK;
     }
-    s2(delta);
-    const lenBlock = new Uint8Array(16); const bits = len * 8;
-    lenBlock[12] = (bits >>> 24) & 0xff; lenBlock[13] = (bits >>> 16) & 0xff; lenBlock[14] = (bits >>> 8) & 0xff; lenBlock[15] = bits & 0xff;
-    const pad = c.encryptBlock(xor(lenBlock, delta));
-    const tail = new Uint8Array(16);
-    for (let i = 0; i < len; i++) tail[i] = plain[off + i];
-    for (let i = len; i < 16; i++) tail[i] = pad[i];
+    double(delta);
+    const pad = cipher.encryptBlock(xor(lengthBlock(remaining), delta));
+    const tail = new Uint8Array(BLOCK);
+    for (let i = 0; i < remaining; i++) {
+      tail[i] = plain[offset + i];
+    }
+    for (let i = remaining; i < BLOCK; i++) {
+      tail[i] = pad[i];
+    }
     checksum = xor(checksum, tail);
-    const enc = xor(pad, tail);
-    for (let i = 0; i < len; i++) out[off + i] = enc[i];
-    s3(delta);
-    return { ct: out, tag: c.encryptBlock(xor(delta, checksum)) };
+    const encryptedTail = xor(pad, tail);
+    for (let i = 0; i < remaining; i++) {
+      out[offset + i] = encryptedTail[i];
+    }
+    triple(delta);
+    return { ciphertext: out, tag: cipher.encryptBlock(xor(delta, checksum)) };
   }
 
-  _ocbDecrypt(encrypted, nonce) {
-    const c = this.cipher;
-    let delta = c.encryptBlock(nonce), checksum = new Uint8Array(16);
+  ocbDecrypt(encrypted, nonce) {
+    const cipher = this.cipher;
+    const delta = cipher.encryptBlock(nonce);
+    let checksum = new Uint8Array(BLOCK);
     const out = new Uint8Array(encrypted.length);
-    let len = encrypted.length, off = 0;
-    while (len > 16) {
-      s2(delta);
-      const plain = xor(delta, c.decryptBlock(xor(delta, encrypted.subarray(off, off + 16))));
-      out.set(plain, off);
+    let remaining = encrypted.length;
+    let offset = 0;
+    while (remaining > BLOCK) {
+      double(delta);
+      const block = encrypted.subarray(offset, offset + BLOCK);
+      const plain = xor(delta, cipher.decryptBlock(xor(delta, block)));
+      out.set(plain, offset);
       checksum = xor(checksum, plain);
-      len -= 16; off += 16;
+      remaining -= BLOCK;
+      offset += BLOCK;
     }
-    s2(delta);
-    const lenBlock = new Uint8Array(16); const bits = len * 8;
-    lenBlock[12] = (bits >>> 24) & 0xff; lenBlock[13] = (bits >>> 16) & 0xff; lenBlock[14] = (bits >>> 8) & 0xff; lenBlock[15] = bits & 0xff;
-    const pad = c.encryptBlock(xor(lenBlock, delta));
-    let tail = new Uint8Array(16);
-    for (let i = 0; i < len; i++) tail[i] = encrypted[off + i];
+    double(delta);
+    const pad = cipher.encryptBlock(xor(lengthBlock(remaining), delta));
+    let tail = new Uint8Array(BLOCK);
+    for (let i = 0; i < remaining; i++) {
+      tail[i] = encrypted[offset + i];
+    }
     tail = xor(tail, pad);
     checksum = xor(checksum, tail);
-    for (let i = 0; i < len; i++) out[off + i] = tail[i];
-    let ok = false;                                   // the decrypted last block equal to delta is the attack shape
-    for (let i = 0; i < 15; i++) if (tail[i] !== delta[i]) { ok = true; break; }
-    s3(delta);
-    return { plain: out, tag: c.encryptBlock(xor(delta, checksum)), ok };
+    for (let i = 0; i < remaining; i++) {
+      out[offset + i] = tail[i];
+    }
+    const ok = !prefixMatches(tail, delta);
+    triple(delta);
+    return { plain: out, tag: cipher.encryptBlock(xor(delta, checksum)), ok };
   }
+}
+
+function isZeroExceptLastByte(block) {
+  let sum = 0;
+  for (let i = 0; i < BLOCK - 1; i++) {
+    sum |= block[i];
+  }
+  return sum === 0;
+}
+
+function prefixMatches(a, b) {
+  for (let i = 0; i < BLOCK - 1; i++) {
+    if (a[i] !== b[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function adjustCounter(counter, delta) {
+  if (delta > 0) {
+    return counter + delta;
+  }
+  if (counter > -delta) {
+    return counter + delta;
+  }
+  return counter;
 }
