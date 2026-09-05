@@ -293,6 +293,13 @@ export function decodeClientAudio(bytes, format) {
   return bytes[0] === PROTOBUF_AUDIO ? decodeProtobufAudio(bytes.subarray(1)) : null;
 }
 
+export const SAMPLES_PER_SEQUENCE_UNIT = 480;
+
+export function missingPackets(previousSequence, previousSamples, sequence) {
+  const unitsPerPacket = Math.max(1, Math.round(previousSamples / SAMPLES_PER_SEQUENCE_UNIT));
+  return Math.max(0, Math.round((sequence - previousSequence) / unitsPerPacket) - 1);
+}
+
 export function wireFormatFor({ v1, v2 }) {
   let major;
   let minor;

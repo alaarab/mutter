@@ -7,12 +7,14 @@ const NO_VAD = -1;
 
 const SAMPLE_RATE = 48000;
 const RING_SAMPLES = SAMPLE_RATE;
-const MIN_JITTER = FRAME_SAMPLES * 2;
+const MIN_JITTER = FRAME_SAMPLES * 3;
 const MAX_JITTER = FRAME_SAMPLES * 10;
 const JITTER_GROW = FRAME_SAMPLES;
 const JITTER_SHRINK = FRAME_SAMPLES / 2;
 const RUN_AHEAD_CAP = SAMPLE_RATE / 2;
-const TICKS_PER_SECOND = 375;
+const FADE_SAMPLES = 96;
+const RENDER_QUANTUM = 128;
+const TICKS_PER_SECOND = SAMPLE_RATE / RENDER_QUANTUM;
 const STABLE_SECONDS_BEFORE_SHRINK = 15;
 
 class Framer extends AudioWorkletProcessor {
@@ -126,10 +128,17 @@ class Mixer extends AudioWorkletProcessor {
     this.tick = 0;
     this.underruns = 0;
     this.stableSeconds = 0;
+    this.capture = null;
     this.port.onmessage = ({ data }) => {
       switch (data.type) {
         case 'push':
           this.push(data.session, data.samples);
+          break;
+        case 'end':
+          this.endStream(data.session);
+          break;
+        case 'capture':
+          this.capture = { blocks: [], remaining: Math.ceil(data.samples / RENDER_QUANTUM) };
           break;
         case 'gain':
           this.setGain(data.session, data.gain);
@@ -147,7 +156,14 @@ class Mixer extends AudioWorkletProcessor {
   }
 
   newUser(gain = 1) {
-    return { ring: new Float32Array(RING_SAMPLES), read: 0, write: 0, gain, primed: false };
+    return { ring: new Float32Array(RING_SAMPLES), read: 0, write: 0, gain, primed: false, ending: false, fadeIn: 0, lastSample: 0 };
+  }
+
+  endStream(session) {
+    const user = this.users.get(session);
+    if (user) {
+      user.ending = true;
+    }
   }
 
   available(user) {
@@ -169,6 +185,7 @@ class Mixer extends AudioWorkletProcessor {
       user = this.newUser();
       this.users.set(session, user);
     }
+    user.ending = false;
     if (this.available(user) + samples.length > RUN_AHEAD_CAP) {
       user.read = (user.write - this.jitter + RING_SAMPLES) % RING_SAMPLES;
     }
@@ -201,24 +218,31 @@ class Mixer extends AudioWorkletProcessor {
     for (const user of this.users.values()) {
       const available = this.available(user);
       if (!user.primed) {
-        if (available < this.jitter) {
+        const ready = available >= this.jitter || (user.ending && available > 0);
+        if (!ready) {
+          this.rampOut(user, left, 0);
           continue;
         }
         user.primed = true;
+        user.fadeIn = FADE_SAMPLES;
       }
-      if (available < left.length) {
-        user.primed = false;
-        this.underruns++;
-        if (this.jitter < MAX_JITTER) {
-          this.jitter += JITTER_GROW;
-        }
+      if (available >= left.length) {
+        this.mixInto(left, user, 0, left.length);
         continue;
       }
-      const gain = user.gain * this.master;
-      for (let i = 0; i < left.length; i++) {
-        left[i] += user.ring[user.read] * gain;
-        user.read = (user.read + 1) % RING_SAMPLES;
+      if (user.ending) {
+        this.mixInto(left, user, 0, available);
+        this.rampOut(user, left, available);
+        user.primed = false;
+        user.ending = false;
+        continue;
       }
+      user.primed = false;
+      this.underruns++;
+      if (this.jitter < MAX_JITTER) {
+        this.jitter += JITTER_GROW;
+      }
+      this.rampOut(user, left, 0);
     }
     for (let i = 0; i < left.length; i++) {
       left[i] = Math.max(-1, Math.min(1, left[i]));
@@ -226,7 +250,45 @@ class Mixer extends AudioWorkletProcessor {
     if (right !== left) {
       right.set(left);
     }
+    if (this.capture) {
+      this.recordCapture(left);
+    }
     return true;
+  }
+
+  mixInto(left, user, offset, count) {
+    const gain = user.gain * this.master;
+    for (let i = 0; i < count; i++) {
+      let sample = user.ring[user.read] * gain;
+      if (user.fadeIn > 0) {
+        sample *= 1 - user.fadeIn / FADE_SAMPLES;
+        user.fadeIn--;
+      }
+      left[offset + i] += sample;
+      user.lastSample = sample;
+      user.read = (user.read + 1) % RING_SAMPLES;
+    }
+  }
+
+  rampOut(user, left, offset) {
+    if (user.lastSample === 0) {
+      return;
+    }
+    for (let i = 0; i < FADE_SAMPLES && offset + i < left.length; i++) {
+      left[offset + i] += user.lastSample * (1 - i / FADE_SAMPLES);
+    }
+    user.lastSample = 0;
+  }
+
+  recordCapture(block) {
+    this.capture.blocks.push(block.slice());
+    if (--this.capture.remaining > 0) {
+      return;
+    }
+    const samples = new Float32Array(this.capture.blocks.length * block.length);
+    this.capture.blocks.forEach((chunk, index) => samples.set(chunk, index * block.length));
+    this.capture = null;
+    this.port.postMessage({ type: 'capture', samples }, [samples.buffer]);
   }
 }
 
