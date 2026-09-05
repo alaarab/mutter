@@ -155,6 +155,7 @@ try {
   if (!impaired) {
     await step('three short talk spurts end without underruns or buffer growth', async () => {
       const before = await bravo.eval('mutter.audio.stats.underruns');
+      const bufferBefore = await bravo.eval('mutter.audio.stats.jitterMs');
       await alpha.eval(`mutter.settings.transmitMode = 'ptt'`);
       await alpha.waitFor('!mutter.audio.isTransmitting', { timeout: 3000 });
       for (let spurt = 0; spurt < 3; spurt++) {
@@ -167,6 +168,10 @@ try {
       const after = await bravo.eval('mutter.audio.stats.underruns');
       if (after !== before) {
         throw new Error(`${after - before} underruns counted at the end of talk spurts`);
+      }
+      const bufferAfter = await bravo.eval('mutter.audio.stats.jitterMs');
+      if (bufferAfter !== bufferBefore) {
+        throw new Error(`playout buffer moved from ${bufferBefore} to ${bufferAfter} ms across quiet spurts`);
       }
     });
   }

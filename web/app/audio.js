@@ -98,7 +98,7 @@ export class AudioEngine extends EventTarget {
   captureError = null;
   neural = undefined;
   vadProb = NO_VAD;
-  stats = { packetsOut: 0, packetsIn: 0, samplesOut: 0, concealed: 0, underruns: 0, captureStalls: 0 };
+  stats = { packetsOut: 0, packetsIn: 0, samplesOut: 0, concealed: 0, underruns: 0, captureStalls: 0, jitterMs: null };
 
   #context = null;
   #mixer = null;
@@ -335,6 +335,7 @@ export class AudioEngine extends EventTarget {
       }
       if (data.type === 'health') {
         this.stats.underruns += data.underruns;
+        this.stats.jitterMs = data.jitterMs;
         const dry = data.underruns ? `playback ran dry ${data.underruns}× in the last second — ` : '';
         this.#diag(`${dry}${data.reason}; buffer now ${data.jitterMs} ms`);
       }
