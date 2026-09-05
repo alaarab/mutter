@@ -19,6 +19,7 @@ const CAPTURE_STALL_MS = 150;
 const STALL_LOG_INTERVAL_MS = 2000;
 const DEVICE_LIST_TIMEOUT_MS = 2000;
 const MAX_CONCEALED_PACKETS = 3;
+const MAX_GAP_PACKETS = 25;
 const CONCEAL_FLOOR = 0.4;
 const CONCEAL_FADE_SAMPLES = 96;
 const REORDER_WAIT_MS = 30;
@@ -332,9 +333,10 @@ export class AudioEngine extends EventTarget {
         this.#captureResolve = null;
         return;
       }
-      if (data.type === 'health' && data.underruns) {
+      if (data.type === 'health') {
         this.stats.underruns += data.underruns;
-        this.#diag(`playback ran dry ${data.underruns}× in the last second; buffer now ${data.jitterMs} ms`);
+        const dry = data.underruns ? `playback ran dry ${data.underruns}× in the last second — ` : '';
+        this.#diag(`${dry}${data.reason}; buffer now ${data.jitterMs} ms`);
       }
     };
   }
@@ -669,9 +671,14 @@ export class AudioEngine extends EventTarget {
     }
     const packetSamples = receiver.unitsPerPacket * SAMPLES_PER_SEQUENCE_UNIT;
     const missing = missingPackets(receiver.lastSequence, packetSamples, targetSequence);
-    if (missing > 0) {
-      receiver.queue.push({ fills: Math.min(missing, MAX_CONCEALED_PACKETS) });
+    if (missing <= 0) {
+      return;
     }
+    if (missing > MAX_GAP_PACKETS) {
+      receiver.queue.push({ broke: true });
+      return;
+    }
+    receiver.queue.push({ fills: missing, packetSamples });
   }
 
   #play(receiver, packet, sequence) {
@@ -725,8 +732,10 @@ export class AudioEngine extends EventTarget {
   #emitReady(receiver) {
     while (receiver.queue.length) {
       const item = receiver.queue[0];
-      if (item.fills !== undefined) {
-        this.#emitFills(receiver, item.fills);
+      if (item.broke) {
+        this.#emitBreak(receiver);
+      } else if (item.fills !== undefined) {
+        this.#emitFills(receiver, item.fills, item.packetSamples);
       } else if (item.pcm) {
         this.#emitDecoded(receiver, item);
       } else {
@@ -736,13 +745,24 @@ export class AudioEngine extends EventTarget {
     }
   }
 
-  #emitFills(receiver, fills) {
+  #emitBreak(receiver) {
+    receiver.fadeInNext = true;
+    receiver.lastPcm = null;
+    this.#mixer?.port.postMessage({ type: 'end', session: receiver.session });
+  }
+
+  #emitFills(receiver, fills, packetSamples) {
     receiver.fadeInNext = true;
     if (!receiver.lastPcm) {
       return;
     }
-    for (const fill of concealmentFills(receiver.lastPcm, fills)) {
+    const repeated = Math.min(fills, MAX_CONCEALED_PACKETS);
+    for (const fill of concealmentFills(receiver.lastPcm, repeated)) {
       this.#mixer?.port.postMessage({ type: 'push', session: receiver.session, samples: fill }, [fill.buffer]);
+    }
+    for (let extra = repeated; extra < fills; extra++) {
+      const quiet = new Float32Array(packetSamples ?? receiver.lastPcm.length);
+      this.#mixer?.port.postMessage({ type: 'push', session: receiver.session, samples: quiet }, [quiet.buffer]);
     }
     this.stats.concealed += fills;
   }
