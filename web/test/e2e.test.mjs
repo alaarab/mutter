@@ -125,6 +125,30 @@ try {
     }
   });
 
+  await step('the voice view shows both tiles, marks Alpha speaking, and its bar mutes', async () => {
+    await bravo.eval(`mutter.showTab('voice')`);
+    await bravo.waitFor(`document.body.dataset.tab === 'voice' && document.querySelectorAll('#paneVoice .room-tile').length === 2`, {
+      label: 'two tiles in the voice view',
+    });
+    await bravo.waitFor(`[...document.querySelectorAll('#paneVoice .room-tile.speaking')].some((tile) => tile.textContent.includes('Alpha'))`, {
+      label: 'Alpha’s tile shows speaking',
+    });
+    await bravo.waitFor(`document.getElementById('chatTitle').textContent === 'Voice' && document.getElementById('chanDesc').textContent.includes('2 here')`, {
+      label: 'header names the voice view',
+    });
+    await bravo.eval(`document.querySelector('#paneVoice .room-bar .icon').click()`);
+    await bravo.waitFor('mutter.audio.muted === true', { label: 'the bar’s mic button mutes' });
+    if (shots) {
+      await bravo.send('Emulation.setDeviceMetricsOverride', PHONE_VIEWPORT);
+      await sleep(SETTLE_MS);
+      await bravo.screenshot(`${shots}/08-voice.png`);
+      await bravo.send('Emulation.setDeviceMetricsOverride', DESKTOP_VIEWPORT);
+    }
+    await bravo.eval(`document.querySelector('#paneVoice .room-bar .icon').click()`);
+    await bravo.waitFor('mutter.audio.muted === false', { label: 'and unmutes' });
+    await bravo.eval(`mutter.showTab('chat')`);
+  });
+
   await step('gate closes with a terminator when Alpha stops', async () => {
     await alpha.eval(`mutter.settings.transmitMode = 'ptt'`);
     await alpha.waitFor('!mutter.audio.isTransmitting', { timeout: 3000 });

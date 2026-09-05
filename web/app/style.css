@@ -1072,6 +1072,15 @@ input[type=range] {
   font-size: 12px;
   color: var(--body);
   min-width: 0;
+  width: 100%;
+  border-radius: var(--r6);
+  padding: 2px 4px;
+  margin: 0 -4px;
+  transition: background var(--t);
+}
+
+.vp-chan:hover {
+  background: var(--hover);
 }
 
 .vp-chan .hash {
@@ -1408,6 +1417,7 @@ input[type=range] {
 body[data-tab="chat"] #paneChat,
 body[data-tab="channels"] #paneChat,
 body[data-tab="server"] #paneServer,
+body[data-tab="voice"] #paneVoice,
 body[data-tab="screen"] #stage {
   display: flex;
   animation: pane-in .22s var(--ease);
@@ -1931,6 +1941,157 @@ body[data-members="off"] #members {
 
 .stage {
   background: var(--sunken);
+}
+
+.room-grid {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  align-content: center;
+  gap: 12px;
+  padding: 16px;
+}
+
+.room-grid[data-count="1"] {
+  grid-template-columns: minmax(0, 520px);
+  justify-content: center;
+}
+
+.room-tile {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border-radius: 20px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--tile) 42%, var(--surface));
+  transition: box-shadow var(--t), transform .12s var(--ease);
+  animation: card-in .28s var(--ease);
+}
+
+.room-tile:active {
+  transform: scale(.985);
+}
+
+.room-tile.speaking {
+  box-shadow: 0 0 0 2px var(--speaking);
+}
+
+.room-tile .avatar {
+  width: 96px;
+  height: 96px;
+  font-size: 36px;
+}
+
+.room-name {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: calc(100% - 24px);
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(0,0,0,.45);
+  color: #fff;
+  font: 600 12.5px var(--sans);
+}
+
+.room-name .text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.room-name .glyph:empty {
+  display: none;
+}
+
+.room-name .glyph svg {
+  width: 13px;
+  height: 13px;
+  display: block;
+  opacity: .85;
+}
+
+.room-live {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--streaming);
+  color: #fff;
+  font: 800 10.5px var(--display);
+  letter-spacing: .04em;
+}
+
+.room-hint {
+  margin: 0;
+  padding: 0 16px 12px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.room-bar {
+  flex: none;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--separator);
+  background: var(--surface);
+}
+
+.room-bar .icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 18px;
+  background: var(--elevated);
+  color: var(--ink);
+}
+
+.room-bar .icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.room-bar .icon.active,
+.room-bar .icon.danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+.room-bar .icon.danger:hover {
+  background: color-mix(in srgb, var(--danger) 85%, black);
+}
+
+.room-talk {
+  flex: 1;
+  max-width: 240px;
+  height: 52px;
+  border-radius: 18px;
+  background: var(--elevated);
+  color: var(--ink);
+  font: 700 14px var(--display);
+  user-select: none;
+  touch-action: none;
+  transition: background var(--t), color var(--t), transform .12s var(--ease);
+}
+
+.room-talk:active,
+.room-talk.active {
+  transform: scale(.98);
+}
+
+.room-talk.active {
+  background: var(--speaking);
+  color: #06210f;
 }
 
 .stage-bar {
@@ -2825,6 +2986,20 @@ body[data-members="off"] #members {
 
   #sidebar .server-head {
     height: var(--head-h);
+  }
+
+  .room-grid {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .room-grid[data-count="1"] {
+    grid-template-columns: 1fr;
+  }
+
+  .room-grid[data-count="1"] .room-tile {
+    aspect-ratio: 1;
   }
 }
 

@@ -94,6 +94,9 @@ right. Under 880px it becomes the phone layout — one pane at a time behind a t
   server), counts, a join arrow on hover, status-dot avatars (speaking ring, muted, deafened,
   sharing). Members grouped by channel on the right. Click anyone for a profile card: banner,
   badges, connection stats, message / mute-for-me / volume / watch / join them.
+- A voice view (the speaker icon in the header, the channel row in the voice card, or the voice
+  pill on a phone): a tile per person in your channel with a speaking ring, mute and deafen
+  glyphs and a LIVE badge, and a bar with hold to talk, mute, deafen, share screen and disconnect.
 - Voice both ways over the TCP tunnel: 20 ms Opus at 16–96 kbit/s, per-user jitter buffer that reorders by sequence number and conceals lost packets with a mirrored, decaying copy of the last one.
   Cleaning: the browser's echo cancellation and gain control, then **RNNoise** — the neural
   denoiser Mumble desktop uses, compiled to WebAssembly and run in the worklet (−22 dB on
