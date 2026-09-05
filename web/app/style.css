@@ -1196,7 +1196,7 @@ input[type=range] {
   height: 28px;
 }
 
-body[data-layout="desktop"] .user-panel #settingsBtn {
+.user-panel #settingsBtn {
   display: none;
 }
 
@@ -2712,6 +2712,28 @@ body[data-members="off"] #members {
     border: 0;
   }
 
+  body[data-tab="channels"] #app {
+    grid-template-columns: var(--rail-w) minmax(0, 1fr);
+  }
+
+  body[data-tab="channels"] #rail {
+    display: flex;
+    grid-row: 1;
+    grid-column: 1;
+    animation: rail-in .24s var(--ease);
+  }
+
+  body[data-tab="channels"] #sidebar {
+    grid-column: 2;
+  }
+
+  @keyframes rail-in {
+    from {
+      opacity: 0;
+      transform: translateX(-12px);
+    }
+  }
+
   body[data-tab="channels"] #main {
     display: none;
   }
@@ -2741,8 +2763,22 @@ body[data-members="off"] #members {
     flex: 1;
   }
 
+  #paneChat {
+    position: relative;
+  }
+
   .voice-strip {
     display: flex;
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 5;
+    margin: 0;
+    border-radius: 999px;
+    max-width: calc(100% - 20px);
+    box-shadow: 0 8px 24px rgba(0,0,0,.35);
+    backdrop-filter: blur(12px);
+    animation: rise .22s var(--spring);
   }
 
   .composer {
@@ -2773,6 +2809,10 @@ body[data-members="off"] #members {
 
   body[data-tab="channels"] .toasts {
     top: calc(var(--head-h) + 48px);
+  }
+
+  body[data-tab="chat"]:has(.voice-strip:not([hidden])) .toasts {
+    top: calc(var(--head-h) + 56px);
   }
 
   .connect {

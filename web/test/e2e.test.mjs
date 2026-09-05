@@ -16,6 +16,7 @@ server.on('voice', (packet) => {
 });
 
 const PHONE_VIEWPORT = { width: 420, height: 760, deviceScaleFactor: 1, mobile: false };
+const SETTLE_MS = 400;
 const DESKTOP_VIEWPORT = { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false };
 
 const bareIconButtons = `[...document.querySelectorAll('.icon, .rail-btn, .pill-btn, .tools button, .live-badge')]
@@ -74,14 +75,34 @@ try {
     await bravo.waitFor(`${findUser('Alpha')}?.channelId === 1`);
     await alpha.waitFor(`mutter.client.myChannel?.channelId === 1 && document.getElementById('meChannel').textContent === 'Lounge'`);
     await alpha.waitFor(`document.getElementById('chatTitle').textContent === 'Lounge'`);
-    if (shots) {
-      await bravo.send('Emulation.setDeviceMetricsOverride', PHONE_VIEWPORT);
-      await bravo.eval(`document.getElementById('backBtn').click()`);
-      await bravo.screenshot(`${shots}/06-narrow-channels.png`);
-      await bravo.eval(`mutter.showTab('chat')`);
-      await bravo.screenshot(`${shots}/07-narrow-chat.png`);
-      await bravo.send('Emulation.setDeviceMetricsOverride', DESKTOP_VIEWPORT);
+  });
+
+  await step('on a phone the back arrow reaches the channel list and the server rail with it', async () => {
+    const visible = (id) => `getComputedStyle(document.getElementById('${id}')).display !== 'none'`;
+    await bravo.send('Emulation.setDeviceMetricsOverride', PHONE_VIEWPORT);
+    await bravo.waitFor(`!${visible('rail')} && document.body.dataset.tab === 'chat'`, { label: 'rail hidden while chatting' });
+    await bravo.eval(`document.getElementById('backBtn').click()`);
+    await bravo.waitFor(`document.body.dataset.tab === 'channels'`, { label: 'back arrow opens the channel list' });
+    await bravo.waitFor(visible('rail'), { label: 'server rail visible beside the channel list' });
+    const overlap = await bravo.eval(`(() => {
+      const rail = document.getElementById('rail').getBoundingClientRect();
+      const sidebar = document.getElementById('sidebar').getBoundingClientRect();
+      return rail.right > sidebar.left + 1 || sidebar.right > window.innerWidth + 1 || rail.width < 40;
+    })()`);
+    if (overlap) {
+      throw new Error('rail and channel list overlap or overflow the phone viewport');
     }
+    if (shots) {
+      await sleep(SETTLE_MS);
+      await bravo.screenshot(`${shots}/06-narrow-channels.png`);
+    }
+    await bravo.eval(`document.getElementById('railHome').click()`);
+    await bravo.waitFor(`document.body.dataset.tab === 'chat'`, { label: 'the brand mark returns to chat' });
+    if (shots) {
+      await sleep(SETTLE_MS);
+      await bravo.screenshot(`${shots}/07-narrow-chat.png`);
+    }
+    await bravo.send('Emulation.setDeviceMetricsOverride', DESKTOP_VIEWPORT);
   });
 
   await step('voice flows Alpha → Bravo once both are in Lounge', async () => {
