@@ -214,7 +214,8 @@ class Mixer extends AudioWorkletProcessor {
       lowWater: this.lowWater === Infinity ? null : this.lowWater,
       active: this.playedThisSecond,
     });
-    if (this.underruns || decision.changed) {
+    if (this.underruns || decision.changed || !this.reported) {
+      this.reported = true;
       this.port.postMessage({
         type: 'health',
         underruns: this.underruns,
@@ -238,7 +239,7 @@ class Mixer extends AudioWorkletProcessor {
     }
     for (const user of this.users.values()) {
       const available = this.available(user);
-      if (user.primed) {
+      if (user.primed && !user.ending) {
         this.playedThisSecond = true;
         this.lowWater = Math.min(this.lowWater, available);
       }

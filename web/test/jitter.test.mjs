@@ -41,7 +41,7 @@ const nearMiss = policy();
 const warned = nearMiss.observe({ underruns: 0, lowWater: FRAME - 1, active: true });
 assert.equal(warned.changed, true);
 assert.equal(nearMiss.target, FRAME * 4);
-assert.match(warned.reason, /close to running dry/);
+assert.match(warned.reason, /before running dry/);
 console.log(' ok  a near miss grows the buffer before anyone hears a gap');
 
 const steady = policy();
@@ -68,6 +68,19 @@ assert.equal(jumpy.requiredCalmSeconds, 30);
 assert.equal(calm(jumpy, 29, FRAME * 3).changed, false);
 assert.equal(calm(jumpy, 1, FRAME * 3).changed, true);
 console.log(' ok  a trim that backfires doubles the patience before trying again');
+
+const settling = policy();
+for (let second = 0; second < 3; second++) {
+  settling.observe({ underruns: 1, lowWater: 0, active: true });
+}
+calm(settling, 15, FRAME * 3);
+settling.observe({ underruns: 1, lowWater: 0, active: true });
+assert.equal(settling.requiredCalmSeconds, 30);
+calm(settling, 30, FRAME * 3);
+assert.equal(settling.requiredCalmSeconds, 30);
+calm(settling, 30, FRAME * 3);
+assert.equal(settling.requiredCalmSeconds, 15);
+console.log(' ok  trims that hold relax the patience back toward normal');
 
 const capped = policy();
 for (let second = 0; second < 20; second++) {

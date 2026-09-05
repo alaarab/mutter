@@ -25,13 +25,13 @@ export class JitterPolicy {
 
   observe({ underruns = 0, lowWater = null, active = false } = {}) {
     if (underruns > 0) {
-      return this.#grow('ran dry');
+      return this.#grow('grew after running dry');
     }
     if (!active) {
       return { changed: false, reason: 'idle', target: this.target };
     }
     if (lowWater !== null && lowWater < this.dangerSamples) {
-      return this.#grow('close to running dry');
+      return this.#grow('grew before running dry');
     }
     this.calmSeconds++;
     const readyToShrink =
@@ -42,10 +42,13 @@ export class JitterPolicy {
     if (!readyToShrink) {
       return { changed: false, reason: 'holding', target: this.target };
     }
+    if (this.shrankLast) {
+      this.requiredCalmSeconds = Math.max(this.baseCalmSeconds, Math.floor(this.requiredCalmSeconds / 2));
+    }
     this.target = Math.max(this.minSamples, this.target - this.shrinkSamples);
     this.calmSeconds = 0;
     this.shrankLast = true;
-    return { changed: true, reason: 'steady, trimming latency', target: this.target };
+    return { changed: true, reason: 'trimmed after a steady stretch', target: this.target };
   }
 
   #grow(reason) {
