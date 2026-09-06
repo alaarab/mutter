@@ -1,92 +1,114 @@
 import AppKit
-import CoreText
 
-let size: CGFloat = 1024
-let fontDir = "Mutter/Resources/Fonts"
+let side = 1024
+let master = "docs/brand/icon.svg"
 let outDir = "Mutter/Resources/Assets.xcassets/AppIcon.appiconset"
 
-let fontURL = URL(fileURLWithPath: "\(fontDir)/BricolageDisplay-ExtraBold.ttf")
-CTFontManagerRegisterFontsForURL(fontURL as CFURL, .process, nil)
+let fullRect = CGRect(x: 0, y: 0, width: side, height: side)
+let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
 
-func rgb(_ hex: UInt32, _ alpha: CGFloat = 1) -> CGColor {
-    CGColor(red: CGFloat((hex >> 16) & 0xFF) / 255,
-            green: CGFloat((hex >> 8) & 0xFF) / 255,
-            blue: CGFloat(hex & 0xFF) / 255, alpha: alpha)
+func fail(_ message: String) -> Never {
+    FileHandle.standardError.write(Data("make-appicon: \(message)\n".utf8))
+    exit(1)
 }
 
-func render(_ name: String, tinted: Bool) {
-    let ctx = CGContext(data: nil, width: Int(size), height: Int(size),
-                        bitsPerComponent: 8, bytesPerRow: 0,
-                        space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-
-    if tinted {
-        ctx.setFillColor(rgb(0x1A1A1A))
-        ctx.fill(CGRect(x: 0, y: 0, width: size, height: size))
-    } else {
-        let bg = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
-                            colors: [rgb(0x1B2740), rgb(0x0E1626), rgb(0x060A12)] as CFArray,
-                            locations: [0, 0.55, 1])!
-        ctx.drawLinearGradient(bg, start: CGPoint(x: size * 0.15, y: size * 0.98),
-                               end: CGPoint(x: size * 0.85, y: size * 0.04),
-                               options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
-        let glow = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
-                              colors: [rgb(0x3D9BFF, 0.34), rgb(0x3D9BFF, 0.0)] as CFArray,
-                              locations: [0, 1])!
-        ctx.drawRadialGradient(glow, startCenter: CGPoint(x: size * 0.5, y: size * 0.52), startRadius: 0,
-                               endCenter: CGPoint(x: size * 0.5, y: size * 0.52), endRadius: size * 0.62,
-                               options: [])
+func substitute(_ svg: String, _ token: String, _ replacement: String) -> String {
+    guard svg.contains(token) else {
+        fail("\(master) no longer contains \(token). The mark changed shape; update this script to match rather than shipping a stale icon.")
     }
-
-    let cap = CGRect(x: size * 0.185, y: size * 0.175, width: size * 0.63, height: size * 0.60)
-    let radius = size * 0.175
-    let shell = CGPath(roundedRect: cap, cornerWidth: radius, cornerHeight: radius, transform: nil)
-
-    ctx.saveGState()
-    if !tinted { ctx.setShadow(offset: CGSize(width: 0, height: -22), blur: 52, color: rgb(0x02060F, 0.55)) }
-    ctx.addPath(shell)
-    ctx.setFillColor(tinted ? rgb(0xB0B0B0) : rgb(0x123A73))
-    ctx.fillPath()
-    ctx.restoreGState()
-
-    let face = cap.insetBy(dx: size * 0.030, dy: size * 0.030).offsetBy(dx: 0, dy: size * 0.042)
-    let faceRadius = radius - size * 0.026
-    ctx.saveGState()
-    ctx.addPath(CGPath(roundedRect: face, cornerWidth: faceRadius, cornerHeight: faceRadius, transform: nil))
-    ctx.clip()
-    if tinted {
-        ctx.setFillColor(rgb(0xFFFFFF))
-        ctx.fill(face)
-    } else {
-        let top = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
-                             colors: [rgb(0x63B6FF), rgb(0x2F7BE8), rgb(0x2361C4)] as CFArray,
-                             locations: [0, 0.55, 1])!
-        ctx.drawLinearGradient(top, start: CGPoint(x: face.midX, y: face.maxY),
-                               end: CGPoint(x: face.midX, y: face.minY),
-                               options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
-    }
-    ctx.restoreGState()
-
-    let font = CTFontCreateWithName("BricolageDisplay-ExtraBold" as CFString, 430, nil)
-    let glyph = CTFontGetGlyphWithName(font, "M" as CFString)
-    guard let letter = CTFontCreatePathForGlyph(font, glyph, nil) else { return }
-    let bounds = letter.boundingBoxOfPath
-    var place = CGAffineTransform(translationX: face.midX - bounds.width / 2 - bounds.minX,
-                                  y: face.midY - bounds.height / 2 - bounds.minY)
-    let centred = letter.copy(using: &place)!
-
-    ctx.saveGState()
-    ctx.addPath(centred)
-    ctx.setFillColor(tinted ? rgb(0x1A1A1A) : rgb(0xF7FBFF))
-    ctx.fillPath()
-    ctx.restoreGState()
-
-    let rep = NSBitmapImageRep(cgImage: ctx.makeImage()!)
-    try! rep.representation(using: .png, properties: [:])!
-        .write(to: URL(fileURLWithPath: "\(outDir)/\(name).png"))
-    print("wrote \(outDir)/\(name).png")
+    return svg.replacingOccurrences(of: token, with: replacement)
 }
 
-render("AppIcon", tinted: false)
-render("AppIcon-Dark", tinted: false)
-render("AppIcon-Tinted", tinted: true)
+func squared(_ svg: String) -> String {
+    let rim = ##"<rect x="1.5" y="1.5" width="509" height="509" rx="112.5" fill="none" stroke="url(#rim-v2)" stroke-width="3"/>"##
+    var out = substitute(svg, ##"<rect width="512" height="512" rx="114"/>"##,
+                              ##"<rect width="512" height="512"/>"##)
+    out = substitute(out, rim, "")
+    return out
+}
+
+func darkened(_ svg: String) -> String {
+    var out = substitute(svg, ##"fill="#F97316""##, ##"fill="#1C0A03""##)
+    out = substitute(out, ##"fill="#FFC53D""##, ##"fill="#8A5410""##)
+    out = substitute(out, ##"fill="#FF3F63""##, ##"fill="#5E1526""##)
+    out = substitute(out, ##"fill="#FF8A2B""##, ##"fill="#73320A""##)
+    out = substitute(out, ##"fill="#FFFFFF" opacity=".10""##, ##"fill="#FFFFFF" opacity=".04""##)
+    out = substitute(out, ##"stroke="#2B0A06""##, ##"stroke="#FFB65C""##)
+    return out
+}
+
+func rasterize(_ svg: String, _ label: String) -> CGImage {
+    let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+    let svgURL = dir.appendingPathComponent("mutter-icon-\(label).svg")
+    let pngURL = dir.appendingPathComponent("mutter-icon-\(label).png")
+    try! svg.write(to: svgURL, atomically: true, encoding: .utf8)
+
+    let task = Process()
+    task.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    task.arguments = ["resvg", "--width", "\(side)", "--height", "\(side)",
+                      svgURL.path, pngURL.path]
+    do {
+        try task.run()
+    } catch {
+        fail("could not launch resvg. Install it with: brew install resvg")
+    }
+    task.waitUntilExit()
+    guard task.terminationStatus == 0 else {
+        fail("resvg failed on the \(label) variant (exit \(task.terminationStatus)). Install it with: brew install resvg")
+    }
+
+    guard let data = NSData(contentsOf: pngURL),
+          let source = CGImageSourceCreateWithData(data, nil),
+          let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+        fail("resvg produced no readable PNG for the \(label) variant")
+    }
+    try? FileManager.default.removeItem(at: svgURL)
+    try? FileManager.default.removeItem(at: pngURL)
+    return image
+}
+
+func opaqueContext() -> CGContext {
+    CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,
+              space: sRGB, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+}
+
+func flattened(_ image: CGImage) -> CGImage {
+    let ctx = opaqueContext()
+    ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+    ctx.fill(fullRect)
+    ctx.draw(image, in: fullRect)
+    return ctx.makeImage()!
+}
+
+func desaturated(_ image: CGImage) -> CGImage {
+    let gray = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,
+                         space: CGColorSpaceCreateDeviceGray(),
+                         bitmapInfo: CGImageAlphaInfo.none.rawValue)!
+    gray.draw(image, in: fullRect)
+    let luminance = gray.makeImage()!
+
+    let ctx = opaqueContext()
+    ctx.draw(luminance, in: fullRect)
+    return ctx.makeImage()!
+}
+
+func write(_ image: CGImage, _ name: String) {
+    let rep = NSBitmapImageRep(cgImage: image)
+    guard let png = rep.representation(using: .png, properties: [:]) else {
+        fail("could not encode \(name).png")
+    }
+    let path = "\(outDir)/\(name).png"
+    try! png.write(to: URL(fileURLWithPath: path))
+    print("wrote \(path) (alpha: \(rep.hasAlpha))")
+}
+
+guard let source = try? String(contentsOfFile: master, encoding: .utf8) else {
+    fail("could not read \(master). Run this from the repository root: swift scripts/make-appicon.swift")
+}
+
+let base = squared(source)
+let dark = rasterize(darkened(base), "dark")
+
+write(flattened(rasterize(base, "light")), "AppIcon")
+write(flattened(dark), "AppIcon-Dark")
+write(desaturated(dark), "AppIcon-Tinted")
