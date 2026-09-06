@@ -41,16 +41,22 @@ final class UserStream {
 
     func push(_ packet: AudioPacket) {
         let expected = lastFrameNumber
-        let missing = packet.frameNumber > expected && expected != 0 ? Int(packet.frameNumber - expected) : 0
-        if missing > 0 && missing <= 3, let samplesPerPacket = lastPacketSamples {
-            for _ in 0..<missing {
-                if let plc = try? decoder.decode(nil, plcSamples: samplesPerPacket) { write(plc) }
+        let missingUnits = packet.frameNumber > expected && expected != 0 ? packet.frameNumber - expected : 0
+        if let samplesPerPacket = lastPacketSamples,
+           missingUnits > 0, missingUnits <= UInt64(samplesPerPacket / 480 * 3) {
+            // Sequence numbers count 10 ms units, regardless of the Opus packet duration.
+            var missingSamples = Int(missingUnits) * 480
+            while missingSamples > 0 {
+                let count = min(missingSamples, samplesPerPacket)
+                if let plc = try? decoder.decode(nil, plcSamples: count) { write(plc) }
+                missingSamples -= count
             }
         }
         if !packet.opusData.isEmpty, let pcm = try? decoder.decode(packet.opusData) {
             lastPacketSamples = pcm.count
             write(pcm)
-            lastFrameNumber = packet.frameNumber + UInt64(max(1, pcm.count / 480))
+            let next = packet.frameNumber.addingReportingOverflow(UInt64(max(1, pcm.count / 480)))
+            lastFrameNumber = next.overflow ? 0 : next.partialValue
         }
         if packet.isTerminator {
             lastFrameNumber = 0

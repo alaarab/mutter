@@ -51,6 +51,7 @@ public final class MumbleClient {
     private var isSynced = false
     private var intentionalDisconnect = false
     private var reconnectAttempt = 0
+    private var reconnectWorkItem: DispatchWorkItem?
     private var usernameOverride: String?
     private var usernameInUseRetries = 0
     private var pendingCertificate: ServerCertificateInfo?
@@ -146,6 +147,8 @@ public final class MumbleClient {
     }
 
     private func teardown(keepState: Bool) {
+        reconnectWorkItem?.cancel()
+        reconnectWorkItem = nil
         pingTimer?.cancel()
         pingTimer = nil
         talkTimer?.cancel()
@@ -175,9 +178,9 @@ public final class MumbleClient {
         let wasSynced = isSynced
         let reconnecting = reconnectAttempt > 0
         teardown(keepState: true)
-        let canRetry = (options?.autoReconnect ?? false) && !intentionalDisconnect && wasSynced
+        let canRetry = (options?.autoReconnect ?? false) && !intentionalDisconnect && (wasSynced || reconnecting)
         switch error {
-        case .rejected(.usernameInUse, _) where reconnecting || wasSynced:
+        case .rejected(.usernameInUse, _) where canRetry:
             usernameInUseRetries += 1
             if usernameInUseRetries >= 2, let base = options?.username {
                 usernameOverride = "\(base)\(usernameInUseRetries)"
@@ -203,11 +206,14 @@ public final class MumbleClient {
                 session.channels = [:]
                 session.appendNotice(.disconnected(reason: error.errorDescription))
             }
-            queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+            let work = DispatchWorkItem { [weak self] in
                 guard let self, !self.intentionalDisconnect, self.control == nil else { return }
+                self.reconnectWorkItem = nil
                 self.ui { $0.state = .connecting }
                 self.openControl()
             }
+            reconnectWorkItem = work
+            queue.asyncAfter(deadline: .now() + delay, execute: work)
         } else {
             ui { session in
                 session.state = .disconnected
@@ -274,7 +280,6 @@ public final class MumbleClient {
             }
 
         case .reject(let reject):
-            intentionalDisconnect = true
             fail(.rejected(reject.type, reason: reject.reason))
 
         case .cryptSetup(let setup):

@@ -83,8 +83,10 @@ export class MumbleClient extends EventTarget {
   wireFormat = 'protobuf';
   stats = { tcpPingMs: 0, samples: [], udp: null, stalls: 0 };
   log = [];
+  certificateTrust = null;
 
   #socket = null;
+  #opening = null;
   #parser = null;
   #target = null;
   #intentional = false;
@@ -99,6 +101,7 @@ export class MumbleClient extends EventTarget {
   #timers = {};
 
   connect(target) {
+    this.#teardown();
     this.#target = { port: DEFAULT_PORT, ...target };
     this.#intentional = false;
     this.#reconnectAttempt = 0;
@@ -211,16 +214,30 @@ export class MumbleClient extends EventTarget {
     this.#emit('log');
   }
 
-  #open() {
+  async #open() {
+    const opening = new AbortController();
+    this.#opening = opening;
     this.#setState(this.#reconnectAttempt ? 'reconnecting' : 'connecting');
-    const socket = new WebSocket(`ws://${location.host}`);
+    let token;
+    try {
+      const response = await fetch('/bridge-token', { cache: 'no-store', signal: opening.signal });
+      if (!response.ok) throw new Error('The local bridge refused the connection.');
+      ({ token } = await response.json());
+    } catch (error) {
+      if (!opening.signal.aborted) this.#fail(error.message);
+      return;
+    }
+    if (opening.signal.aborted || this.#opening !== opening) return;
+    const socket = new WebSocket(`ws://${location.host}/bridge?token=${encodeURIComponent(token)}`);
     socket.binaryType = 'arraybuffer';
     this.#socket = socket;
     this.#parser = new FrameParser();
     socket.onopen = () => {
-      socket.send(JSON.stringify({ host: this.#target.host, port: this.#target.port }));
+      if (this.#socket !== socket) return;
+      socket.send(JSON.stringify({ host: this.#target.host, port: this.#target.port, fingerprint: this.#target.fingerprint }));
     };
     socket.onmessage = (event) => {
+      if (this.#socket !== socket) return;
       if (typeof event.data === 'string') {
         this.#onBridgeEvent(JSON.parse(event.data));
         return;
@@ -235,9 +252,26 @@ export class MumbleClient extends EventTarget {
     socket.onerror = () => {};
   }
 
-  #onBridgeEvent(message) {
+  async #onBridgeEvent(message) {
     if (message.event === 'open') {
+      this.#target.fingerprint = message.fingerprint;
+      this.#emit('certificate-accepted', { host: this.#target.host, port: this.#target.port, fingerprint: message.fingerprint });
       this.#handshake();
+    } else if (message.event === 'certificate') {
+      const socket = this.#socket;
+      const signal = this.#opening.signal;
+      let accepted = false;
+      try {
+        accepted = await this.certificateTrust?.(message, signal);
+      } catch {}
+      if (signal.aborted || this.#socket !== socket) return;
+      if (accepted === true) {
+        socket.send(JSON.stringify({ event: 'trust', fingerprint: message.fingerprint }));
+      } else {
+        this.#intentional = true;
+        this.#note('Server certificate not trusted.');
+        this.#fail(null);
+      }
     } else if (message.event === 'error') {
       this.#fail(message.message);
     } else if (message.event === 'udp') {
@@ -292,6 +326,8 @@ export class MumbleClient extends EventTarget {
   }
 
   #teardown() {
+    this.#opening?.abort();
+    this.#opening = null;
     for (const timer of Object.values(this.#timers)) {
       clearInterval(timer);
     }
@@ -329,7 +365,7 @@ export class MumbleClient extends EventTarget {
     this.#resetRoster();
     this.#setState('reconnecting');
     this.diag('connection', `reconnecting in ${delay / 1000}s (attempt ${this.#reconnectAttempt})`);
-    setTimeout(() => {
+    this.#timers.reconnect = setTimeout(() => {
       if (!this.#intentional && !this.#socket) {
         this.#open();
       }

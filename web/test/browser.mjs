@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { setTimeout as sleep } from 'node:timers/promises';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -17,18 +18,18 @@ function randomPort(base, spread) {
   return base + Math.floor(Math.random() * spread);
 }
 
-export async function startBridge({ verbose = !!process.env.VERBOSE } = {}) {
-  const port = randomPort(BRIDGE_PORT_BASE, BRIDGE_PORT_SPREAD);
+export async function startBridge({ verbose = !!process.env.VERBOSE, port = randomPort(BRIDGE_PORT_BASE, BRIDGE_PORT_SPREAD) } = {}) {
   const script = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bridge', 'server.mjs');
   const child = spawn(process.execPath, [script], {
     env: { ...process.env, PORT: String(port), NO_OPEN: '1' },
     stdio: ['ignore', verbose ? 'inherit' : 'ignore', 'inherit'],
   });
+  const exited = new Promise(resolve => child.once('exit', resolve));
   const url = `http://localhost:${port}`;
   for (let attempt = 0; attempt < STARTUP_ATTEMPTS / 2; attempt++) {
     try {
       await fetch(`${url}/`);
-      return { port, url, proc: child, close: () => child.kill() };
+      return { port, url, proc: child, close: () => { child.kill(); return exited; } };
     } catch {
       await sleep(STARTUP_POLL_MS);
     }
@@ -37,10 +38,10 @@ export async function startBridge({ verbose = !!process.env.VERBOSE } = {}) {
   throw new Error('bridge did not start');
 }
 
-export async function launch({ fakeMedia = true, args: extraArgs = [], verbose = !!process.env.VERBOSE } = {}) {
+export async function launch({ fakeMedia = true, args: extraArgs = [], verbose = !!process.env.VERBOSE, profile: profileDirectory } = {}) {
   const binary = process.env.CHROME ?? 'chromium';
   const debugPort = randomPort(DEBUG_PORT_BASE, DEBUG_PORT_SPREAD);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'mutter-chrome-'));
+  const profile = profileDirectory ?? fs.mkdtempSync(path.join(os.tmpdir(), 'mutter-chrome-'));
   const args = [
     '--headless=new',
     '--disable-gpu',
@@ -70,15 +71,16 @@ export async function launch({ fakeMedia = true, args: extraArgs = [], verbose =
   }
   const devtools = new DevToolsConnection(version.webSocketDebuggerUrl);
   await devtools.ready;
-  return new Browser(devtools, child, profile, verbose);
+  return new Browser(devtools, child, profile, verbose, !profileDirectory);
 }
 
 class Browser {
-  constructor(devtools, child, profile, verbose) {
+  constructor(devtools, child, profile, verbose, ownsProfile) {
     this.devtools = devtools;
     this.child = child;
     this.profile = profile;
     this.verbose = verbose;
+    this.ownsProfile = ownsProfile;
   }
 
   async newPage(url) {
@@ -98,11 +100,16 @@ class Browser {
     try {
       await Promise.race([this.devtools.send('Browser.close'), sleep(1500)]);
     } catch {}
-    this.child.kill('SIGKILL');
+    if (this.child.exitCode === null && this.child.signalCode === null) {
+      const exited = once(this.child, 'exit');
+      await Promise.race([exited, sleep(1500)]);
+      if (this.child.exitCode === null && this.child.signalCode === null) this.child.kill('SIGKILL');
+      await exited;
+    }
     try {
       this.devtools.socket.close();
     } catch {}
-    fs.rmSync(this.profile, { recursive: true, force: true });
+    if (this.ownsProfile) fs.rmSync(this.profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 

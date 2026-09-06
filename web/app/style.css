@@ -3088,3 +3088,19 @@ body[data-members="off"] #members {
     transition-duration: .01ms !important;
   }
 }
+
+.certificate-dialog {
+  width: min(520px, calc(100vw - 32px));
+  padding: 28px;
+  border: 1px solid var(--separator);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--ink);
+}
+.certificate-dialog::backdrop { background: #0009; }
+.certificate-dialog h2 { margin: 0 0 16px; }
+.certificate-dialog p { margin: 16px 0 8px; line-height: 1.5; }
+.certificate-dialog code { display: block; overflow-wrap: anywhere; font-size: 12px; }
+.certificate-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
+.certificate-actions button { padding: 10px 16px; border-radius: 8px; background: var(--elevated); }
+.certificate-actions button:last-child { background: var(--accent); color: var(--on-accent); }

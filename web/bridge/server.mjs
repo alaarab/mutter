@@ -1,4 +1,5 @@
 import http from 'node:http';
+import net from 'node:net';
 import tls from 'node:tls';
 import dgram from 'node:dgram';
 import crypto from 'node:crypto';
@@ -10,6 +11,7 @@ import { DEFAULT_PORT, FrameParser, MessageType, frame, decode } from '../src/mu
 import { Writer } from '../src/protobuf.js';
 import { CryptState } from '../src/ocb2.js';
 import { decodeVoice, encodePing, wireFormatFor } from '../src/voice.js';
+import { inspectPeer, isFingerprint } from './peer-certificate.mjs';
 
 const PORT = Number(process.env.PORT ?? 8788);
 const OPEN_WINDOW = !process.argv.includes('--no-open') && !process.env.NO_OPEN;
@@ -21,6 +23,19 @@ const MAX_PING_AGE_MS = 60_000;
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FONTS = path.join(ROOT, '..', 'Mutter', 'Resources', 'Fonts');
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
+const BRIDGE_TOKEN = crypto.randomBytes(32).toString('hex');
+const MAX_WS_MESSAGE = 8 * 1024 * 1024 + 6;
+
+function allowedHost(host) {
+  const port = server.address()?.port;
+  return host === `localhost:${port}` || host === `127.0.0.1:${port}`;
+}
+
+function allowedRequest(request) {
+  if (!allowedHost(request.headers.host)) return false;
+  const origin = request.headers.origin;
+  return !origin || origin === `http://${request.headers.host}`;
+}
 
 const MIME = {
   '.html': 'text/html',
@@ -64,9 +79,20 @@ function requestPath(request) {
 }
 
 const server = http.createServer((request, response) => {
+  response.setHeader('X-Content-Type-Options', 'nosniff');
+  response.setHeader('X-Frame-Options', 'DENY');
+  if (!allowedRequest(request)) {
+    response.writeHead(403).end();
+    return;
+  }
   const pathname = requestPath(request);
   if (!pathname) {
     response.writeHead(400).end();
+    return;
+  }
+  if (pathname === '/bridge-token' && request.method === 'GET') {
+    response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    response.end(JSON.stringify({ token: BRIDGE_TOKEN }));
     return;
   }
   const file = resolveStaticFile(pathname);
@@ -84,10 +110,18 @@ const server = http.createServer((request, response) => {
   });
 });
 
-server.on('upgrade', (request, socket) => {
-  const key = request.headers['sec-websocket-key'];
-  if (!key) {
+server.on('upgrade', (request, socket, head) => {
+  let url;
+  try {
+    url = new URL(request.url, 'http://localhost');
+  } catch {
     socket.destroy();
+    return;
+  }
+  const key = request.headers['sec-websocket-key'];
+  if (!allowedRequest(request) || url.pathname !== '/bridge' || url.searchParams.get('token') !== BRIDGE_TOKEN ||
+      typeof key !== 'string' || !/^[A-Za-z0-9+/]{22}==$/.test(key) || request.headers['sec-websocket-version'] !== '13') {
+    socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
     return;
   }
   const accept = crypto.createHash('sha1').update(key + WS_GUID).digest('base64');
@@ -97,7 +131,9 @@ server.on('upgrade', (request, socket) => {
       'Connection: Upgrade\r\n' +
       `Sec-WebSocket-Accept: ${accept}\r\n\r\n`
   );
-  new BridgeSession(new WebSocketConnection(socket));
+  const connection = new WebSocketConnection(socket);
+  new BridgeSession(connection);
+  if (head.length) connection.read(head);
 });
 
 class BridgeSession {
@@ -116,16 +152,39 @@ class BridgeSession {
     this.lastResyncAsk = 0;
     this.roundTripMs = 0;
     this.pingTimer = null;
-    connection.onMessage = (data, isText) => this.onBrowserMessage(data, isText);
+    this.trusted = false;
+    this.certificate = null;
+    this.closed = false;
+    this.connectionTimer = setTimeout(() => this.fail('Connection timed out.'), 15_000);
+    connection.onMessage = (data, isText) => {
+      try { this.onBrowserMessage(data, isText); }
+      catch { this.fail('Invalid client message.'); }
+    };
     connection.onClose = () => this.close();
   }
 
   onBrowserMessage(data, isText) {
-    if (isText && !this.upstream) {
-      this.dial(data.toString());
+    if (this.closed) return;
+    if (isText) {
+      let message;
+      try {
+        if (data.length > 4096) throw new Error('Connection request is too large.');
+        message = JSON.parse(data.toString());
+        if (!message || typeof message !== 'object' || Array.isArray(message)) throw new Error('Invalid connection request.');
+        if (!this.upstream) {
+          this.dial(message);
+        } else if (!this.trusted && this.certificate && message.event === 'trust' && message.fingerprint === this.certificate.fingerprint) {
+          this.acceptCertificate();
+        } else {
+          throw new Error('Unexpected connection request.');
+        }
+      } catch (error) {
+        this.fail(error.message);
+      }
       return;
     }
-    if (!this.upstream || isText) {
+    if (!this.upstream || !this.trusted) {
+      this.fail('The server certificate has not been accepted.');
       return;
     }
     let frames;
@@ -147,35 +206,55 @@ class BridgeSession {
     }
   }
 
-  dial(text) {
-    let target;
-    try {
-      target = JSON.parse(text);
-    } catch {
-      this.connection.close();
-      return;
-    }
+  dial(target) {
     const { host } = target;
     this.port = target.port ?? DEFAULT_PORT;
-    if (!host) {
-      this.connection.close();
-      return;
+    if (typeof host !== 'string' || !host.length || host.length > 253 || /[\s\x00/\\]/.test(host) ||
+        !Number.isInteger(this.port) || this.port < 1 || this.port > 65535 ||
+        (target.fingerprint !== undefined && !isFingerprint(target.fingerprint))) {
+      throw new Error('Invalid server address, port, or certificate fingerprint.');
     }
     this.label = `${host}:${this.port}`;
     console.log(`→ dialing ${this.label}`);
-    this.upstream = tls.connect({ host, port: this.port, rejectUnauthorized: false }, () => {
-      console.log(`  connected ${this.label}`);
-      this.connection.send(JSON.stringify({ event: 'open' }), true);
+    this.upstream = tls.connect({ host, port: this.port, servername: net.isIP(host) ? undefined : host, rejectUnauthorized: false }, () => {
+      try {
+        this.certificate = inspectPeer(this.upstream, host, target.fingerprint);
+        clearTimeout(this.connectionTimer);
+        if (this.certificate.trusted) {
+          this.acceptCertificate();
+        } else {
+          this.connectionTimer = setTimeout(() => this.fail('Certificate approval timed out.'), 120_000);
+          this.connection.send(JSON.stringify({ event: 'certificate', host, port: this.port, ...this.certificate }), true);
+        }
+      } catch (error) {
+        this.fail(error.message);
+      }
     });
+    this.upstream.pause();
     this.upstream.on('data', (chunk) => this.onServerData(chunk));
     this.upstream.on('error', (error) => {
-      this.connection.send(JSON.stringify({ event: 'error', message: error.message }), true);
-      this.connection.close();
+      this.fail(error.message);
     });
     this.upstream.on('close', () => this.connection.close());
   }
 
+  acceptCertificate() {
+    clearTimeout(this.connectionTimer);
+    this.trusted = true;
+    console.log(`  connected ${this.label}`);
+    this.connection.send(JSON.stringify({ event: 'open', fingerprint: this.certificate.fingerprint }), true);
+    this.upstream.resume();
+  }
+
+  fail(message) {
+    if (this.closed) return;
+    this.connection.send(JSON.stringify({ event: 'error', message }), true);
+    this.close();
+    this.connection.close();
+  }
+
   onServerData(chunk) {
+    if (!this.trusted || this.closed) return;
     let frames;
     try {
       frames = this.toBrowser.push(new Uint8Array(chunk));
@@ -183,13 +262,17 @@ class BridgeSession {
       this.connection.close();
       return;
     }
-    for (const { type, payload } of frames) {
-      if (type === MessageType.version) {
-        this.wireFormat = wireFormatFor(decode(type, payload));
-      } else if (type === MessageType.cryptSetup && USE_UDP) {
-        this.onCryptSetup(decode(type, payload));
+    try {
+      for (const { type, payload } of frames) {
+        if (type === MessageType.version) {
+          this.wireFormat = wireFormatFor(decode(type, payload));
+        } else if (type === MessageType.cryptSetup && USE_UDP) {
+          this.onCryptSetup(decode(type, payload));
+        }
+        this.connection.send(frame(type, payload), false);
       }
-      this.connection.send(frame(type, payload), false);
+    } catch {
+      this.fail('Malformed server message.');
     }
   }
 
@@ -278,6 +361,9 @@ class BridgeSession {
   }
 
   close() {
+    if (this.closed) return;
+    this.closed = true;
+    clearTimeout(this.connectionTimer);
     clearInterval(this.pingTimer);
     this.udp?.close();
     this.udp = null;
@@ -289,12 +375,14 @@ class BridgeSession {
 class WebSocketConnection {
   constructor(socket) {
     this.socket = socket;
+    this.closed = false;
     this.buffer = Buffer.alloc(0);
     this.fragments = null;
     this.onMessage = () => {};
     this.onClose = () => {};
     socket.on('data', (chunk) => this.read(chunk));
     socket.on('close', () => this.onClose());
+    socket.on('end', () => this.close());
     socket.on('error', () => {
       this.onClose();
       socket.destroy();
@@ -302,6 +390,7 @@ class WebSocketConnection {
   }
 
   read(chunk) {
+    if (this.closed) return;
     this.buffer = Buffer.concat([this.buffer, chunk]);
     while (this.buffer.length >= 2) {
       const first = this.buffer[0];
@@ -324,6 +413,11 @@ class WebSocketConnection {
         length = Number(this.buffer.readBigUInt64BE(2));
         offset = 10;
       }
+      if (!masked || length > MAX_WS_MESSAGE || (first & 0x70) ||
+          (opcode >= 8 && (!fin || length > 125))) {
+        this.close();
+        return;
+      }
       const maskKey = masked ? this.buffer.subarray(offset, offset + 4) : null;
       if (masked) {
         offset += 4;
@@ -339,6 +433,7 @@ class WebSocketConnection {
         }
       }
       this.handleFrame(opcode, fin, payload);
+      if (this.closed) return;
     }
   }
 
@@ -355,21 +450,26 @@ class WebSocketConnection {
       return;
     }
     if (opcode === Opcode.text || opcode === Opcode.binary) {
+      if (this.fragments) { this.close(); return; }
       if (fin) {
         this.onMessage(payload, opcode === Opcode.text);
       } else {
-        this.fragments = { opcode, parts: [payload] };
+        this.fragments = { opcode, parts: [payload], size: payload.length };
       }
       return;
     }
     if (opcode === Opcode.continuation && this.fragments) {
+      this.fragments.size += payload.length;
+      if (this.fragments.size > MAX_WS_MESSAGE || this.fragments.parts.length >= 8192) { this.close(); return; }
       this.fragments.parts.push(payload);
       if (fin) {
         const { opcode: firstOpcode, parts } = this.fragments;
         this.fragments = null;
         this.onMessage(Buffer.concat(parts), firstOpcode === Opcode.text);
       }
+      return;
     }
+    this.close();
   }
 
   send(data, isText = false) {
@@ -399,16 +499,22 @@ class WebSocketConnection {
   }
 
   close() {
-    if (this.socket.destroyed) {
+    if (this.closed || this.socket.destroyed) {
       return;
     }
+    this.closed = true;
+    this.buffer = Buffer.alloc(0);
+    this.fragments = null;
+    this.onClose();
     this.writeFrame(Buffer.alloc(0), Opcode.close);
     this.socket.end();
+    this.socket.setTimeout(1000, () => this.socket.destroy());
   }
 }
 
-export const ready = new Promise((resolve) => {
-  server.listen(PORT, () => {
+export const ready = new Promise((resolve, reject) => {
+  server.once('error', reject);
+  server.listen(PORT, '127.0.0.1', () => {
     const url = `http://localhost:${server.address().port}`;
     console.log(`Mutter  →  ${url}`);
     if (OPEN_WINDOW) {
