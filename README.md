@@ -74,6 +74,29 @@ Things most likely to need a touch on first build:
 3. **Keychain entitlement.** Certificates live in the keychain; the entitlements file is generated
    by XcodeGen from `project.yml`.
 
+## App icon
+
+`docs/brand/icon.svg` is the mark. Everything else is generated from it, so edit the SVG and
+regenerate rather than touching the PNGs.
+
+```bash
+brew install resvg
+swift scripts/make-appicon.swift
+```
+
+The script rasterises the SVG at 1024x1024 and writes the three appearances iOS asks for into
+`Mutter/Resources/Assets.xcassets/AppIcon.appiconset`: `AppIcon.png` (opaque, no alpha, as the
+App Store requires), `AppIcon-Dark.png` (the same construction on a near-black warm ground with
+the mark lit) and `AppIcon-Tinted.png` (grayscale, which iOS colours with the user's tint).
+
+It squares off the SVG's rounded corners and drops the rim stroke first, because iOS masks the
+icon itself and a baked-in corner radius fights that mask.
+
+resvg is pinned to nothing, but it is deterministic: the same SVG and the same resvg version
+produce byte-identical PNGs, so a regeneration that changes the files means the mark changed.
+If the SVG's palette or the mark's stroke colour is edited, the script stops with the token it
+could not find instead of quietly writing the old icon.
+
 ## What it does
 
 - Connects to any Mumble server 1.2 through 1.5+. Announces itself as 1.5 and picks the UDP wire
