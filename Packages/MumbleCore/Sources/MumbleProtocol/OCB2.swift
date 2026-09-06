@@ -149,7 +149,7 @@ public final class CryptState {
 
     private static func adjusted(_ counter: UInt32, by delta: Int) -> UInt32 {
         if delta > 0 { return counter &+ UInt32(delta) }
-        if Int(counter) > -delta { return counter - UInt32(-delta) }
+        if Int(counter) >= -delta { return counter - UInt32(-delta) }
         return counter
     }
 

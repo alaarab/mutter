@@ -116,8 +116,15 @@ public struct SoftAES128: BlockCipher {
             let previous = words[index - 4]
             words[index] = [previous[0] ^ temp[0], previous[1] ^ temp[1], previous[2] ^ temp[2], previous[3] ^ temp[3]]
         }
-        return (0..<11).map { round in
-            words[4 * round] + words[4 * round + 1] + words[4 * round + 2] + words[4 * round + 3]
+        return (0..<11).map { round -> [UInt8] in
+            let base = 4 * round
+            var roundKey = [UInt8]()
+            roundKey.reserveCapacity(16)
+            roundKey.append(contentsOf: words[base])
+            roundKey.append(contentsOf: words[base + 1])
+            roundKey.append(contentsOf: words[base + 2])
+            roundKey.append(contentsOf: words[base + 3])
+            return roundKey
         }
     }
 

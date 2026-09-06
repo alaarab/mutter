@@ -55,8 +55,13 @@ xcodegen generate
 open Mutter.xcodeproj
 ```
 
-Set your team under Signing & Capabilities, then build the `Mutter` scheme. Run the package tests
-with `swift test` from `Packages/MumbleCore` (macOS) or via the scheme's Test action.
+Signing reads your Team ID from `Local.xcconfig`, which is gitignored so it stays out of this
+public repo. Copy `Local.xcconfig.example` to `Local.xcconfig`, put your 10-character Team ID in
+it, and re-run `xcodegen generate`. Setting the team in Xcode's Signing & Capabilities tab instead
+works until the next regenerate, which throws it away.
+
+Then build the `Mutter` scheme. Run the package tests with `swift test` from `Packages/MumbleCore`
+(macOS) or via the scheme's Test action.
 
 Things most likely to need a touch on first build:
 
