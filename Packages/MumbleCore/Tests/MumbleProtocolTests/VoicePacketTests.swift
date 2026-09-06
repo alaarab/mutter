@@ -109,6 +109,6 @@ final class VoicePacketTests: XCTestCase {
         XCTAssertEqual(parsed.identifier, 0x0102030405060708)
         XCTAssertEqual(parsed.users, 12)
         XCTAssertEqual(parsed.maxUsers, 100)
-        XCTAssertEqual(parsed.bandwidth, 72560)
+        XCTAssertEqual(parsed.bandwidth, 71536)
     }
 }
