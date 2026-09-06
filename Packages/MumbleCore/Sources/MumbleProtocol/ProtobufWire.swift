@@ -137,6 +137,7 @@ public struct ProtobufReader {
         while true {
             guard let byte = byte(at: cursor) else { throw ProtobufError.truncated }
             cursor += 1
+            guard shift != 63 || byte <= 1 else { throw ProtobufError.truncated }
             result |= UInt64(byte & 0x7F) << shift
             if byte & 0x80 == 0 { return result }
             shift += 7
@@ -145,7 +146,7 @@ public struct ProtobufReader {
     }
 
     private mutating func readFixed(_ count: Int) throws -> Data {
-        guard cursor + count <= data.count else { throw ProtobufError.truncated }
+        guard count >= 0, count <= data.count - cursor else { throw ProtobufError.truncated }
         let start = data.startIndex + cursor
         let slice = data[start..<(start + count)]
         cursor += count
@@ -172,8 +173,7 @@ public struct ProtobufReader {
             withUnsafeMutableBytes(of: &value) { $0.copyBytes(from: slice) }
             return ProtobufField(number: number, wireType: wireType, varint: UInt64(UInt32(littleEndian: value)), payload: slice)
         case .lengthDelimited:
-            let length = Int(try readRawVarint())
-            guard length >= 0 else { throw ProtobufError.truncated }
+            guard let length = Int(exactly: try readRawVarint()) else { throw ProtobufError.truncated }
             let slice = try readFixed(length)
             return ProtobufField(number: number, wireType: wireType, varint: 0, payload: slice)
         case .startGroup, .endGroup:

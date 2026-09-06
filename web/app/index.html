@@ -9,6 +9,22 @@
 <title>Mutter</title>
 <link rel="stylesheet" href="/app/style.css">
 <body data-tab="chat" data-layout="desktop">
+<dialog id="certificateDialog" class="certificate-dialog" aria-labelledby="certificateTitle" aria-describedby="certificateMessage">
+  <form method="dialog">
+    <h2 id="certificateTitle">Trust this server?</h2>
+    <p id="certificateMessage"></p>
+    <p>SHA-256 fingerprint</p>
+    <code id="certificateFingerprint"></code>
+    <div id="certificatePrevious" hidden>
+      <p>Previously trusted fingerprint</p>
+      <code id="certificatePreviousFingerprint"></code>
+    </div>
+    <div class="certificate-actions">
+      <button value="cancel" autofocus>Cancel</button>
+      <button id="certificateTrustBtn" value="trust">Trust certificate</button>
+    </div>
+  </form>
+</dialog>
 <div id="app">
   <nav id="rail">
     <button id="railHome" class="rail-btn brand" type="button" data-tip="Mutter"></button>

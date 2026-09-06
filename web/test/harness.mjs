@@ -19,9 +19,9 @@ export async function startEnvironment({ chromeArgs = [] } = {}) {
     browser,
     shots,
     async close() {
-      await browser.close();
       bridge.close();
-      await server.close();
+      try { await browser.close(); }
+      finally { await server.close(); }
     },
   };
 }
@@ -66,6 +66,12 @@ export async function openClient(environment, name, { beforeConnect } = {}) {
   await page.type('#username', name);
   await beforeConnect?.(page);
   await page.click('#connectBtn');
+  await page.waitFor(`mutter.client.state === 'connected' || document.getElementById('certificateDialog').open`);
+  if (await page.eval(`document.getElementById('certificateDialog').open`)) {
+    const fingerprint = await page.eval(`document.getElementById('certificateFingerprint').textContent.replaceAll(':', '')`);
+    if (fingerprint !== environment.server.fingerprint) throw new Error('Unexpected fake-server certificate');
+    await page.click('#certificateTrustBtn');
+  }
   await page.waitFor(`mutter.client.state === 'connected'`, { label: `${name} connected` });
   return page;
 }

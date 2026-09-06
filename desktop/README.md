@@ -46,7 +46,8 @@ To build locally you need Node 22+:
 ```sh
 cd desktop
 npm install
-npm start            # run from source, with the bridge on a random port
+npm start            # run from source, with the bridge on localhost:8789
+npm run test:persistence # two Electron launches with an isolated profile (needs a GUI session)
 npm run dist:win     # portable + per-user installer into desktop/dist (run this on Windows)
 ```
 
@@ -61,8 +62,11 @@ BrowserWindow ──http/ws──▶ bridge (in the main process) ──TLS + UD
                                                              └──▶ audio: 'loopback' on Windows
 ```
 
-- `PORT=0` is set before the bridge is imported, so the OS picks a free port and two copies of
-  the app never fight over 8788. The bridge's `ready` promise resolves with the URL.
+- The desktop bridge uses loopback port 8789. Keeping the origin stable preserves saved
+  servers, settings, and certificate pins between launches. The browser bridge uses 8788.
+  `PORT` can select another fixed port; changing it selects a different browser storage
+  origin. Port 0 is refused, and an occupied port produces an error instead of silently
+  switching to a fresh settings store. The bridge's `ready` promise resolves with the URL.
 - `web/` and the fonts are shipped as extra resources next to the app, not inside the archive,
   so they can be inspected and edited in place. The bridge finds them through
   `process.resourcesPath`.

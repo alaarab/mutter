@@ -55,6 +55,15 @@ install it from Chrome's address bar ("Install Mutter") for a permanent icon.
 Set `PORT` to use a different port. Open it as `localhost`, not a LAN address: the microphone
 and the Opus codec are only available to secure origins, and `localhost` counts as one.
 
+The bridge binds only to `127.0.0.1`, checks the HTTP host and WebSocket origin, and requires
+a per-process token obtained from its same-origin `/bridge-token` endpoint. It is intended
+for a browser on the same machine (including WSL localhost forwarding).
+
+Server certificates are checked before any Mumble credentials or voice are sent. A
+self-signed certificate needs explicit approval; its SHA-256 fingerprint is remembered for
+that server. A changed certificate prompts again, even if its new certificate is publicly
+trusted. Check unfamiliar fingerprints with the server owner before accepting them.
+
 ### Make it feel installed — without installing anything
 
 On a managed laptop that runs Node in WSL but treats new Windows executables with suspicion, this
@@ -150,6 +159,11 @@ drives headless Chromium over the DevTools protocol — both with Node's built-i
 
 ```sh
 node web/test/webcodecs.test.mjs                    # does this Chromium do Opus the way we assume?
+node --test web/test/bridge.test.mjs                # bridge access controls, malformed input, certificate trust
+node --test web/test/peer-certificate.test.mjs      # CA/hostname validation and certificate pin precedence
+node --test web/test/certificate.test.mjs           # browser certificate approval, decline, and changed pins
+node --test web/test/persistence.test.mjs           # settings survive browser + bridge restarts on a fixed port
+node --test web/test/native.test.mjs                # macOS: native reconnect and exact loss-concealment duration
 node web/test/e2e.test.mjs                          # two tabs, voice both ways over UDP, chat, images, reconnect
 FAKE_VERSION=1.4.287 node web/test/e2e.test.mjs     # same, legacy voice format
 FAKE_UDP=0 node web/test/e2e.test.mjs               # same with UDP blocked: voice must stay on the TCP tunnel

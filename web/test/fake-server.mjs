@@ -72,6 +72,7 @@ export class FakeMumbleServer extends EventEmitter {
     this.quiet = quiet;
     this.nextSession = 1;
     this.users = new Map();
+    this.connections = new Set();
     this.channels = new Map(DEFAULT_CHANNELS.map((channel) => [channel.channelId, { ...channel }]));
     this.nextChannel = 5;
     this.config = { allowHtml: true, messageLength: 5000, imageMessageLength: 131072, maxUsers: 100 };
@@ -79,7 +80,9 @@ export class FakeMumbleServer extends EventEmitter {
   }
 
   listen(port) {
-    this.tls = tls.createServer(ensureCertificate(), (socket) => this.accept(socket));
+    const identity = ensureCertificate();
+    this.fingerprint = crypto.createHash('sha256').update(new crypto.X509Certificate(identity.cert).raw).digest('hex');
+    this.tls = tls.createServer(identity, (socket) => this.accept(socket));
     return new Promise((resolve, reject) => {
       this.tls.once('error', reject);
       this.tls.listen(port, '127.0.0.1', () => {
@@ -98,15 +101,15 @@ export class FakeMumbleServer extends EventEmitter {
   }
 
   close() {
-    for (const user of this.users.values()) {
-      user.socket.destroy();
-    }
+    for (const socket of this.connections) socket.destroy();
+    this.connections.clear();
     this.users.clear();
     this.udp?.close();
     return new Promise((resolve) => this.tls.close(() => resolve()));
   }
 
   accept(socket) {
+    this.connections.add(socket);
     const user = {
       socket,
       parser: new FrameParser(),
@@ -149,6 +152,7 @@ export class FakeMumbleServer extends EventEmitter {
     });
     socket.on('error', () => {});
     socket.on('close', () => {
+      this.connections.delete(socket);
       clearTimeout(user.idleTimer);
       if (user.session === null || !this.users.has(user.session)) {
         return;

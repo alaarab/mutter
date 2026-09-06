@@ -4,7 +4,8 @@ import { ScreenShare, probeIce } from './share.js';
 import { mountStage } from './stage.js';
 import { mountRoom } from './room.js';
 import { THEMES, DEFAULT_THEME, applyTheme } from './themes.js';
-import { settings, saveSettings, servers, rememberServer, forgetServer, collapsedFor } from './store.js';
+import { settings, saveSettings, servers, rememberServer, forgetServer, collapsedFor, certificateFor, rememberCertificate } from './store.js';
+import { confirmCertificate } from './certificate.js';
 import { DEFAULT_IMAGE_LIMIT, sanitize, imageToHtml, escapeHtml, plainText, openViewer } from './chat.js';
 import { DEFAULT_PORT } from '../src/mumble.js';
 import { renderTree, refreshUser, presence } from './tree.js';
@@ -27,6 +28,14 @@ const METER_RANGE_DB = 60;
 const MOUSE_BUTTON_AS_PTT_FROM = 3;
 
 const client = new MumbleClient();
+client.certificateTrust = confirmCertificate;
+client.addEventListener('certificate-accepted', ({ detail }) => {
+  try {
+    rememberCertificate(detail);
+  } catch {
+    toast('The server certificate could not be saved. You may be asked to trust it again.', 'warn');
+  }
+});
 const audio = new AudioEngine(client, settings);
 const share = new ScreenShare(client, settings);
 const ui = {
@@ -327,7 +336,7 @@ async function connect(target) {
   renderRail();
   $('title').textContent = serverLabel(target);
   $('connectBtn').disabled = true;
-  client.connect(target);
+  client.connect({ ...target, fingerprint: certificateFor(target.host, target.port) });
   if (!AudioEngine.supported) {
     return;
   }

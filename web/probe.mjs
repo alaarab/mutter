@@ -1,4 +1,6 @@
 import tls from 'node:tls';
+import net from 'node:net';
+import { inspectPeer, isFingerprint } from './bridge/peer-certificate.mjs';
 import {
   DEFAULT_PORT,
   CLIENT_VERSION,
@@ -19,11 +21,25 @@ const channels = new Map();
 const users = new Map();
 let mySession = null;
 
-const socket = tls.connect({ host, port, rejectUnauthorized: false }, () => {
+const expectedFingerprint = process.env.MUTTER_SERVER_FINGERPRINT;
+if (expectedFingerprint !== undefined && !isFingerprint(expectedFingerprint)) {
+  throw new Error('MUTTER_SERVER_FINGERPRINT must be the 64-character lowercase SHA-256 fingerprint.');
+}
+const socket = tls.connect({ host, port, servername: net.isIP(host) ? undefined : host, rejectUnauthorized: false }, () => {
+  const certificate = inspectPeer(socket, host, expectedFingerprint);
+  if (!certificate.trusted) {
+    console.error(`Server identity was not verified. SHA-256: ${certificate.fingerprint}`);
+    console.error('Verify this fingerprint with the server owner, then set MUTTER_SERVER_FINGERPRINT to trust it.');
+    socket.destroy();
+    process.exitCode = 1;
+    return;
+  }
+  socket.resume();
   console.log(`TLS up: ${host}:${port} (${socket.getProtocol()})`);
   socket.write(versionMessage({ ...CLIENT_VERSION, release: 'Mutter Web', os: 'Web', osVersion: '1' }));
   socket.write(authenticateMessage({ username }));
 });
+socket.pause();
 
 function printRoster() {
   console.log(`\nChannels (${channels.size}):`);
@@ -92,7 +108,7 @@ socket.on('error', (error) => {
   console.error('socket error:', error.message);
   process.exit(1);
 });
-socket.on('close', () => process.exit(0));
+socket.on('close', () => process.exit(process.exitCode ?? 0));
 setTimeout(() => {
   console.error('timed out');
   process.exit(1);

@@ -3,6 +3,7 @@ import { DEFAULT_THEME } from './themes.js';
 const SETTINGS_KEY = 'mutter.settings';
 const SERVERS_KEY = 'mutter.servers';
 const COLLAPSED_KEY = 'mutter.collapsed';
+const CERTIFICATES_KEY = 'mutter.certificates';
 const MAX_SAVED_SERVERS = 12;
 
 function loadJson(key, fallback) {
@@ -39,6 +40,20 @@ export function saveSettings() {
 }
 
 export const servers = loadJson(SERVERS_KEY, []);
+
+function certificateKey(host, port) {
+  return JSON.stringify([host.toLowerCase(), Number(port)]);
+}
+
+export function certificateFor(host, port) {
+  return loadJson(CERTIFICATES_KEY, {})[certificateKey(host, port)];
+}
+
+export function rememberCertificate({ host, port, fingerprint }) {
+  const certificates = loadJson(CERTIFICATES_KEY, {});
+  certificates[certificateKey(host, port)] = fingerprint;
+  saveJson(CERTIFICATES_KEY, certificates);
+}
 
 function serverKey(server) {
   return `${server.host}:${server.port}`;

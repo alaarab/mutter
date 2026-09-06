@@ -48,4 +48,19 @@ final class ProtobufTests: XCTestCase {
         var reader = ProtobufReader(Data([0x12, 0x10, 0x01]))
         XCTAssertThrowsError(try reader.next())
     }
+
+    func testUnrepresentableAndOverflowingLengthsThrow() {
+        for length in [UInt64.max, UInt64(Int.max), UInt64(Int.max) + 1] {
+            var writer = ProtobufWriter()
+            writer.writeRawVarint(0x12)
+            writer.writeRawVarint(length)
+            var reader = ProtobufReader(writer.data)
+            XCTAssertThrowsError(try reader.next(), "length \(length)")
+        }
+    }
+
+    func testOverflowingVarintThrows() {
+        var reader = ProtobufReader(Data([0x08] + Array(repeating: UInt8(0xff), count: 9) + [0x02]))
+        XCTAssertThrowsError(try reader.next())
+    }
 }

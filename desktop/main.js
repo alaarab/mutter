@@ -1,4 +1,4 @@
-import { app, BrowserWindow, session, desktopCapturer, shell, ipcMain, nativeImage } from 'electron';
+import { app, BrowserWindow, session, desktopCapturer, shell, ipcMain, nativeImage, dialog } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -41,7 +41,11 @@ function usePortableDataFolder() {
 
 function configureBridgeEnvironment() {
   process.env.NO_OPEN = '1';
-  process.env.PORT ??= '0';
+  process.env.PORT ??= '8789';
+  const port = Number(process.env.PORT);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error('PORT must be a fixed port between 1 and 65535 so Mutter can retain its settings.');
+  }
 }
 
 async function startBridge() {
@@ -111,6 +115,12 @@ async function runSmokeCheck(window, url) {
   const title = await window.webContents.executeJavaScript('document.title');
   const hasMark = await window.webContents.executeJavaScript(`!!document.querySelector('#railHome svg')`);
   console.log(`smoke: window loaded "${title}", brand mark ${hasMark ? 'present' : 'MISSING'}`);
+  if (process.env.MUTTER_SMOKE_STORAGE) {
+    const previous = await window.webContents.executeJavaScript(`localStorage.getItem('mutter.smoke')`);
+    console.log(`smoke: previous storage ${JSON.stringify(previous)}`);
+    await window.webContents.executeJavaScript(`localStorage.setItem('mutter.smoke', ${JSON.stringify(process.env.MUTTER_SMOKE_STORAGE)})`);
+    await session.defaultSession.flushStorageData();
+  }
   app.quit();
 }
 
@@ -229,16 +239,20 @@ function pickSource(sources) {
 }
 
 usePortableDataFolder();
-configureBridgeEnvironment();
 
-if (!app.requestSingleInstanceLock()) {
+const ownsInstanceLock = app.requestSingleInstanceLock();
+if (!ownsInstanceLock) {
   app.quit();
 }
 if (SMOKE) {
   app.disableHardwareAcceleration();
+  console.log('smoke: waiting for Electron');
 }
 
 app.whenReady().then(async () => {
+  if (!ownsInstanceLock) return;
+  if (SMOKE) console.log('smoke: Electron ready');
+  configureBridgeEnvironment();
   const url = await startBridge();
   installScreenPicker();
   mainWindow = createMainWindow(url);
@@ -248,6 +262,12 @@ app.whenReady().then(async () => {
     return;
   }
   installGlobalPushToTalk(mainWindow);
+}).catch(error => {
+  console.error(`Mutter could not start: ${error.message}`);
+  if (!SMOKE) dialog.showErrorBox('Mutter could not start', error.code === 'EADDRINUSE'
+    ? `Local port ${process.env.PORT} is already in use. Close the other process using this port and try again.`
+    : error.message);
+  app.exit(1);
 });
 
 app.on('second-instance', () => {
