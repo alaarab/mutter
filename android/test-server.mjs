@@ -1,5 +1,6 @@
 import { startFakeServer } from '../web/test/fake-server.mjs';
 import net from 'node:net';
+import { populateVisualFixture } from './visual-fixture.mjs';
 
 const servers = [];
 const authenticationAttempts = new Map();
@@ -7,12 +8,14 @@ const voiceTransport = new Map();
 const voicePackets = new Map();
 let blockUdp = false;
 for (const options of [
+  { port: 64746, udp: false },
   { port: 64740 },
   { port: 64741, version: '1.4.287' },
   { port: 64742, udp: false },
-  { port: 64745, password: 'android-test-password' },
+  { port: 64745, password: 'android-test-password', udp: false },
 ]) {
   const server = await startFakeServer(options);
+  if (options.port === 64746) populateVisualFixture(server);
   const authenticate = server.authenticate.bind(server);
   server.authenticate = (user, message) => {
     authenticationAttempts.set(message.username, (authenticationAttempts.get(message.username) ?? 0) + 1);
@@ -73,4 +76,4 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
     process.exit(0);
   });
 }
-console.log('Android test servers ready: 64740 (modern UDP), 64741 (legacy UDP), 64742 (TCP), 64745 (password), 64744 (fault injection).');
+console.log('Android test servers ready: 64740 (modern UDP), 64741 (legacy UDP), 64742 (TCP), 64745 (password), 64744 (fault injection), 64746 (visual review).');

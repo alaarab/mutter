@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.alaarab.mutter.ui
 
 import android.graphics.Bitmap
@@ -6,13 +8,17 @@ import android.net.Uri
 import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
@@ -22,8 +28,12 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.alaarab.mutter.MutterApplication
 import com.alaarab.mutter.data.SessionState
@@ -46,9 +56,23 @@ fun ChatScreen(
     onDirect: (Int) -> Unit,
     onUser: (Int) -> Unit,
 ) {
+    val p = LocalPalette.current
+    val landscape = LocalConfiguration.current.screenHeightDp < 500
+    val compact = WindowInsets.isImeVisible && landscape
     var draft by rememberSaveable(direct) { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var processing by remember { mutableStateOf(false) }
+    fun send() {
+        val text = draft.trim()
+        if (text.isEmpty()) return
+        val html = android.text.TextUtils.htmlEncode(text).replace("\n", "<br>")
+        if (state.maxText > 0 && html.toByteArray().size > state.maxText)
+            error = "This message is longer than the server allows."
+        else if (app.client.sendText(html, direct = direct)) {
+            draft = ""
+            error = null
+        }
+    }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val messages =
@@ -84,24 +108,39 @@ fun ChatScreen(
         )
             list.animateScrollToItem(messages.lastIndex)
     }
-    Column(Modifier.fillMaxSize().imePadding()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    if (direct != null) state.users[direct]?.name ?: "Direct message"
-                    else state.channel?.name ?: "Chat",
-                    style = MaterialTheme.typography.headlineSmall,
-                )
-                Hint(if (direct != null) "Only you and them" else "Channel conversation")
+    Column(Modifier.fillMaxSize()) {
+        if (!compact)
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (direct != null) {
+                    Avatar(
+                        state.users[direct]?.name ?: "Direct message",
+                        size = if (compact) 28 else 42,
+                    )
+                    Spacer(Modifier.width(12.dp))
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        if (direct != null) state.users[direct]?.name ?: "Direct message"
+                        else state.channel?.name ?: "Chat",
+                        style =
+                            if (compact) MaterialTheme.typography.titleMedium
+                            else MaterialTheme.typography.headlineSmall,
+                    )
+                    if (!compact)
+                        Hint(if (direct != null) "Only you and them" else "Channel conversation")
+                }
+                if (direct != null)
+                    ActionIcon(
+                        Icons.Rounded.Close,
+                        "Return to channel chat",
+                        action = onDirectClose,
+                    )
             }
-            if (direct != null)
-                ActionIcon(Icons.Rounded.Close, "Return to channel chat", action = onDirectClose)
-        }
         val conversations = state.messages.mapNotNull { it.direct }.distinct()
-        if (conversations.isNotEmpty())
+        if (conversations.isNotEmpty() && !compact)
             Row(
                 Modifier.fillMaxWidth()
                     .horizontalScroll(rememberScrollState())
@@ -125,7 +164,11 @@ fun ChatScreen(
             }
         if (messages.isEmpty())
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Hint("A good conversation starts with hello.")
+                EmptyState(
+                    Icons.Rounded.Forum,
+                    "Say hello",
+                    "A good conversation starts with hello.",
+                )
             }
         else
             LazyColumn(
@@ -134,39 +177,74 @@ fun ChatScreen(
                 contentPadding = PaddingValues(20.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                items(messages, key = { it.id }) { message ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Box(
-                            Modifier.clickable(enabled = message.sender != null) {
-                                message.sender?.let(onUser)
+                itemsIndexed(messages, key = { _, message -> message.id }) { index, message ->
+                    val previous = messages.getOrNull(index - 1)
+                    val grouped =
+                        previous != null &&
+                            previous.sender == message.sender &&
+                            previous.name == message.name &&
+                            previous.own == message.own &&
+                            message.time - previous.time < 120000
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        if (grouped) Spacer(Modifier.width(36.dp))
+                        else
+                            Box(
+                                Modifier.clip(MaterialTheme.shapes.small).clickable(
+                                    enabled = message.sender != null,
+                                    onClickLabel = "View ${message.name}",
+                                ) {
+                                    message.sender?.let(onUser)
+                                }
+                            ) {
+                                if (message.sender == null)
+                                    IconWell(Icons.Rounded.Info, p.muted, 36)
+                                else Avatar(message.name, size = 36)
                             }
-                        ) {
-                            Avatar(message.name, size = 36)
-                        }
                         Column(
                             Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(5.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            ) {
-                                Text(
-                                    message.name,
-                                    fontWeight = FontWeight.Bold,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color =
-                                        if (message.own) LocalPalette.current.accent
-                                        else LocalPalette.current.ink,
-                                )
-                                Hint(
-                                    remember(message.time) {
-                                        SimpleDateFormat("HH:mm", Locale.getDefault())
-                                            .format(Date(message.time))
-                                    }
-                                )
+                            if (!grouped)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    Text(
+                                        message.name,
+                                        Modifier.weight(1f),
+                                        fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = if (message.own) p.accent else p.ink,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Hint(
+                                        remember(message.time) {
+                                            SimpleDateFormat("HH:mm", Locale.getDefault())
+                                                .format(Date(message.time))
+                                        }
+                                    )
+                                }
+                            SelectionContainer {
+                                Column(
+                                    Modifier.fillMaxWidth()
+                                        .clip(MaterialTheme.shapes.medium)
+                                        .background(
+                                            if (message.own) p.accent.copy(alpha = .08f)
+                                            else p.surface
+                                        )
+                                        .border(
+                                            1.dp,
+                                            if (message.own) p.accent.copy(alpha = .15f)
+                                            else p["separator"].copy(alpha = .55f),
+                                            MaterialTheme.shapes.medium,
+                                        )
+                                        .padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    RichMessage(message.html)
+                                }
                             }
-                            SelectionContainer { Column { RichMessage(message.html) } }
                         }
                     }
                 }
@@ -178,8 +256,9 @@ fun ChatScreen(
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
+        if (processing) LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 20.dp))
         Row(
-            Modifier.fillMaxWidth().padding(12.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(
@@ -193,25 +272,31 @@ fun ChatScreen(
                 { draft = it },
                 Modifier.weight(1f),
                 placeholder = { Text("Say something…") },
-                maxLines = 5,
+                textStyle = MaterialTheme.typography.bodyMedium,
+                singleLine = landscape,
+                maxLines = if (landscape) 1 else 5,
+                label =
+                    if (compact)
+                        ({
+                            Text(
+                                if (direct != null) state.users[direct]?.name ?: "Direct message"
+                                else state.channel?.name ?: "Chat",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        })
+                    else null,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(onSend = { send() }),
             )
-            IconButton(
-                onClick = {
-                    val text = draft.trim()
-                    val html = android.text.TextUtils.htmlEncode(text).replace("\n", "<br>")
-                    if (state.maxText > 0 && html.toByteArray().size > state.maxText)
-                        error = "This message is longer than the server allows."
-                    else if (app.client.sendText(html, direct = direct)) {
-                        draft = ""
-                        error = null
-                    }
-                },
+            FilledIconButton(
+                modifier = Modifier.padding(start = 8.dp),
+                onClick = ::send,
                 enabled = draft.isNotBlank() && state.connected,
             ) {
                 Icon(
                     Icons.AutoMirrored.Rounded.Send,
                     "Send message",
-                    tint = LocalPalette.current.accent,
                 )
             }
         }

@@ -79,6 +79,39 @@ ANDROID_SERIAL=emulator-5554 CHROME=/path/to/chromium node android/test-share.mj
 Reports are under `android/app/build/reports/`. A successful instrumentation run must report its
 expected test count and no failures; an ADB command exiting successfully is not sufficient.
 
+## Android visual pass · September 7, 2026
+
+The Android 16 regression run passed all 20 instrumentation tests and 13 JVM tests. Separate
+microphone permission recovery and live browser-to-Android video tests also passed: 35 distinct
+tests in total. The final build and lint passed with zero lint errors.
+
+The visual pass also verified:
+
+- All 22 theme variants with populated voice rooms, chat, profiles, channel lists and settings.
+- 360×640 dp and 640×360 dp windows at 150% text, including server editing and activity recreation.
+- Push-to-talk feedback, local mute, whisper selection, settings Back navigation and persisted choices.
+- Chat with the keyboard open, the keyboard Send action, and returning to the call after dismissal.
+- Disabled system animator duration, shared theme generation, and zero first-party source comments.
+
+Tinted message cards, profile surfaces and status pills were audited across all theme variants;
+the minimum contrast among the audited text pairs was 4.55:1. Screenshots use synthetic participants
+on the dedicated TCP fixture at port 64746. UDP and transport recovery use separate test endpoints.
+
+Start `node android/test-server.mjs` and build both debug APKs, then capture review screenshots:
+
+```sh
+adb install -r android/app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
+adb install -r android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+adb shell am instrument -w -r \
+  -e class com.alaarab.mutter.PolishTest -e polishScreenshots true -e polishSize phone \
+  com.alaarab.mutter.test/androidx.test.runner.AndroidJUnitRunner
+adb pull /sdcard/Android/data/com.alaarab.mutter/files/polish-phone android/app/build/review
+```
+
+`polishSize` names the output directory; it does not resize the emulator. Use Android display and
+font settings, or `adb shell wm size`, `wm density` and `settings put system font_scale`, to change
+the review configuration. Restore those overrides after testing.
+
 ## Physical devices
 
 The offline `EditorTest`, `StorageTest`, and `AudioCodecTest` classes can run in

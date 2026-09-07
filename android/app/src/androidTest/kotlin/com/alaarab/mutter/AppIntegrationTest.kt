@@ -83,6 +83,7 @@ class AppIntegrationTest {
             app.client.state.value.messages.any { it.own && it.html == "Hello from Android" }
         )
         ui.onNodeWithText("Say something…").performTextInput("Keep this draft")
+        ui.dismissKeyboard()
         ui.onNodeWithText("Voice", useUnmergedTree = true).performClick()
         ui.onNodeWithText("Chat", useUnmergedTree = true).performClick()
         ui.onNodeWithText("Keep this draft").assertExists()

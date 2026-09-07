@@ -3,6 +3,7 @@ package com.alaarab.mutter.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -24,13 +25,25 @@ fun ShareDialog(app: MutterApplication) {
         ) {
             Surface(Modifier.fillMaxSize(), color = LocalPalette.current["media"]) {
                 Column(Modifier.safeDrawingPadding()) {
-                    Row(Modifier.fillMaxWidth().padding(16.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Text(
                             share.title,
                             color = LocalPalette.current["onMedia"],
                             modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.titleMedium,
                         )
-                        TextButton(app.shares::stop) { Text("Close") }
+                        TextButton(
+                            app.shares::stop,
+                            colors =
+                                ButtonDefaults.textButtonColors(
+                                    contentColor = LocalPalette.current["onMedia"]
+                                ),
+                        ) {
+                            Text("Close")
+                        }
                     }
                     var renderer by remember { mutableStateOf<SurfaceViewRenderer?>(null) }
                     AndroidView(
@@ -55,7 +68,8 @@ fun ShareDialog(app: MutterApplication) {
                     Text(
                         status,
                         color = LocalPalette.current["onMedia"],
-                        modifier = Modifier.padding(16.dp),
+                        modifier = Modifier.padding(20.dp),
+                        style = MaterialTheme.typography.bodySmall,
                     )
                 }
             }

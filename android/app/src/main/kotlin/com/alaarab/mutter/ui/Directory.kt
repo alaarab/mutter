@@ -4,10 +4,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -77,20 +78,57 @@ fun DirectoryScreen(select: (Server) -> Unit) {
         if (tab == "public" && loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
         if (tab == "public" && error != null)
             item {
-                Text(error!!)
-                TextButton({ retry++ }) { Text("Try again") }
+                AppCard(Modifier.fillMaxWidth()) {
+                    IconWell(Icons.Rounded.CloudOff, LocalPalette.current.muted)
+                    Text(
+                        "Couldn’t load the directory",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Hint("Check your connection and try again.")
+                    TextButton({ retry++ }) { Text("Try again") }
+                }
             }
         if (tab == "local" && local.isEmpty())
-            item { Hint("Looking for Mumble servers on this network…") }
-        items(
+            item {
+                EmptyState(
+                    Icons.Rounded.Wifi,
+                    "Listening nearby",
+                    "Looking for Mumble servers on this network…",
+                )
+            }
+        val filtered =
             (if (tab == "public") directory else local).filter {
                 "${it.name} ${it.host}".contains(query, true)
-            },
+            }
+        if (query.isNotBlank() && filtered.isEmpty() && !(tab == "public" && loading))
+            item {
+                EmptyState(
+                    Icons.Rounded.SearchOff,
+                    "No servers found",
+                    "Try another name or address.",
+                )
+            }
+        items(
+            filtered,
             key = { it.id },
         ) { server ->
             AppCard(Modifier.fillMaxWidth(), { select(server) }) {
-                Text(server.name, style = MaterialTheme.typography.titleMedium)
-                Hint("${server.host}:${server.port}")
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    IconWell(if (tab == "local") Icons.Rounded.Wifi else Icons.Rounded.Public)
+                    Column(Modifier.weight(1f)) {
+                        Text(server.name, style = MaterialTheme.typography.titleMedium)
+                        Hint("${server.host}:${server.port}")
+                    }
+                    Icon(
+                        Icons.Rounded.ChevronRight,
+                        null,
+                        tint = LocalPalette.current.muted,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
         }
     }
