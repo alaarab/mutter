@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Mutter">
-  <desc>Amber Frost: a hot amber into coral field under a barely there frost, lit from the bottom right, deep near black ink. The frosted variant tuned for maximum small size contrast.</desc>
+  <desc>Graphite: a near black field with a barely there sheen off the top right, the mark cut out of it in bone white. Monochrome, tuned for maximum small size contrast.</desc>
   <defs>
     <clipPath id="tile-v2"><rect width="512" height="512" rx="114"/></clipPath>
     <filter id="soft-v2" x="-35%" y="-35%" width="170%" height="170%" color-interpolation-filters="sRGB">
@@ -10,23 +10,23 @@
       <feColorMatrix type="saturate" values="0"/>
     </filter>
     <linearGradient id="rim-v2" x1=".95" y1="1" x2=".05" y2="0">
-      <stop offset="0" stop-color="#FFFFFF" stop-opacity=".78"/>
-      <stop offset=".5" stop-color="#FFFFFF" stop-opacity=".10"/>
-      <stop offset="1" stop-color="#4A1206" stop-opacity=".26"/>
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity=".30"/>
+      <stop offset=".5" stop-color="#FFFFFF" stop-opacity=".08"/>
+      <stop offset="1" stop-color="#000000" stop-opacity=".40"/>
     </linearGradient>
   </defs>
   <g id="mark">
     <g clip-path="url(#tile-v2)">
-      <rect width="512" height="512" fill="#F97316"/>
+      <rect width="512" height="512" fill="#131313"/>
       <g filter="url(#soft-v2)">
-        <circle cx="430" cy="60" r="300" fill="#FFC53D"/>
-        <circle cx="80" cy="470" r="320" fill="#FF3F63"/>
-        <circle cx="210" cy="210" r="190" fill="#FF8A2B"/>
+        <circle cx="430" cy="60" r="300" fill="#333333"/>
+        <circle cx="80" cy="470" r="320" fill="#191919"/>
+        <circle cx="210" cy="210" r="190" fill="#242424"/>
       </g>
-      <rect width="512" height="512" fill="#FFFFFF" opacity=".10"/>
+      <rect width="512" height="512" fill="#FFFFFF" opacity=".05"/>
       <rect width="512" height="512" filter="url(#grain-v2)" opacity=".08" style="mix-blend-mode:overlay"/>
     </g>
     <rect x="1.5" y="1.5" width="509" height="509" rx="112.5" fill="none" stroke="url(#rim-v2)" stroke-width="3"/>
-    <path d="M128 370L128 230C128 140 200 140 256 290C312 140 384 140 384 230L384 370" fill="none" stroke-width="54" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="6" stroke="#2B0A06"/>
+    <path d="M128 370L128 230C128 140 200 140 256 290C312 140 384 140 384 230L384 370" fill="none" stroke-width="54" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="6" stroke="#EDEDED"/>
   </g>
 </svg>

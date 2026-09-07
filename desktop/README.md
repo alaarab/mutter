@@ -58,7 +58,7 @@ Windows targets can only be built on Windows without `wine`; macOS targets only 
 ```
 BrowserWindow ──http/ws──▶ bridge (in the main process) ──TLS + UDP──▶ murmur
       │
-      └── getDisplayMedia() ──▶ setDisplayMediaRequestHandler ──▶ our picker (picker.html)
+      └── getDisplayMedia() ──▶ setDisplayMediaRequestHandler ──▶ our picker (web/app/picker.html)
                                                              └──▶ audio: 'loopback' on Windows
 ```
 
@@ -71,7 +71,8 @@ BrowserWindow ──http/ws──▶ bridge (in the main process) ──TLS + UD
   so they can be inspected and edited in place. The bridge finds them through
   `process.resourcesPath`.
 - The renderer runs sandboxed with context isolation and no preload; it is the plain web client.
-  Only the picker page has a preload, and it exposes two functions. The main process talks to
+  Only the picker page has a preload, and it exposes two functions. The picker loads the shared
+  web assets and receives the main window’s selected theme and appearance before it is shown. The main process talks to
   the page only through `executeJavaScript` against `window.mutter`, to read the push-to-talk
   binding and to press or release it.
 

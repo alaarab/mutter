@@ -2,12 +2,14 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#151B26">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="">
 <link rel="manifest" href="/app/manifest.webmanifest">
 <link rel="icon" href="/app/icon.svg" type="image/svg+xml">
 <title>Mutter</title>
+<link rel="stylesheet" href="/app/tokens.css">
 <link rel="stylesheet" href="/app/style.css">
+<script type="module" src="/app/themes.js" blocking="render"></script>
 <body data-tab="chat" data-layout="desktop">
 <dialog id="certificateDialog" class="certificate-dialog" aria-labelledby="certificateTitle" aria-describedby="certificateMessage">
   <form method="dialog">
@@ -243,7 +245,13 @@
     <p id="outStatus" class="hint"></p>
 
     <h3>Look</h3>
-    <div id="themes" class="swatches"></div>
+    <div id="appearance" class="segmented" role="group" aria-label="Appearance">
+      <button type="button" data-value="system">System</button>
+      <button type="button" data-value="light">Light</button>
+      <button type="button" data-value="dark">Dark</button>
+    </div>
+    <div id="themes" class="theme-grid" role="group" aria-label="Theme"></div>
+    <p id="themeDescription" class="hint"></p>
     <div class="row between" style="margin-top:10px">
       <span class="hint">Message text</span>
       <div id="textSize" class="segmented mini">

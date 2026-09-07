@@ -1,16 +1,18 @@
-# Mutter — a modern Mumble client for iPhone
+# Mutter — a modern Mumble client
 
 Mutter speaks the standard Mumble protocol (TLS control channel, OCB2-AES128 encrypted UDP voice,
 Opus) and wraps it in an interface that borrows Discord's structure (servers → channels → a
-persistent voice bar) and a warm, editorial look. It is a from-scratch Swift codebase with no
-MumbleKit and no third-party dependency other than libopus.
+persistent voice bar) and a warm, editorial look. The native iOS app uses Swift, libopus for audio, and WebRTC for screen sharing.
+The browser and desktop clients share the same web interface and local protocol bridge.
 
 ## Status
 
-The code in this directory was written without access to Xcode or an iOS device, so it has not
-been compiled or run yet. The protocol layer ships with unit tests, and the OCB2 cipher was
-validated in Python against Mumble's official test vectors before being ported to Swift, but
-expect a round of compiler fixes on first build. See "First build" below.
+Mutter includes a native iOS app, a browser client, and an Electron desktop shell. The iOS app
+builds with Xcode 26.6. Protocol, browser, and native regression checks live alongside the code;
+see `web/README.md` and `desktop/README.md` for their commands.
+
+All clients share the theme catalog in `design/themes.json`. See [the design guide](docs/design.md)
+for palette generation, contrast checks, and appearance testing.
 
 ## Layout
 
@@ -46,11 +48,11 @@ MutterWidgets/                      Widget extension: Live Activity + Dynamic Is
 
 ## First build
 
-Requirements: Xcode 16, iOS 17 device or simulator, [XcodeGen](https://github.com/yonaskolb/XcodeGen).
+Requirements: Xcode 26.6, iOS 17+ device or simulator, [XcodeGen](https://github.com/yonaskolb/XcodeGen).
 
 ```bash
 brew install xcodegen
-cd mumble-ios/app
+cd mutter
 xcodegen generate
 open Mutter.xcodeproj
 ```
@@ -63,14 +65,14 @@ works until the next regenerate, which throws it away.
 Then build the `Mutter` scheme. Run the package tests with `swift test` from `Packages/MumbleCore`
 (macOS) or via the scheme's Test action.
 
-Things most likely to need a touch on first build:
+Build notes:
 
 1. **Opus headers.** `Mutter/Audio/OpusShim/opus_shim.h` includes `<opus/opus.h>` with fallbacks.
    If the OnBeep `Opus` xcframework lays out headers differently, adjust the include or swap the
    package in `project.yml` (sbooth/opus-binary-xcframework also works; it needs the ogg package).
    The shim exists because `opus_encoder_ctl` is variadic and Swift cannot call it.
-2. **Swift concurrency warnings.** The project uses Swift 5 language mode with minimal checking on
-   purpose; don't switch to Swift 6 mode until it compiles.
+2. **Swift concurrency warnings.** The project currently uses Swift 5 language mode with minimal
+   checking; moving to Swift 6 requires a separate concurrency pass.
 3. **Keychain entitlement.** Certificates live in the keychain; the entitlements file is generated
    by XcodeGen from `project.yml`.
 
@@ -84,18 +86,14 @@ brew install resvg
 swift scripts/make-appicon.swift
 ```
 
-The script rasterises the SVG at 1024x1024 and writes the three appearances iOS asks for into
-`Mutter/Resources/Assets.xcassets/AppIcon.appiconset`: `AppIcon.png` (opaque, no alpha, as the
-App Store requires), `AppIcon-Dark.png` (the same construction on a near-black warm ground with
-the mark lit) and `AppIcon-Tinted.png` (grayscale, which iOS colours with the user's tint).
+The script rasterises the graphite master and generates all platform assets: the three iOS
+appearances, the desktop PNGs, the browser SVG, and the monochrome in-app mark. The standard
+and dark iOS icons share the same graphite artwork; the tinted icon is grayscale. iOS PNGs
+are opaque and square because the system applies its own corner mask. Desktop PNGs preserve
+the SVG's corners and transparency.
 
-It squares off the SVG's rounded corners and drops the rim stroke first, because iOS masks the
-icon itself and a baked-in corner radius fights that mask.
-
-resvg is pinned to nothing, but it is deterministic: the same SVG and the same resvg version
-produce byte-identical PNGs, so a regeneration that changes the files means the mark changed.
-If the SVG's palette or the mark's stroke colour is edited, the script stops with the token it
-could not find instead of quietly writing the old icon.
+The generator reads the mark's path directly. Palette and geometry changes belong in the
+master SVG, followed by regeneration; generated files should not be edited separately.
 
 ## What it does
 
@@ -140,4 +138,3 @@ Full coverage table: `docs/features.md`.
 - Positional audio, recording, ACL and ban list editors, context actions.
 - Exporting a certificate as .p12 (iOS has no API to build PKCS#12 without OpenSSL).
 - iPad split-view layout; the phone layout works on iPad but isn't tailored.
-- App icon artwork (the catalog has an empty slot).

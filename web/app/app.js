@@ -4,6 +4,8 @@ import { ScreenShare, probeIce } from './share.js';
 import { mountStage } from './stage.js';
 import { mountRoom } from './room.js';
 import { THEMES, DEFAULT_THEME, applyTheme } from './themes.js';
+import { isVisible, setVisible } from './motion.js';
+import { mountAppearance } from './appearance.js';
 import { settings, saveSettings, servers, rememberServer, forgetServer, collapsedFor, certificateFor, rememberCertificate } from './store.js';
 import { confirmCertificate } from './certificate.js';
 import { DEFAULT_IMAGE_LIMIT, sanitize, imageToHtml, escapeHtml, plainText, openViewer } from './chat.js';
@@ -62,7 +64,7 @@ function migrateSettings() {
   settings.showMembers ??= false;
   settings.processing ??= { echo: true, noise: false, gain: true };
   settings.textSize ??= 14;
-  if (!THEMES[settings.theme]) {
+  if (!Object.hasOwn(THEMES, settings.theme)) {
     settings.theme = DEFAULT_THEME;
     saveSettings();
   }
@@ -107,9 +109,13 @@ function mountIcons() {
 }
 
 migrateSettings();
-applyTheme(settings.theme);
+applyTheme(settings.theme, settings.appearance);
 applyTextSize(settings.textSize);
 mountIcons();
+const appearanceControls = mountAppearance({
+  container: $('themes'), selector: $('appearance'), description: $('themeDescription'),
+  settings, save: saveSettings,
+});
 const room = mountRoom({
   container: $('paneVoice'),
   client,
@@ -1136,12 +1142,16 @@ $('shareBtn').onclick = async () => {
 };
 mountStage({ share, client, stage: $('stage'), tabs: [$('screenBtn')], showTab, toast, applySink: (element) => audio.applySink(element) });
 
-function toggleSettings(open = $('settings').hidden) {
-  $('settings').hidden = !open;
+let settingsAnchor = null;
+function toggleSettings(open = !isVisible($('settings'))) {
+  if (open) settingsAnchor = document.activeElement;
+  setVisible($('settings'), open, 'sheet');
   if (open) {
     renderSettings();
+    $('settingsClose').focus({ preventScroll: true });
   } else {
     endKeyRecording();
+    settingsAnchor?.focus({ preventScroll: true });
   }
 }
 
@@ -1152,6 +1162,7 @@ $('settingsClose').onclick = () => toggleSettings(false);
 function bindSegmented(id, value, onChange) {
   for (const button of $(id).querySelectorAll('button')) {
     button.classList.toggle('on', button.dataset.value === String(value));
+    button.setAttribute('aria-pressed', String(button.dataset.value === String(value)));
     button.onclick = () => {
       onChange(button.dataset.value);
       saveSettings();
@@ -1195,24 +1206,6 @@ function ensurePttKeyRow() {
   };
 }
 
-function renderThemeSwatches() {
-  $('themes').replaceChildren(
-    ...Object.entries(THEMES).map(([name, theme]) => {
-      const swatch = el('button', { type: 'button', className: `swatch${settings.theme === name ? ' on' : ''}` });
-      swatch.dataset.tip = theme.title;
-      swatch.style.setProperty('--sw-bg', theme.bg);
-      swatch.style.setProperty('--sw-accent', theme.accent);
-      swatch.onclick = () => {
-        settings.theme = name;
-        saveSettings();
-        applyTheme(name);
-        renderSettings();
-      };
-      return swatch;
-    })
-  );
-}
-
 function renderSettings() {
   bindSegmented('transmitMode', settings.transmitMode, (value) => {
     settings.transmitMode = value;
@@ -1236,7 +1229,7 @@ function renderSettings() {
   $('threshold').value = settings.autoSensitivity ? Math.round(audio.thresholdDb) : settings.vadThresholdDb;
   $('threshold').disabled = settings.autoSensitivity;
   $('thresholdLabel').textContent = thresholdLabel();
-  renderThemeSwatches();
+  appearanceControls.render();
   $('stunUrl').value = settings.stun ?? '';
   $('turnUrl').value = settings.turn.url;
   $('turnUser').value = settings.turn.username;

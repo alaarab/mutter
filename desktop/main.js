@@ -5,12 +5,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const webRoot = app.isPackaged ? path.join(process.resourcesPath, 'web') : path.join(here, '..', 'web');
+const iconPath = app.isPackaged ? path.join(process.resourcesPath, 'icon.png') : path.join(here, 'build', 'icon.png');
 const SMOKE = process.argv.includes('--smoke');
 const MAIN_WINDOW = { width: 1180, height: 760, minWidth: 380, minHeight: 560 };
 const PICKER_WINDOW = { width: 760, height: 560 };
 const THUMBNAIL_SIZE = { width: 320, height: 180 };
-const BACKGROUND = '#08080A';
-const PICKER_BACKGROUND = '#111113';
+const { THEMES, DEFAULT_THEME } = await import(pathToFileURL(path.join(webRoot, 'app', 'theme-data.js')).href);
 const HOOK_MOUSE_BUTTON_FROM_DOM = { 3: 4, 4: 5 };
 const HOOK_KEY_NAME_FROM_DOM = {
   ControlLeft: 'Ctrl',
@@ -82,10 +82,10 @@ function createMainWindow(url) {
   const window = new BrowserWindow({
     ...MAIN_WINDOW,
     title: 'Mutter',
-    backgroundColor: BACKGROUND,
+    backgroundColor: THEMES[DEFAULT_THEME].dark.bg,
     autoHideMenuBar: true,
     show: false,
-    icon: nativeImage.createFromPath(path.join(here, 'build', 'icon.png')),
+    icon: nativeImage.createFromPath(iconPath),
     webPreferences: { contextIsolation: true, sandbox: true, spellcheck: true, offscreen: SMOKE },
   });
   window.once('ready-to-show', () => {
@@ -204,7 +204,14 @@ function describeSource(source) {
   };
 }
 
-function pickSource(sources) {
+async function pickSource(sources) {
+  const selected = await mainWindow?.webContents.executeJavaScript(`({
+    theme: document.documentElement.dataset.theme,
+    appearance: document.documentElement.dataset.appearance
+  })`);
+  const theme = Object.hasOwn(THEMES, selected?.theme) ? selected.theme : DEFAULT_THEME;
+  const appearance = selected?.appearance === 'light' ? 'light' : 'dark';
+  const pickerURL = new URL('/app/picker.html', mainWindow.webContents.getURL()).href;
   return new Promise((resolve) => {
     const picker = new BrowserWindow({
       ...PICKER_WINDOW,
@@ -213,7 +220,7 @@ function pickSource(sources) {
       show: false,
       resizable: false,
       title: 'Share your screen',
-      backgroundColor: PICKER_BACKGROUND,
+      backgroundColor: THEMES[theme][appearance].surface,
       autoHideMenuBar: true,
       webPreferences: { preload: path.join(here, 'picker-preload.cjs'), contextIsolation: true, sandbox: true },
     });
@@ -223,18 +230,24 @@ function pickSource(sources) {
         return;
       }
       settled = true;
+      ipcMain.removeListener('picker:choose', onChoose);
       resolve(value);
       if (!picker.isDestroyed()) {
         picker.close();
       }
     };
-    ipcMain.once('picker:choose', (_event, id) => finish(sources.find((source) => source.id === id) ?? null));
+    const onChoose = (event, id) => {
+      if (event.sender === picker.webContents) finish(sources.find((source) => source.id === id) ?? null);
+    };
+    ipcMain.on('picker:choose', onChoose);
     picker.on('closed', () => finish(null));
-    picker.loadFile(path.join(here, 'picker.html'));
     picker.webContents.once('did-finish-load', () => {
-      picker.webContents.send('picker:sources', sources.map(describeSource));
+      picker.webContents.send('picker:setup', { sources: sources.map(describeSource), theme, appearance });
       picker.show();
     });
+    picker.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    picker.webContents.on('will-navigate', (event) => event.preventDefault());
+    picker.loadURL(pickerURL).catch(() => finish(null));
   });
 }
 

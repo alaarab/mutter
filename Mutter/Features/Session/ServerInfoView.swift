@@ -21,6 +21,7 @@ struct ServerInfoView: View {
                             .font(.subheadline)
                             .foregroundStyle(Theme.body)
                     } header: { SectionLabel(text: "Welcome") }
+                    .themedRows()
                 }
             }
 
@@ -35,6 +36,7 @@ struct ServerInfoView: View {
                     Label("This server recommends push-to-talk.", systemImage: "hand.tap").font(.footnote).foregroundStyle(Theme.muted)
                 }
             } header: { SectionLabel(text: "Server") }
+            .themedRows()
 
             Section {
                 LabeledContent("Voice path") {
@@ -50,6 +52,7 @@ struct ServerInfoView: View {
                 LabeledContent("Codec", value: "Opus \(model.settings.bitrate / 1000) kbit/s · \(model.settings.frameMilliseconds) ms")
                 if !model.audio.currentRoute.isEmpty { LabeledContent("Audio route", value: model.audio.currentRoute) }
             } header: { SectionLabel(text: "Connection") }
+            .themedRows()
 
             if let cert = session.serverCertificate {
                 Section {
@@ -64,6 +67,7 @@ struct ServerInfoView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 } header: { SectionLabel(text: "Certificate") }
+                .themedRows()
             }
 
             Section {
@@ -76,18 +80,21 @@ struct ServerInfoView: View {
                 }
                 LabeledContent("Permissions", value: permissionSummary(info.permissions))
             } header: { SectionLabel(text: "You") }
+            .themedRows()
 
             Section {
                 Button { showRegistered = true } label: {
                     Label("Registered users", systemImage: "person.text.rectangle")
                 }
             } header: { SectionLabel(text: "Accounts") }
+            .themedRows()
 
             Section {
                 Button(role: .destructive) { showDisconnect = true } label: {
                     Label("Disconnect", systemImage: "phone.down.fill").frame(maxWidth: .infinity)
                 }
             }
+            .themedRows()
         }
         .listStyle(.insetGrouped)
         .themedList()

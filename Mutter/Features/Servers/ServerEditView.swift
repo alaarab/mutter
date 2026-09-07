@@ -45,6 +45,7 @@ struct ServerEditView: View {
                     TextField("Port", text: $port)
                         .keyboardType(.numberPad)
                 } header: { SectionLabel(text: "Server") }
+                .themedRows()
 
                 Section {
                     TextField("Username", text: $username)
@@ -60,6 +61,7 @@ struct ServerEditView: View {
                 } header: { SectionLabel(text: "You") } footer: {
                     Text("A certificate lets servers recognise you across sessions. Manage them in Settings.")
                 }
+                .themedRows()
 
                 Section {
                     TextField("Access tokens, comma separated", text: $tokens)
@@ -68,6 +70,7 @@ struct ServerEditView: View {
                 } header: { SectionLabel(text: "Access") } footer: {
                     Text("Tokens unlock channels that are restricted by the server admin.")
                 }
+                .themedRows()
 
                 Section {
                     Toggle("Favourite", isOn: $isFavorite)
@@ -83,6 +86,7 @@ struct ServerEditView: View {
                         }
                     }
                 }
+                .themedRows()
 
                 if original != nil {
                     Section {
@@ -91,6 +95,7 @@ struct ServerEditView: View {
                             dismiss()
                         } label: { Text("Remove server") }
                     }
+                    .themedRows()
                 }
             }
             .themedList()

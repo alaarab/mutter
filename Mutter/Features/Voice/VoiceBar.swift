@@ -159,7 +159,7 @@ struct WhisperHoldButton: View {
             Image(systemName: "person.wave.2.fill").font(.icon(15, .semibold))
             Text(model.isWhisperHeld ? "Whispering" : "Whisper").font(.ui(14, .semibold, relativeTo: .subheadline))
         }
-        .foregroundStyle(model.isWhisperHeld ? .white : Theme.whisper)
+        .foregroundStyle(model.isWhisperHeld ? Theme.onStatus : Theme.whisper)
         .padding(.horizontal, 14)
         .frame(height: 48)
         .background(model.isWhisperHeld ? Theme.whisper : Theme.whisper.opacity(0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -210,7 +210,7 @@ struct PushToTalkButton: View {
             Text(isOn ? "Talking" : (model.settings.pushToTalkStyle == .toggle ? "Tap to talk" : "Hold to talk"))
                 .font(.ui(14, .semibold, relativeTo: .subheadline))
         }
-        .foregroundStyle(isOn ? .white : Theme.ink)
+        .foregroundStyle(isOn ? Theme.onStatus : Theme.ink)
         .frame(maxWidth: .infinity)
         .frame(height: 48)
         .background(isOn ? Theme.speaking : Theme.surfaceElevated, in: RoundedRectangle(cornerRadius: 14, style: .continuous))

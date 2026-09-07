@@ -123,7 +123,9 @@ right. Under 880px it becomes the phone layout — one pane at a time behind a t
   breaks. Send to the channel, a channel and its subtree, or one person. Inbound HTML goes through a whitelist.
   Images: paste, drop or pick; they're shrunk to the server's limit and sent as the well-formed
   XHTML murmur insists on for long messages. A refused message is marked "Not delivered".
-- Five palettes from the iOS app, the same typefaces, settings and diagnostics log in the sheet.
+- Eleven shared themes, each with light, dark, and system appearance; preview cards and smooth
+  palette transitions. The same catalog supplies iOS, the lock-screen widget, and the desktop picker.
+  Settings and a diagnostics log live in the sheet.
 - **Screen share**, which stock Mumble clients don't have: the share button in the dock opens
   the browser's picker (screen, window or tab, with audio where the browser offers it). People
   in your channel see a card and a green badge on your name; Watch opens the video in a third
@@ -158,6 +160,8 @@ handshake, roster, text, voice relay, plugin data with murmur's limits) and `tes
 drives headless Chromium over the DevTools protocol — both with Node's built-ins only.
 
 ```sh
+node scripts/generate-themes.mjs --check           # shared palette freshness + foreground contrast
+node --test web/test/appearance.test.mjs            # all themes, persistence, reduced motion, responsive layouts, picker
 node web/test/webcodecs.test.mjs                    # does this Chromium do Opus the way we assume?
 node --test web/test/bridge.test.mjs                # bridge access controls, malformed input, certificate trust
 node --test web/test/peer-certificate.test.mjs      # CA/hostname validation and certificate pin precedence

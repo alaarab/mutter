@@ -1,5 +1,3 @@
-const PALETTE = ['#6E8BC7', '#6FB08A', '#C4885E', '#9B87C4', '#5FA6A0', '#C0A96A', '#C08192', '#8FA96B'];
-
 export function $(id) {
   return document.getElementById(id);
 }
@@ -30,7 +28,7 @@ export function colorFor(name) {
   for (const byte of new TextEncoder().encode(name ?? '')) {
     hash = (hash * 33 + byte) >>> 0;
   }
-  return PALETTE[hash % PALETTE.length];
+  return `var(--avatar${hash % 6})`;
 }
 
 export function initials(name) {

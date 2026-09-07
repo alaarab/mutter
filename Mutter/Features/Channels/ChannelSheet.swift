@@ -81,6 +81,7 @@ struct ChannelSheet: View {
                             }
                         }
                     }
+                    .themedRows()
 
                     if perms.contains(.makeChannel) || perms.contains(.makeTempChannel) || perms.contains(.write) {
                         Section {
@@ -101,6 +102,7 @@ struct ChannelSheet: View {
                                 }
                             }
                         } header: { SectionLabel(text: "Manage") }
+                        .themedRows()
                     }
                 }
                 .themedList()

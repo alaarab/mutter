@@ -31,9 +31,9 @@ struct MutterApp: App {
                 .environment(model)
                 .preferredColorScheme(model.settings.appearance.colorScheme)
                 .tint(Theme.accent)
-                .id(model.settings.theme)
                 .onChange(of: model.settings.theme, initial: true) { _, style in
                     Theme.style = style
+                    model.refreshPresence()
                 }
         }
     }

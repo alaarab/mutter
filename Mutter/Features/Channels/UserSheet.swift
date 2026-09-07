@@ -69,6 +69,7 @@ struct UserSheet: View {
                                 dismiss()
                             } label: { Label("Send a message", systemImage: "bubble.left") }
                         } header: { SectionLabel(text: "For you only") }
+                        .themedRows()
                     } else {
                         Section {
                             Button { commentDraft = user.comment ?? ""; showComment = true } label: {
@@ -84,6 +85,7 @@ struct UserSheet: View {
                                 set: { model.client.setRecording($0) }
                             )) { Label("Show as recording", systemImage: "record.circle") }
                         } header: { SectionLabel(text: "You") }
+                        .themedRows()
                     }
 
                     if !isMe && (perms.contains(.move) || perms.contains(.muteDeafen) || perms.contains(.kick) || perms.contains(.ban)) {
@@ -111,6 +113,7 @@ struct UserSheet: View {
                                 Button(role: .destructive) { showBan = true } label: { Label("Ban…", systemImage: "nosign") }
                             }
                         } header: { SectionLabel(text: "Moderation") }
+                        .themedRows()
                     }
 
                     Section {
@@ -120,6 +123,7 @@ struct UserSheet: View {
                             HStack { ProgressView().controlSize(.small); Text("Loading details…").foregroundStyle(Theme.muted) }
                         }
                     } header: { SectionLabel(text: "Details") }
+                    .themedRows()
                 }
                 .themedList()
                 .navigationBarTitleDisplayMode(.inline)

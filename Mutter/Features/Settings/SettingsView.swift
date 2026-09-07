@@ -30,24 +30,24 @@ struct SettingsView: View {
                         } icon: { Image(systemName: "person.badge.key") }
                     }
                 }
+                .themedRows()
 
                 Section {
-                    TextField("Default username", text: $settings.defaultUsername)
+                    TextField("Default username", text: $settings.defaultUsername, prompt: Text("Default username").foregroundStyle(Theme.muted))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                 } header: { SectionLabel(text: "Identity") } footer: {
                     Text("Used for quick connect and new servers.")
                 }
+                .themedRows()
 
                 Section {
-                    Picker("Appearance", selection: $settings.appearance) {
-                        ForEach(Appearance.allCases) { Text($0.title).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
+                    ThemeSegmentedPicker(selection: $settings.appearance, values: Appearance.allCases, title: { $0.title })
                     ThemePickerRow(selection: $settings.theme)
                 } header: { SectionLabel(text: "Appearance") } footer: {
                     Text("Themes recolor the whole app.")
                 }
+                .themedRows()
 
                 Section {
                     Toggle("Notify me about messages", isOn: $settings.notifyOnMessage)
@@ -56,6 +56,7 @@ struct SettingsView: View {
                     Toggle("Haptic when voice activates", isOn: $settings.hapticsOnTransmit)
                     Toggle("Keep screen awake while connected", isOn: $settings.keepScreenAwake)
                 } header: { SectionLabel(text: "Behaviour") }
+                .themedRows()
 
                 Section {
                     Picker("Headset button", selection: $settings.headsetButtonAction) {
@@ -64,6 +65,7 @@ struct SettingsView: View {
                 } header: { SectionLabel(text: "Lock screen & buttons") } footer: {
                     Text("Sets what the AirPods or headset play/pause button does. Siri and the Action button work too.")
                 }
+                .themedRows()
 
                 Section {
                     TextField("TURN server", text: $settings.turnURL, prompt: Text("turn:host:3478"))
@@ -73,6 +75,7 @@ struct SettingsView: View {
                 } header: { SectionLabel(text: "Screen share") } footer: {
                     Text("Only needed if watching a share fails on a strict network.")
                 }
+                .themedRows()
 
                 Section {
                     NavigationLink { DiagnosticsView() } label: {
@@ -81,6 +84,7 @@ struct SettingsView: View {
                 } footer: {
                     Text("A log of connection and audio events, for chasing down disconnects.")
                 }
+                .themedRows()
 
                 Section {
                     LabeledContent("Version", value: Bundle.main.shortVersion ?? "")
@@ -91,6 +95,7 @@ struct SettingsView: View {
                 } header: { SectionLabel(text: "About") } footer: {
                     Text("An independent Mumble client. Voice and chat are encrypted.")
                 }
+                .themedRows()
             }
             .themedList()
             .navigationTitle("Settings")
@@ -98,44 +103,61 @@ struct SettingsView: View {
             .doneToolbar(dismiss)
             .onChange(of: settings.turnPreferences) { _, _ in model.applyShareSettings() }
         }
+        .preferredColorScheme(settings.appearance.colorScheme)
     }
 }
 
 struct ThemePickerRow: View {
     @Binding var selection: ThemeStyle
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Theme")
-            HStack(spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
                 ForEach(ThemeStyle.allCases) { style in
-                    let palette = style.palette
+                    let colors = colorScheme == .dark ? style.palette.dark : style.palette.light
                     Button {
-                        selection = style
-                    } label: {
-                        VStack(spacing: 5) {
-                            ZStack {
-                                Circle().fill(Color(hex: palette.background.dark))
-                                Circle().fill(Color(hex: palette.accent)).padding(9)
-                            }
-                            .frame(width: 40, height: 40)
-                            .overlay(
-                                Circle().strokeBorder(
-                                    selection == style ? Color(hex: palette.accent) : Theme.separator,
-                                    lineWidth: selection == style ? 2.5 : 1
-                                )
-                            )
-                            Text(style.title)
-                                .font(.caption2.weight(selection == style ? .semibold : .regular))
-                                .foregroundStyle(selection == style ? Theme.ink : Theme.muted)
+                        withAnimation(reduceMotion ? nil : ThemeMotion.animation(DesignMotion.theme)) {
+                            selection = style
                         }
+                        Haptics.selection()
+                    } label: {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 1) {
+                                Color(hex: colors.elevated).frame(width: 9)
+                                Color(hex: colors.surface).frame(width: 20)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Capsule().fill(Color(hex: colors.accent)).frame(width: 18, height: 3)
+                                    Capsule().fill(Color(hex: colors.separator)).frame(height: 3)
+                                    Capsule().fill(Color(hex: colors.separator)).frame(width: 25, height: 3)
+                                }
+                                .padding(6)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                                .background(Color(hex: colors.bg))
+                            }
+                            .frame(height: 44)
+                            .clipShape(RoundedRectangle(cornerRadius: 7))
+                            Text(style.title)
+                                .font(.ui(11, .semibold, relativeTo: .caption))
+                                .foregroundStyle(selection == style ? Theme.ink : Theme.body)
+                                .lineLimit(1)
+                                .padding(.horizontal, 3)
+                        }
+                        .padding(5)
+                        .background(Theme.background, in: RoundedRectangle(cornerRadius: Theme.radiusMedium))
+                        .overlay(RoundedRectangle(cornerRadius: Theme.radiusMedium)
+                            .strokeBorder(selection == style ? Theme.accent : Theme.separator, lineWidth: selection == style ? 2 : 1))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(ThemePressStyle())
+                    .accessibilityLabel(style.title)
+                    .accessibilityHint(style.subtitle)
+                    .accessibilityAddTraits(selection == style ? .isSelected : [])
                 }
             }
-            .frame(maxWidth: .infinity)
+            Text(selection.subtitle).font(.footnote).foregroundStyle(Theme.muted)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
     }
 }
 
@@ -157,6 +179,7 @@ struct AudioSettingsView: View {
             } header: { SectionLabel(text: "How you talk") } footer: {
                 Text(transmitFooter)
             }
+            .themedRows()
 
             if settings.transmitMode == .pushToTalk {
                 Section {
@@ -165,6 +188,7 @@ struct AudioSettingsView: View {
                     }
                     .pickerStyle(.segmented)
                 } header: { SectionLabel(text: "Push to talk") }
+                .themedRows()
             }
 
             if settings.transmitMode == .voiceActivity {
@@ -193,6 +217,7 @@ struct AudioSettingsView: View {
                         }
                     }
                 } header: { SectionLabel(text: "Voice activity") }
+                .themedRows()
             }
 
             Section {
@@ -205,6 +230,7 @@ struct AudioSettingsView: View {
             } header: { SectionLabel(text: "Noise & echo") } footer: {
                 Text("Removes background noise and echo before your voice is sent.")
             }
+            .themedRows()
 
             Section {
                 Picker("Quality", selection: $settings.bitrate) {
@@ -216,6 +242,7 @@ struct AudioSettingsView: View {
             } header: { SectionLabel(text: "Quality") } footer: {
                 Text("Higher quality uses more data. 40 kbit/s at 20 ms is a good default.")
             }
+            .themedRows()
 
             Section {
                 Picker("Audio output", selection: $settings.audioRoute) {
@@ -225,6 +252,7 @@ struct AudioSettingsView: View {
             } header: { SectionLabel(text: "Output") } footer: {
                 Text("Phone is the earpiece; Speaker is the loudspeaker. Mixing lets videos and music play without pausing the call.")
             }
+            .themedRows()
         }
         .themedList()
         .navigationTitle("Voice & audio")

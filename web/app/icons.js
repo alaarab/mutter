@@ -2,8 +2,7 @@ function svg(paths) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 }
 
-export const MARK =
-  '<svg viewBox="0 0 512 512" fill="none" stroke="currentColor" stroke-width="54" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="6" aria-hidden="true"><path d="M128 370L128 230C128 140 200 140 256 290C312 140 384 140 384 230L384 370"/></svg>';
+export { MARK } from './brand.js';
 
 export const ICON = {
   video: svg('<rect x="3" y="7" width="13" height="10" rx="2"/><path d="M16 10.5l5-2.5v8l-5-2.5"/>'),

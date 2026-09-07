@@ -27,16 +27,6 @@ func squared(_ svg: String) -> String {
     return out
 }
 
-func darkened(_ svg: String) -> String {
-    var out = substitute(svg, ##"fill="#F97316""##, ##"fill="#1C0A03""##)
-    out = substitute(out, ##"fill="#FFC53D""##, ##"fill="#8A5410""##)
-    out = substitute(out, ##"fill="#FF3F63""##, ##"fill="#5E1526""##)
-    out = substitute(out, ##"fill="#FF8A2B""##, ##"fill="#73320A""##)
-    out = substitute(out, ##"fill="#FFFFFF" opacity=".10""##, ##"fill="#FFFFFF" opacity=".04""##)
-    out = substitute(out, ##"stroke="#2B0A06""##, ##"stroke="#FFB65C""##)
-    return out
-}
-
 func rasterize(_ svg: String, _ label: String) -> CGImage {
     let dir = URL(fileURLWithPath: NSTemporaryDirectory())
     let svgURL = dir.appendingPathComponent("mutter-icon-\(label).svg")
@@ -92,12 +82,11 @@ func desaturated(_ image: CGImage) -> CGImage {
     return ctx.makeImage()!
 }
 
-func write(_ image: CGImage, _ name: String) {
+func write(_ image: CGImage, to path: String) {
     let rep = NSBitmapImageRep(cgImage: image)
     guard let png = rep.representation(using: .png, properties: [:]) else {
-        fail("could not encode \(name).png")
+        fail("could not encode \(path)")
     }
-    let path = "\(outDir)/\(name).png"
     try! png.write(to: URL(fileURLWithPath: path))
     print("wrote \(path) (alpha: \(rep.hasAlpha))")
 }
@@ -107,8 +96,26 @@ guard let source = try? String(contentsOfFile: master, encoding: .utf8) else {
 }
 
 let base = squared(source)
-let dark = rasterize(darkened(base), "dark")
+// The graphite master is designed for both appearances; do not recolor its palette here.
+let icon = flattened(rasterize(base, "ios"))
+write(icon, to: "\(outDir)/AppIcon.png")
+write(icon, to: "\(outDir)/AppIcon-Dark.png")
+write(desaturated(icon), to: "\(outDir)/AppIcon-Tinted.png")
 
-write(flattened(rasterize(base, "light")), "AppIcon")
-write(flattened(dark), "AppIcon-Dark")
-write(desaturated(dark), "AppIcon-Tinted")
+let desktop = rasterize(source, "desktop")
+write(desktop, to: "desktop/build/icon.png")
+let small = CGContext(data: nil, width: 256, height: 256, bitsPerComponent: 8, bytesPerRow: 0,
+                      space: sRGB, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+small.interpolationQuality = .high
+small.draw(desktop, in: CGRect(x: 0, y: 0, width: 256, height: 256))
+write(small.makeImage()!, to: "desktop/build/icon-256.png")
+try source.write(toFile: "web/app/icon.svg", atomically: true, encoding: .utf8)
+
+guard let pathRange = source.range(of: #"<path\s[^>]+/>"#, options: .regularExpression) else {
+    fail("the master needs a path for the in-app mark")
+}
+let markPath = String(source[pathRange]).replacingOccurrences(of: #"stroke="[^"]+""#, with: #"stroke="currentColor""#, options: .regularExpression)
+let mark = #"<svg viewBox="0 0 512 512" aria-hidden="true">"# + markPath + "</svg>"
+let encoded = try JSONSerialization.data(withJSONObject: mark, options: [.fragmentsAllowed, .withoutEscapingSlashes])
+let module = "// Generated from docs/brand/icon.svg by scripts/make-appicon.swift.\nexport const MARK = " + String(decoding: encoded, as: UTF8.self) + ";\n"
+try module.write(toFile: "web/app/brand.js", atomically: true, encoding: .utf8)

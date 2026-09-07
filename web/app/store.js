@@ -1,4 +1,4 @@
-import { DEFAULT_THEME } from './themes.js';
+import { DEFAULT_THEME, appearanceForSettings } from './themes.js';
 
 const SETTINGS_KEY = 'mutter.settings';
 const SERVERS_KEY = 'mutter.servers';
@@ -34,6 +34,7 @@ export const settings = loadObject(SETTINGS_KEY, {
   stun: 'stun:stun.l.google.com:19302',
   turn: { url: '', username: '', credential: '' },
 });
+settings.appearance = appearanceForSettings(loadJson(SETTINGS_KEY, {}));
 
 export function saveSettings() {
   saveJson(SETTINGS_KEY, settings);

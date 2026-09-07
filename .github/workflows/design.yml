@@ -1,0 +1,16 @@
+name: design
+
+on:
+  push:
+    paths: ['design/**', 'scripts/generate-themes.mjs', 'web/app/**', 'Mutter/Shared/ThemeCatalog.swift', 'Mutter/Resources/Assets.xcassets/**', '.github/workflows/design.yml']
+  pull_request:
+    paths: ['design/**', 'scripts/generate-themes.mjs', 'web/app/**', 'Mutter/Shared/ThemeCatalog.swift', 'Mutter/Resources/Assets.xcassets/**', '.github/workflows/design.yml']
+
+jobs:
+  palettes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: node scripts/generate-themes.mjs --check

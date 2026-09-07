@@ -4,6 +4,7 @@ import MumbleClient
 struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         @Bindable var model = model
@@ -16,8 +17,10 @@ struct RootView: View {
                     .transition(.opacity)
             }
         }
-        .animation(.snappy, value: model.session.state.isActive)
-        .animation(.snappy, value: model.isSessionMinimized)
+        .animation(reduceMotion ? nil : ThemeMotion.animation(DesignMotion.panel), value: model.session.state.isActive)
+        .animation(reduceMotion ? nil : ThemeMotion.animation(DesignMotion.panel), value: model.isSessionMinimized)
+        .animation(reduceMotion ? nil : ThemeMotion.animation(DesignMotion.theme), value: model.settings.theme)
+        .transaction { if reduceMotion { $0.disablesAnimations = true } }
         .background(Theme.background.ignoresSafeArea())
         .sheet(item: $model.trustPrompt) { prompt in
             CertificateTrustSheet(prompt: prompt)

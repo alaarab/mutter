@@ -53,6 +53,7 @@ struct VoiceTargetsSheet: View {
                         if selected == 0 { draft.channelID = nil } else { draft.sessions = [] }
                     }
                 }
+                .themedRows()
 
                 if mode == 0 {
                     Section {
@@ -74,6 +75,7 @@ struct VoiceTargetsSheet: View {
                             }
                         }
                     } header: { SectionLabel(text: "Whisper to") }
+                    .themedRows()
                 } else {
                     Section {
                         let channels = session.channels.values.sorted { left, right in
@@ -93,10 +95,12 @@ struct VoiceTargetsSheet: View {
                             }
                         }
                     } header: { SectionLabel(text: "Shout to") }
+                    .themedRows()
                     Section {
                         Toggle("Include sub-channels", isOn: $draft.includeChildren)
                         Toggle("Include linked channels", isOn: $draft.includeLinks)
                     }
+                    .themedRows()
                 }
 
                 if model.whisperTarget != nil {
@@ -106,6 +110,7 @@ struct VoiceTargetsSheet: View {
                             dismiss()
                         } label: { Label("Clear whisper target", systemImage: "xmark.circle") }
                     }
+                    .themedRows()
                 }
             }
             .themedList()
