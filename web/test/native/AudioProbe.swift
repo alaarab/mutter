@@ -1,8 +1,8 @@
 import Foundation
 import MumbleProtocol
 
-// A decoder double exposes the exact amount of concealment requested by the
-// production UserStream, without needing the iOS libopus binary on macOS.
+
+
 final class OpusDecoderWrapper {
     static var packetSamples = 960
     static var concealed: [Int] = []
@@ -33,7 +33,7 @@ final class OpusDecoderWrapper {
                 }
                 precondition(played == (lost + 2) * milliseconds * 48, "Concealment changed the playback duration")
                 packet.frameNumber = UInt64.max
-                stream.push(packet) // A huge sequence gap must not overflow or allocate unbounded PLC.
+                stream.push(packet)
             }
         }
         OpusDecoderWrapper.packetSamples = 960
@@ -42,7 +42,7 @@ final class OpusDecoderWrapper {
         var packet = AudioPacket()
         packet.opusData = Data([1])
         stream.push(packet)
-        packet.frameNumber = 3 // A 10 ms gap after a 20 ms packet.
+        packet.frameNumber = 3
         stream.push(packet)
         precondition(OpusDecoderWrapper.concealed == [480])
         print("PASS: loss concealment preserves duration for 10, 20, 40, and 60 ms packets")

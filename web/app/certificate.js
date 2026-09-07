@@ -12,7 +12,7 @@ export function confirmCertificate(info, signal) {
   dialog.returnValue = 'cancel';
   return new Promise((resolve) => {
     const finish = () => {
-      // A queued close event from the preceding prompt must not dismiss a new one.
+
       if (dialog.open) return;
       signal.removeEventListener('abort', abort);
       dialog.removeEventListener('close', finish);

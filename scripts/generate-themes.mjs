@@ -14,7 +14,7 @@ const luminance = (color) => rgb(color).map((value) => {
 }).reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
 const contrast = (a, b) => (Math.max(luminance(a), luminance(b)) + 0.05) / (Math.min(luminance(a), luminance(b)) + 0.05);
 
-// Preserve the palette's hue while making small text readable on every surface.
+
 function readable(color, surfaces, target, light) {
   for (let step = 0; step <= 100; step++) {
     const candidate = mix(light ? '#000000' : '#FFFFFF', color, step / 100);
@@ -58,15 +58,13 @@ const themes = Object.fromEntries(Object.entries(source.themes).map(([name, them
   return [name, { title: theme.title, description: theme.description, ...variants }];
 }));
 
-const notice = 'Generated from design/themes.json by scripts/generate-themes.mjs. Do not edit.';
 const cssName = (key) => key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
 const defaults = themes[source.defaultTheme].dark;
 const colorKeys = Object.keys(defaults);
 const tokens = (colors) => Object.entries(colors).map(([key, value]) => `  --${cssName(key)}: ${value};`).join('\n');
 const motionCSS = Object.entries(source.motion).filter(([key]) => key !== 'ease').map(([key, value]) => `  --duration-${key}: ${value}ms;`).join('\n');
 const radiusCSS = Object.entries(source.radii).map(([key, value]) => `  --radius-${key}: ${value}px;`).join('\n');
-const css = `/* ${notice} */
-${colorKeys.map((key) => `@property --${cssName(key)} { syntax: '<color>'; inherits: true; initial-value: ${defaults[key]}; }`).join('\n')}
+const css = `${colorKeys.map((key) => `@property --${cssName(key)} { syntax: '<color>'; inherits: true; initial-value: ${defaults[key]}; }`).join('\n')}
 
 :root {
 ${tokens(defaults)}
@@ -107,8 +105,7 @@ ${radiusCSS}
 
 const uint = (value) => `0x${value.slice(1)}`;
 const swiftColors = (colors) => `ThemeColors(\n${Object.entries(colors).map(([key, value]) => `                ${key}: ${uint(value)}`).join(',\n')}\n            )`;
-const swift = `// ${notice}
-import Foundation
+const swift = `import Foundation
 
 struct ThemeColors {
 ${colorKeys.map((key) => `    var ${key}: UInt32`).join('\n')}
@@ -154,9 +151,11 @@ ${Object.entries(source.radii).map(([key, value]) => `    static let ${key}: Dou
 `;
 
 const outputs = {
-  'web/app/theme-data.js': `// ${notice}\nexport const DEFAULT_THEME = ${JSON.stringify(source.defaultTheme)};\nexport const THEMES = ${JSON.stringify(themes, null, 2)};\n`,
+  'web/app/theme-data.js': `export const DEFAULT_THEME = ${JSON.stringify(source.defaultTheme)};\nexport const THEMES = ${JSON.stringify(themes, null, 2)};\n`,
   'web/app/tokens.css': css,
   'Mutter/Shared/ThemeCatalog.swift': swift,
+  'android/app/src/main/assets/themes.json': JSON.stringify({ defaultTheme: source.defaultTheme, motion: source.motion, radii: source.radii, themes }, null, 2) + '\n',
+  'android/app/src/main/res/values/colors.xml': `<resources>\n    <color name="launch_background">${defaults.bg}</color>\n    <color name="launch_accent">${defaults.accent}</color>\n</resources>\n`,
 };
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'web/app/manifest.webmanifest'), 'utf8'));
 outputs['web/app/manifest.webmanifest'] = JSON.stringify({ ...manifest, background_color: defaults.bg, theme_color: defaults.bg }, null, 2) + '\n';
@@ -178,6 +177,7 @@ for (const [relative, contents] of Object.entries(outputs)) {
   if (checking) {
     if (!fs.existsSync(file) || fs.readFileSync(file, 'utf8') !== contents) throw new Error(`${relative} is stale. Run node scripts/generate-themes.mjs`);
   } else {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, contents);
   }
 }

@@ -124,7 +124,7 @@ right. Under 880px it becomes the phone layout — one pane at a time behind a t
   Images: paste, drop or pick; they're shrunk to the server's limit and sent as the well-formed
   XHTML murmur insists on for long messages. A refused message is marked "Not delivered".
 - Eleven shared themes, each with light, dark, and system appearance; preview cards and smooth
-  palette transitions. The same catalog supplies iOS, the lock-screen widget, and the desktop picker.
+  palette transitions. The same catalog supplies iOS, Android, the lock-screen widget, and the desktop picker.
   Settings and a diagnostics log live in the sheet.
 - **Screen share**, which stock Mumble clients don't have: the share button in the dock opens
   the browser's picker (screen, window or tab, with audio where the browser offers it). People
@@ -138,7 +138,7 @@ right. Under 880px it becomes the phone layout — one pane at a time behind a t
 
 | Path | What it is |
 |---|---|
-| `src/protobuf.js` | Minimal protobuf reader/writer, the same subset the iOS app hand-rolls |
+| `src/protobuf.js` | Minimal protobuf reader/writer for the shared Mumble wire format |
 | `src/mumble.js` | Framing, message types, encode/decode. Shared by browser, bridge and tests |
 | `src/voice.js` | Voice packet codec, both UDP wire formats (chosen by the server's version) |
 | `src/rtcsignal.js` | Screen-share signaling: fragmenting/compressing JSON into ≤1000-byte plugin messages |
@@ -151,7 +151,8 @@ right. Under 880px it becomes the phone layout — one pane at a time behind a t
 | `probe.mjs` | CLI handshake test — connects and dumps the roster, no browser involved |
 | `test/` | Fake Mumble server, headless-Chromium driver, end-to-end and codec tests |
 
-Field numbers mirror `Packages/MumbleCore/Sources/MumbleProtocol` so both clients stay in step.
+Field numbers match the Swift and Kotlin protocol implementations. Cross-platform tests exercise
+voice formats and screen signaling against the shared test server.
 
 ## Testing
 
@@ -184,3 +185,6 @@ node web/probe.mjs <host> [port] [username]         # handshake against any serv
 ```
 
 `SHOTS=dir` saves screenshots from the end-to-end run; `VERBOSE=1` shows page console output.
+
+Run timing-sensitive audio quality checks without concurrent emulator builds or other audio
+benchmarks. Host scheduling delays can change the adaptive jitter buffer even on loopback.

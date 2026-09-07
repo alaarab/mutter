@@ -1,8 +1,9 @@
 # Mutter design system
 
 Mutter uses softly shaded surfaces, restrained ambient color, Bricolage Display headings, and
-Plus Jakarta Sans body text. Color and motion have one maintained source across iOS, web,
-Electron, the screen picker, and Live Activities.
+Plus Jakarta Sans body text. Color and motion have one maintained source across browser, iOS,
+Android, Electron, the screen picker, and Live Activities. Font files and their licenses live in
+`design/fonts`; every platform reads that directory.
 
 ## Shared catalog
 
@@ -14,7 +15,8 @@ node scripts/generate-themes.mjs --check
 ```
 
 The generator writes `web/app/theme-data.js`, `web/app/tokens.css`,
-`Mutter/Shared/ThemeCatalog.swift`, the PWA launch colors, and the native accent/launch colors.
+`Mutter/Shared/ThemeCatalog.swift`, `android/app/src/main/assets/themes.json`, the PWA launch
+colors, and the iOS/Android accent and launch colors.
 Generated files are checked in, so building or running the app needs no extra generation step. CI rejects stale
 outputs. Do not add a second palette in a component, window, or widget.
 
@@ -34,7 +36,7 @@ outputs. Do not add a second palette in a component, window, or widget.
 
 Every theme has light and dark variants. New installs use Carbon and the system appearance.
 Existing saved theme names are preserved. Web settings written before the appearance selector
-retain their former appearance (Paper light, the other themes dark). The native app retains
+retain their former appearance (Paper light, the other themes dark). The iOS app retains
 its existing appearance preference. Live Activities use the selected theme's dark variant to
 fit the lock screen and Dynamic Island; their theme travels with the activity state.
 
@@ -77,7 +79,8 @@ swift scripts/make-appicon.swift
 
 The graphite artwork is shared by the regular and dark iOS icons. Desktop assets retain
 rounded corners, iOS gets square opaque assets, and the browser gets the SVG. The script also
-extracts the monochrome mark used inside the interface.
+extracts the monochrome mark used inside the interface. Android's Gradle build generates vector,
+adaptive, and monochrome launcher resources directly from the same master SVG.
 
 ## Verification
 
@@ -91,11 +94,13 @@ The appearance check renders all 22 variants, checks theme selection and saved s
 keeps a live session and composer in place, tests rapid sheet reopening, checks narrow layouts
 and system/reduced-motion preferences, and renders the real desktop picker with a stubbed
 preload bridge. The Electron test verifies the real shell across two launches. Build the
-`Mutter` scheme in Xcode to verify the native app and widget together. `MutterUITests` cycles
+`Mutter` scheme in Xcode to verify the iOS app and widget together. `MutterUITests` cycles
 through every theme in both appearances, checks that Settings stays open, and samples the
 rendered preview to catch a sheet retaining the wrong appearance. Its screenshots are kept in
 the Xcode test results. Native list sections use `.themedRows()` and their containers use
-`.themedList()` so they share the same surface treatment.
+`.themedList()` so they share the same surface treatment. Android's Compose integration tests
+cycle through every theme in both appearances and recreate the activity to check persistence.
+See [Android validation](../android/VALIDATION.md).
 
 `docs/mockups` contains historical explorations. Screenshots from the running app are the
 current visual reference.

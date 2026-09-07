@@ -54,8 +54,8 @@
         ]
       },
       {
-        "from": "../Mutter/Resources/Fonts",
-        "to": "Mutter/Resources/Fonts"
+        "from": "../design/fonts",
+        "to": "design/fonts"
       }
     ],
     "asar": true,

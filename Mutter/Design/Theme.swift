@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 import Observation
 
-// Palette data is generated into Shared/ThemeCatalog.swift for the app and widgets.
+
 @Observable
 private final class ThemeSelection {
     var style: ThemeStyle = .defaultStyle

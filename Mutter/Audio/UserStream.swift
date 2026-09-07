@@ -44,7 +44,7 @@ final class UserStream {
         let missingUnits = packet.frameNumber > expected && expected != 0 ? packet.frameNumber - expected : 0
         if let samplesPerPacket = lastPacketSamples,
            missingUnits > 0, missingUnits <= UInt64(samplesPerPacket / 480 * 3) {
-            // Sequence numbers count 10 ms units, regardless of the Opus packet duration.
+
             var missingSamples = Int(missingUnits) * 480
             while missingSamples > 0 {
                 let count = min(missingSamples, samplesPerPacket)

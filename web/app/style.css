@@ -2403,7 +2403,7 @@ body[data-members="off"] #members {
   border-radius: 5px;
 }
 
-/* Preview cards share the selected appearance, including the light variants. */
+
 .theme-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

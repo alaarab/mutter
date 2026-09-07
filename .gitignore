@@ -10,6 +10,5 @@ Mutter/Resources/Info.plist
 Mutter/Resources/Mutter.entitlements
 MutterWidgets/Info.plist
 
-# Personal signing config — never commit a Team ID
 Local.xcconfig
 Local.deploy.json

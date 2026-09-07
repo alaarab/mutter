@@ -5,7 +5,7 @@ export function isVisible(element) {
   return !element.hidden && element.dataset.closing !== 'true';
 }
 
-// One cancellable lifecycle for floating surfaces; reopening cannot be hidden by an old exit.
+
 export function setVisible(element, visible, kind = 'popover') {
   const previous = animations.get(element);
   previous?.cancel();
@@ -31,5 +31,5 @@ export function setVisible(element, visible, kind = 'popover') {
     if (animations.get(element) !== animation) return;
     animations.delete(element);
     finish();
-  }).catch(() => {}); // Cancellation is expected when a surface is reopened quickly.
+  }).catch(() => {});
 }

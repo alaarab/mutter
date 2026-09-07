@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Build, sign, install and launch Mutter using this Mac's saved deployment setup."""
 
 import argparse
 import json
@@ -38,7 +37,7 @@ def build(config, derived_data):
             password = password_path.read_text().strip()
             if not password:
                 raise ValueError("The signing keychain password file is empty.")
-            # Never print the unlock command or put its password in exception output.
+
             unlocked = subprocess.run(
                 ["security", "unlock-keychain", "-p", password, keychain],
                 capture_output=True,
@@ -49,7 +48,7 @@ def build(config, derived_data):
             previous_keychains = shlex.split(run(
                 "security", "list-keychains", "-d", "user", capture_output=True, text=True,
             ).stdout)
-            # codesign can otherwise select a duplicate private key in the locked login keychain.
+
             run("security", "list-keychains", "-d", "user", "-s", keychain,
                 *[item for item in previous_keychains if item != keychain])
             command.append(f"OTHER_CODE_SIGN_FLAGS=--keychain {shlex.quote(keychain)}")
@@ -66,7 +65,7 @@ def build(config, derived_data):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description="Build, sign, install and launch Mutter on an iOS device.")
     parser.add_argument("--device", help="Override the device saved in Local.deploy.json")
     args = parser.parse_args()
     config_path = ROOT / "Local.deploy.json"

@@ -8,7 +8,7 @@ let currentAppearance = 'system';
 
 export function appearanceForSettings(settings) {
   if (['system', 'light', 'dark'].includes(settings.appearance)) return settings.appearance;
-  // Keep the appearance of themes saved before the light/dark selector existed.
+
   return settings.theme ? (settings.theme === 'paper' ? 'light' : 'dark') : 'system';
 }
 
@@ -38,7 +38,7 @@ systemAppearance.addEventListener('change', () => {
   if (currentAppearance === 'system') applyTheme(currentTheme);
 });
 
-// Resolve the saved palette before the app mounts, avoiding a dark flash on light themes.
+
 let saved = {};
 try { saved = JSON.parse(localStorage.getItem('mutter.settings') ?? '{}') ?? {}; } catch {}
 applyTheme(saved.theme, appearanceForSettings(saved));
