@@ -155,7 +155,7 @@ struct ChatView: View {
                 Button(action: send) {
                     Image(systemName: "arrow.up")
                         .font(.icon(15, .bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Theme.onAccent)
                         .frame(width: 34, height: 34)
                         .background(canSend ? Theme.accent : Theme.muted, in: Circle())
                 }
@@ -234,10 +234,10 @@ struct PhotoConfirmSheet: View {
                 } label: {
                     Label("Send to \(destination)", systemImage: "arrow.up.circle.fill")
                         .font(.body.weight(.semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Theme.onAccent)
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
-                        .background(Theme.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .background(Theme.accentGradient, in: RoundedRectangle(cornerRadius: Theme.radiusMedium, style: .continuous))
                 }
                 Button("Cancel") { dismiss() }
                     .font(.body.weight(.medium))

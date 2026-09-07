@@ -31,7 +31,6 @@
     },
     "files": [
       "main.js",
-      "picker.html",
       "picker-preload.cjs",
       "package.json",
       "node_modules/uiohook-napi/**"
@@ -40,6 +39,10 @@
       "node_modules/uiohook-napi/**"
     ],
     "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      },
       {
         "from": "../web",
         "to": "web",

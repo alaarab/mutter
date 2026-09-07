@@ -1,0 +1,108 @@
+/* Generated from design/themes.json by scripts/generate-themes.mjs. Do not edit. */
+@property --accent { syntax: '<color>'; inherits: true; initial-value: #E2E2E6; }
+@property --secondary { syntax: '<color>'; inherits: true; initial-value: #ABADB7; }
+@property --bg { syntax: '<color>'; inherits: true; initial-value: #0E0E11; }
+@property --surface { syntax: '<color>'; inherits: true; initial-value: #17171B; }
+@property --elevated { syntax: '<color>'; inherits: true; initial-value: #222227; }
+@property --sunken { syntax: '<color>'; inherits: true; initial-value: #09090C; }
+@property --separator { syntax: '<color>'; inherits: true; initial-value: #303037; }
+@property --ink { syntax: '<color>'; inherits: true; initial-value: #F3F3F5; }
+@property --body { syntax: '<color>'; inherits: true; initial-value: #C1C1C9; }
+@property --muted { syntax: '<color>'; inherits: true; initial-value: #9999A5; }
+@property --speaking { syntax: '<color>'; inherits: true; initial-value: #6CDCA0; }
+@property --danger { syntax: '<color>'; inherits: true; initial-value: #FF8989; }
+@property --warn { syntax: '<color>'; inherits: true; initial-value: #EBC477; }
+@property --whisper { syntax: '<color>'; inherits: true; initial-value: #B8A5F4; }
+@property --on-status { syntax: '<color>'; inherits: true; initial-value: #111318; }
+@property --accent-active { syntax: '<color>'; inherits: true; initial-value: #E5E5E8; }
+@property --on-accent { syntax: '<color>'; inherits: true; initial-value: #111318; }
+@property --online { syntax: '<color>'; inherits: true; initial-value: #6CDCA0; }
+@property --away { syntax: '<color>'; inherits: true; initial-value: #EBC477; }
+@property --busy { syntax: '<color>'; inherits: true; initial-value: #FF8989; }
+@property --streaming { syntax: '<color>'; inherits: true; initial-value: #B8A5F4; }
+@property --invisible { syntax: '<color>'; inherits: true; initial-value: #9999A5; }
+@property --on-avatar { syntax: '<color>'; inherits: true; initial-value: #F3F3F5; }
+@property --surface-highlight { syntax: '<color>'; inherits: true; initial-value: #202024; }
+@property --shadow { syntax: '<color>'; inherits: true; initial-value: #000000; }
+@property --media { syntax: '<color>'; inherits: true; initial-value: #000000; }
+@property --on-media { syntax: '<color>'; inherits: true; initial-value: #FFFFFF; }
+@property --avatar0 { syntax: '<color>'; inherits: true; initial-value: #3B3B40; }
+@property --avatar1 { syntax: '<color>'; inherits: true; initial-value: #3D3E43; }
+@property --avatar2 { syntax: '<color>'; inherits: true; initial-value: #404045; }
+@property --avatar3 { syntax: '<color>'; inherits: true; initial-value: #424347; }
+@property --avatar4 { syntax: '<color>'; inherits: true; initial-value: #45454A; }
+@property --avatar5 { syntax: '<color>'; inherits: true; initial-value: #48484C; }
+
+:root {
+  --accent: #E2E2E6;
+  --secondary: #ABADB7;
+  --bg: #0E0E11;
+  --surface: #17171B;
+  --elevated: #222227;
+  --sunken: #09090C;
+  --separator: #303037;
+  --ink: #F3F3F5;
+  --body: #C1C1C9;
+  --muted: #9999A5;
+  --speaking: #6CDCA0;
+  --danger: #FF8989;
+  --warn: #EBC477;
+  --whisper: #B8A5F4;
+  --on-status: #111318;
+  --accent-active: #E5E5E8;
+  --on-accent: #111318;
+  --online: #6CDCA0;
+  --away: #EBC477;
+  --busy: #FF8989;
+  --streaming: #B8A5F4;
+  --invisible: #9999A5;
+  --on-avatar: #F3F3F5;
+  --surface-highlight: #202024;
+  --shadow: #000000;
+  --media: #000000;
+  --on-media: #FFFFFF;
+  --avatar0: #3B3B40;
+  --avatar1: #3D3E43;
+  --avatar2: #404045;
+  --avatar3: #424347;
+  --avatar4: #45454A;
+  --avatar5: #48484C;
+  --duration-fast: 120ms;
+  --duration-standard: 180ms;
+  --duration-panel: 240ms;
+  --duration-theme: 260ms;
+  --radius-small: 8px;
+  --radius-medium: 12px;
+  --radius-large: 16px;
+  --radius-tile: 20px;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --t: var(--duration-fast) var(--ease);
+  --t-move: var(--duration-standard) var(--ease);
+  --shadow-strength: 28%;
+  --ambient-strength: 10%;
+  --edge: color-mix(in srgb, var(--ink) 8%, transparent);
+  --hover: color-mix(in srgb, var(--ink) 6%, transparent);
+  --active: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  --sheen: linear-gradient(155deg, color-mix(in srgb, var(--ink) 4%, transparent), transparent 65%);
+  --ambient: radial-gradient(ellipse at 5% 0%, color-mix(in srgb, var(--accent) var(--ambient-strength), transparent), transparent 65%), radial-gradient(ellipse at 100% 100%, color-mix(in srgb, var(--secondary) var(--ambient-strength), transparent), transparent 65%);
+  --control-fill: linear-gradient(155deg, var(--accent), var(--accent-active));
+  --shadow-small: 0 4px 14px color-mix(in srgb, var(--shadow) var(--shadow-strength), transparent);
+  --shadow-floating: 0 14px 40px color-mix(in srgb, var(--shadow) var(--shadow-strength), transparent);
+  --media-overlay: color-mix(in srgb, var(--media) 65%, transparent);
+  --backdrop: color-mix(in srgb, var(--bg) 78%, transparent);
+}
+
+:root[data-light='on'] {
+  --shadow-strength: 12%;
+  --ambient-strength: 6%;
+}
+
+:root.theme-ready {
+  transition-property: --accent, --secondary, --bg, --surface, --elevated, --sunken, --separator, --ink, --body, --muted, --speaking, --danger, --warn, --whisper, --on-status, --accent-active, --on-accent, --online, --away, --busy, --streaming, --invisible, --on-avatar, --surface-highlight, --shadow, --media, --on-media, --avatar0, --avatar1, --avatar2, --avatar3, --avatar4, --avatar5;
+  transition-duration: var(--duration-theme);
+  transition-timing-function: var(--ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --duration-fast: 0ms; --duration-standard: 0ms; --duration-panel: 0ms; --duration-theme: 0ms; }
+}

@@ -51,7 +51,7 @@ struct SessionView: View {
             dock
         }
         .background(Theme.background.ignoresSafeArea())
-        .animation(.snappy, value: model.toast)
+        .animation(ThemeMotion.animation(DesignMotion.panel), value: model.toast)
         .sheet(item: $userSheet) { id in UserSheet(sessionID: id.id) }
         .sheet(item: $channelSheet) { id in ChannelSheet(channelID: id.id) }
         .fullScreenCover(isPresented: Binding(
@@ -171,7 +171,7 @@ struct SessionView: View {
                                 if item == .chat && session.unreadCount > 0 {
                                     Text(session.unreadCount > 99 ? "99+" : "\(session.unreadCount)")
                                         .font(.ui(10, .bold))
-                                        .foregroundStyle(.white)
+                                        .foregroundStyle(Theme.onAccent)
                                         .padding(.horizontal, 5)
                                         .padding(.vertical, 1)
                                         .background(Theme.accent, in: Capsule())
@@ -190,7 +190,7 @@ struct SessionView: View {
             }
             .padding(.bottom, 2)
         }
-        .background(Theme.surface)
+        .background(Theme.surfaceGradient)
     }
 }
 

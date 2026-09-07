@@ -133,7 +133,7 @@ struct ChannelRow: View {
     var body: some View {
         HStack(spacing: 8) {
             Button {
-                withAnimation(.snappy(duration: 0.2)) { model.toggleCollapsed(channel.id) }
+                withAnimation(ThemeMotion.animation()) { model.toggleCollapsed(channel.id) }
             } label: {
                 Image(systemName: "chevron.right")
                     .font(.icon(11, .bold))

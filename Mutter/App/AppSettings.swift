@@ -8,8 +8,8 @@ enum Appearance: String, CaseIterable, Identifiable, Codable {
     var title: String {
         switch self {
         case .system: return "Match system"
-        case .light: return "Paper"
-        case .dark: return "Ink"
+        case .light: return "Light"
+        case .dark: return "Dark"
         }
     }
     var colorScheme: ColorScheme? {
@@ -82,7 +82,12 @@ final class AppSettings {
     var turnUsername: String { didSet { defaults.set(turnUsername, forKey: "turnUsername") } }
     var turnPassword: String { didSet { defaults.set(turnPassword, forKey: "turnPassword") } }
     var appearance: Appearance { didSet { defaults.set(appearance.rawValue, forKey: "appearance") } }
-    var theme: ThemeStyle { didSet { defaults.set(theme.rawValue, forKey: "theme") } }
+    var theme: ThemeStyle {
+        didSet {
+            Theme.style = theme
+            defaults.set(theme.rawValue, forKey: "theme")
+        }
+    }
     var defaultUsername: String { didSet { defaults.set(defaultUsername, forKey: "defaultUsername") } }
     var notifyOnMessage: Bool { didSet { defaults.set(notifyOnMessage, forKey: "notifyOnMessage") } }
     var showPresenceNotices: Bool { didSet { defaults.set(showPresenceNotices, forKey: "showPresenceNotices") } }
@@ -110,7 +115,7 @@ final class AppSettings {
         turnUsername = defaults.string(forKey: "turnUsername") ?? ""
         turnPassword = defaults.string(forKey: "turnPassword") ?? ""
         appearance = defaults.rawValue("appearance", default: .system)
-        theme = defaults.rawValue("theme", default: .midnight)
+        theme = defaults.rawValue("theme", default: .defaultStyle)
         defaultUsername = defaults.string(forKey: "defaultUsername") ?? ""
         notifyOnMessage = defaults.value("notifyOnMessage", default: true)
         showPresenceNotices = defaults.value("showPresenceNotices", default: true)

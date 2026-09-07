@@ -265,7 +265,8 @@ final class AppModel {
             isTransmitting: audio.isTransmitting,
             onlineCount: session.users.count,
             isPushToTalk: settings.transmitMode == .pushToTalk,
-            isWhispering: isWhisperingNow
+            isWhispering: isWhisperingNow,
+            theme: settings.theme.rawValue
         )
     }
 

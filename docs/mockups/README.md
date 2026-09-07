@@ -1,7 +1,8 @@
 # Screen mockups
 
-HTML renderings of the app's screens using the same layout and tokens as the SwiftUI code
-(`Mutter/Design/Theme.swift`). They are design references, not device captures.
+Historical HTML explorations from the initial design. These are not current app captures.
+The maintained palettes live in `design/themes.json`; run the browser appearance checks with
+`SHOTS=/tmp/mutter-appearance` for screenshots of the actual app in every theme.
 
 Regenerate the PNGs with Playwright:
 

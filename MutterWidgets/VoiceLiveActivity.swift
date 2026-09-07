@@ -7,8 +7,8 @@ struct VoiceLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: VoiceActivityAttributes.self) { context in
             LockScreenView(context: context)
-                .activityBackgroundTint(Color(hex: 0x181715))
-                .activitySystemActionForegroundColor(Color(hex: 0xFAF9F5))
+                .activityBackgroundTint(context.state.color(\.surface))
+                .activitySystemActionForegroundColor(context.state.color(\.ink))
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
@@ -18,7 +18,7 @@ struct VoiceLiveActivity: Widget {
                             .lineLimit(1)
                         Text("# \(context.state.channelName)")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(context.state.color(\.muted))
                             .lineLimit(1)
                     }
                     .padding(.leading, 4)
@@ -35,19 +35,19 @@ struct VoiceLiveActivity: Widget {
                 }
             } compactLeading: {
                 Image(systemName: context.state.speakers.isEmpty ? "waveform" : "waveform.circle.fill")
-                    .foregroundStyle(context.state.speakers.isEmpty ? Color(hex: 0x9A968D) : Color(hex: 0x5DB872))
+                    .foregroundStyle(context.state.speakers.isEmpty ? context.state.color(\.muted) : context.state.color(\.speaking))
                     .symbolEffect(.variableColor.iterative, isActive: !context.state.speakers.isEmpty)
             } compactTrailing: {
                 if context.state.isMuted {
-                    Image(systemName: "mic.slash.fill").foregroundStyle(Color(hex: 0xC64545))
+                    Image(systemName: "mic.slash.fill").foregroundStyle(context.state.color(\.danger))
                 } else if let first = context.state.speakers.first {
-                    Text(first).font(.caption2.weight(.semibold)).lineLimit(1).foregroundStyle(Color(hex: 0x5DB872))
+                    Text(first).font(.caption2.weight(.semibold)).lineLimit(1).foregroundStyle(context.state.color(\.speaking))
                 } else {
-                    Text("\(context.state.onlineCount)").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                    Text("\(context.state.onlineCount)").font(.caption2.weight(.semibold)).foregroundStyle(context.state.color(\.muted))
                 }
             } minimal: {
                 Image(systemName: context.state.isMuted ? "mic.slash.fill" : "waveform")
-                    .foregroundStyle(context.state.isMuted ? Color(hex: 0xC64545) : Color(hex: 0x5DB872))
+                    .foregroundStyle(context.state.isMuted ? context.state.color(\.danger) : context.state.color(\.speaking))
             }
         }
     }
@@ -59,10 +59,10 @@ private struct LockScreenView: View {
     var body: some View {
         HStack(spacing: 12) {
             ZStack {
-                Circle().fill(Color(hex: 0xCC785C).opacity(0.18))
+                Circle().fill(context.state.color(\.accent).opacity(0.18))
                 Image(systemName: context.state.speakers.isEmpty ? "waveform" : "waveform.circle.fill")
                     .font(.icon(20, .semibold))
-                    .foregroundStyle(context.state.speakers.isEmpty ? Color(hex: 0xCC785C) : Color(hex: 0x5DB872))
+                    .foregroundStyle(context.state.speakers.isEmpty ? context.state.color(\.accent) : context.state.color(\.speaking))
                     .symbolEffect(.variableColor.iterative, isActive: !context.state.speakers.isEmpty)
             }
             .frame(width: 44, height: 44)
@@ -70,11 +70,11 @@ private struct LockScreenView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(context.attributes.serverName)
                     .font(.custom(BrandFont.display, size: 16).weight(.bold))
-                    .foregroundStyle(Color(hex: 0xFAF9F5))
+                    .foregroundStyle(context.state.color(\.ink))
                     .lineLimit(1)
                 Text("# \(context.state.channelName) · \(context.state.onlineCount) online")
                     .font(.caption)
-                    .foregroundStyle(Color(hex: 0x9A968D))
+                    .foregroundStyle(context.state.color(\.muted))
                     .lineLimit(1)
                 SpeakersLine(state: context.state)
             }
@@ -92,14 +92,14 @@ private struct SpeakersLine: View {
     var body: some View {
         HStack(spacing: 6) {
             if state.isDeafened {
-                Label("Deafened", systemImage: "speaker.slash.fill").foregroundStyle(Color(hex: 0xC64545))
+                Label("Deafened", systemImage: "speaker.slash.fill").foregroundStyle(state.color(\.danger))
             } else if state.isTransmitting {
-                Label(state.isWhispering ? "You're whispering" : "You're talking", systemImage: "mic.fill").foregroundStyle(Color(hex: 0x5DB872))
+                Label(state.isWhispering ? "You're whispering" : "You're talking", systemImage: "mic.fill").foregroundStyle(state.color(state.isWhispering ? \.whisper : \.speaking))
             } else if state.speakers.isEmpty {
-                Text(state.isMuted ? "You're muted" : "Quiet right now").foregroundStyle(Color(hex: 0x9A968D))
+                Text(state.isMuted ? "You're muted" : "Quiet right now").foregroundStyle(state.color(\.muted))
             } else {
-                Image(systemName: "person.wave.2.fill").foregroundStyle(Color(hex: 0x5DB872))
-                Text(state.speakers.joined(separator: ", ")).foregroundStyle(Color(hex: 0x5DB872)).lineLimit(1)
+                Image(systemName: "person.wave.2.fill").foregroundStyle(state.color(\.speaking))
+                Text(state.speakers.joined(separator: ", ")).foregroundStyle(state.color(\.speaking)).lineLimit(1)
             }
         }
         .font(.caption.weight(.medium))
@@ -114,8 +114,8 @@ private struct MuteButton: View {
             Image(systemName: state.isMuted ? "mic.slash.fill" : "mic.fill")
                 .font(.icon(16, .semibold))
                 .frame(width: 40, height: 40)
-                .foregroundStyle(state.isMuted ? Color.white : Color(hex: 0xFAF9F5))
-                .background(state.isMuted ? Color(hex: 0xC64545) : Color(hex: 0x2E2B27), in: Circle())
+                .foregroundStyle(state.isMuted ? state.color(\.onStatus) : state.color(\.ink))
+                .background(state.isMuted ? state.color(\.danger) : state.color(\.elevated), in: Circle())
         }
         .buttonStyle(.plain)
     }
@@ -129,9 +129,16 @@ private struct TalkButton: View {
             Image(systemName: state.isPushToTalk ? "hand.tap.fill" : "waveform")
                 .font(.icon(16, .semibold))
                 .frame(width: 40, height: 40)
-                .foregroundStyle(state.isTransmitting ? Color.white : Color(hex: 0xFAF9F5))
-                .background(state.isTransmitting ? Color(hex: 0x5DB872) : Color(hex: 0x2E2B27), in: Circle())
+                .foregroundStyle(state.isTransmitting ? state.color(\.onStatus) : state.color(\.ink))
+                .background(state.isTransmitting ? state.color(\.speaking) : state.color(\.elevated), in: Circle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+private extension VoiceActivityAttributes.ContentState {
+    func color(_ key: KeyPath<ThemeColors, UInt32>) -> Color {
+        let style = theme.flatMap(ThemeStyle.init(rawValue:)) ?? .defaultStyle
+        return Color(hex: style.palette.dark[keyPath: key])
     }
 }

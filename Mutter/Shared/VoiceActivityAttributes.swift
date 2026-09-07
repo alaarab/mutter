@@ -11,6 +11,7 @@ struct VoiceActivityAttributes: ActivityAttributes {
         var onlineCount: Int
         var isPushToTalk: Bool
         var isWhispering: Bool
+        var theme: String? = nil
     }
 
     var serverName: String

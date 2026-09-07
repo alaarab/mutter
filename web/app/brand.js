@@ -1,0 +1,2 @@
+// Generated from docs/brand/icon.svg by scripts/make-appicon.swift.
+export const MARK = "<svg viewBox=\"0 0 512 512\" aria-hidden=\"true\"><path d=\"M128 370L128 230C128 140 200 140 256 290C312 140 384 140 384 230L384 370\" fill=\"none\" stroke-width=\"54\" stroke-linecap=\"butt\" stroke-linejoin=\"miter\" stroke-miterlimit=\"6\" stroke=\"currentColor\"/></svg>";

@@ -167,12 +167,12 @@ export function mountRoom({ container, client, audio, share, settings, canShare,
     deafen.dataset.tip = audio.deafened ? 'Undeafen' : 'Deafen';
     camera.hidden = !canCamera;
     camera.innerHTML = ICON[share.camera ? 'videoOff' : 'video'];
-    camera.classList.toggle('active', !!share.camera);
+    camera.classList.toggle('engaged', !!share.camera);
     camera.dataset.tip = share.camera ? 'Camera off' : 'Camera';
     flip.hidden = !(share.camera && share.canFlip);
     screen.hidden = !canShare;
     screen.innerHTML = ICON[share.sharing ? 'screenOff' : 'screen'];
-    screen.classList.toggle('active', !!share.sharing);
+    screen.classList.toggle('engaged', !!share.sharing);
     screen.dataset.tip = share.sharing ? 'Stop sharing' : 'Share screen';
   }
 

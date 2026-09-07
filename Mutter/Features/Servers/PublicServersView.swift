@@ -41,6 +41,7 @@ struct PublicServersView: View {
                                         .task(id: server.id) { await ping(server) }
                                 }
                             } header: { SectionLabel(text: country) }
+                            .themedRows()
                         }
                     }
                     .listStyle(.insetGrouped)

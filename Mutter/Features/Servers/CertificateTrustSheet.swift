@@ -80,8 +80,7 @@ struct CertificateTrustSheet: View {
                     Button { prompt.respond(true) } label: {
                         Text(isChange ? "Trust anyway" : "Trust & connect").frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(isChange ? Theme.danger : Theme.accent)
+                    .buttonStyle(ThemePrimaryButtonStyle(destructive: isChange))
                 }
                 .padding()
                 .background(Theme.background)

@@ -24,7 +24,7 @@ struct Avatar: View {
                 (color ?? Theme.color(for: name))
                 Text(initials)
                     .font(.ui(size * 0.4, .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Theme.onAvatar)
             }
         }
         .frame(width: size, height: size)
@@ -44,11 +44,11 @@ struct UserAvatar: View {
                         .strokeBorder(ringColor, lineWidth: user.isTalking ? 2.5 : 0)
                         .padding(-3)
                 )
-                .animation(.easeOut(duration: 0.12), value: user.isTalking)
+                .animation(ThemeMotion.animation(DesignMotion.fast), value: user.isTalking)
             if let badge = badgeSymbol {
                 Image(systemName: badge.symbol)
                     .font(.icon(size * 0.3, .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Theme.onStatus)
                     .padding(3)
                     .background(badge.color, in: Circle())
                     .overlay(Circle().strokeBorder(Theme.background, lineWidth: 1.5))
@@ -76,6 +76,7 @@ struct StatusDot: View {
     var color: Color
     var pulsing = false
     @State private var on = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         Circle()
             .fill(color)
@@ -83,7 +84,7 @@ struct StatusDot: View {
             .scaleEffect(pulsing && on ? 1.25 : 1)
             .opacity(pulsing && on ? 0.7 : 1)
             .onAppear {
-                guard pulsing else { return }
+                guard pulsing && !reduceMotion else { return }
                 withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { on = true }
             }
     }
@@ -177,9 +178,9 @@ struct ToastView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(Theme.surface, in: Capsule())
+        .background(Theme.surfaceGradient, in: Capsule())
         .overlay(Capsule().strokeBorder(Theme.separator, lineWidth: 1))
-        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+        .shadow(color: Theme.shadow.opacity(0.12), radius: 12, y: 4)
         .padding(.horizontal, 16)
     }
 
@@ -218,10 +219,10 @@ struct RoundIconButton: View {
             Image(systemName: symbol)
                 .font(.icon(size * 0.4, .semibold))
                 .frame(width: size, height: size)
-                .foregroundStyle(active ? .white : Theme.ink)
+                .foregroundStyle(active ? Theme.onStatus : Theme.ink)
                 .background(active ? activeColor : Theme.surfaceElevated, in: Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ThemePressStyle())
         .accessibilityLabel(label)
     }
 }
@@ -249,8 +250,15 @@ struct HoldGesture: ViewModifier {
 }
 
 extension View {
+    func themedRows() -> some View {
+        listRowBackground(Theme.surface).listRowSeparatorTint(Theme.separator)
+    }
+
     func themedList() -> some View {
-        scrollContentBackground(.hidden).background(Theme.background)
+        scrollContentBackground(.hidden)
+            .foregroundStyle(Theme.ink)
+            .background(Theme.ambientGradient)
+            .background(Theme.background)
     }
 
     func doneToolbar(_ dismiss: DismissAction) -> some View {
@@ -279,6 +287,71 @@ enum Haptics {
     }
 
     static func selection() {
-        Haptics.selection()
+        UISelectionFeedbackGenerator().selectionChanged()
+    }
+}
+
+struct ThemePressStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+            .opacity(configuration.isPressed ? 0.86 : 1)
+            .animation(reduceMotion ? nil : ThemeMotion.animation(DesignMotion.fast), value: configuration.isPressed)
+    }
+}
+
+struct ThemePrimaryButtonStyle: ButtonStyle {
+    var destructive = false
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.label)
+            .foregroundStyle(destructive ? Theme.onStatus : Theme.onAccent)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(destructive ? Theme.danger : Theme.accent, in: RoundedRectangle(cornerRadius: Theme.radiusMedium))
+            .overlay(RoundedRectangle(cornerRadius: Theme.radiusMedium).strokeBorder(Theme.ink.opacity(0.08), lineWidth: 1))
+            .opacity(isEnabled ? (configuration.isPressed ? 0.86 : 1) : 0.45)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+            .animation(reduceMotion ? nil : ThemeMotion.animation(DesignMotion.fast), value: configuration.isPressed)
+    }
+}
+
+struct ThemeSegmentedPicker<Value: Hashable>: View {
+    @Binding var selection: Value
+    var values: [Value]
+    var title: (Value) -> String
+    @Namespace private var indicator
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(values, id: \.self) { value in
+                Button {
+                    withAnimation(reduceMotion ? nil : ThemeMotion.animation()) { selection = value }
+                } label: {
+                    Text(title(value))
+                        .font(.ui(12, selection == value ? .semibold : .medium, relativeTo: .caption))
+                        .foregroundStyle(selection == value ? Theme.ink : Theme.body)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background {
+                            if selection == value {
+                                RoundedRectangle(cornerRadius: Theme.radiusSmall)
+                                    .fill(Theme.surfaceElevated)
+                                    .matchedGeometryEffect(id: "selection", in: indicator)
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selection == value ? .isSelected : [])
+            }
+        }
+        .padding(3)
+        .background(Theme.surfaceSunken, in: RoundedRectangle(cornerRadius: Theme.radiusMedium))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusMedium).strokeBorder(Theme.separator, lineWidth: 1))
     }
 }

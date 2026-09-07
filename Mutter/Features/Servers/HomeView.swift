@@ -34,6 +34,7 @@ struct HomeView: View {
                         }
                         .listRowBackground(Theme.accent.opacity(0.12))
                     }
+                    .themedRows()
                 }
 
                 if let error = model.session.lastError, model.session.state == .disconnected {
@@ -42,6 +43,7 @@ struct HomeView: View {
                             .foregroundStyle(Theme.danger)
                             .font(.subheadline)
                     }
+                    .themedRows()
                 }
 
                 if model.servers.servers.isEmpty {
@@ -53,7 +55,7 @@ struct HomeView: View {
                         )
                         HStack {
                             Button { showingAdd = true } label: { Label("Add server", systemImage: "plus") }
-                                .buttonStyle(.borderedProminent)
+                                .buttonStyle(ThemePrimaryButtonStyle())
                             Button { showingBrowser = true } label: { Label("Browse", systemImage: "globe") }
                                 .buttonStyle(.bordered)
                         }
@@ -68,6 +70,7 @@ struct HomeView: View {
                             serverRow(server)
                         }
                     } header: { SectionLabel(text: "Favourites") }
+                    .themedRows()
                 }
 
                 if !model.servers.recents.isEmpty {
@@ -76,6 +79,7 @@ struct HomeView: View {
                             serverRow(server)
                         }
                     } header: { SectionLabel(text: "Recent") }
+                    .themedRows()
                 }
 
                 if !lanServers.isEmpty {
@@ -99,6 +103,7 @@ struct HomeView: View {
                             .disabled(lan.endpoint == nil)
                         }
                     } header: { SectionLabel(text: "On this network") }
+                    .themedRows()
                 }
             }
             .listStyle(.insetGrouped)
@@ -217,6 +222,7 @@ struct QuickConnectSheet: View {
                 } footer: {
                     Text("Connects without saving. You can add it to favourites afterwards.")
                 }
+                .themedRows()
             }
             .navigationTitle("Quick connect")
             .navigationBarTitleDisplayMode(.inline)

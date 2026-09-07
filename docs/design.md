@@ -1,62 +1,101 @@
-# Mutter design notes
+# Mutter design system
 
-## Goal
+Mutter uses softly shaded surfaces, restrained ambient color, Bricolage Display headings, and
+Plus Jakarta Sans body text. Color and motion have one maintained source across iOS, web,
+Electron, the screen picker, and Live Activities.
 
-Same protocol as Mumble, an interface people actually want to use on a phone. The old official
-app is a 2011 UIKit table-view app: a flat channel list, no collapsing, tiny status icons, and
-voice controls hidden behind a toolbar.
+## Shared catalog
 
-## What was borrowed
+Edit `design/themes.json`, then run:
 
-**From Discord mobile (2023–2025 redesign)**
-
-- Clear hierarchy: server → channels → people, with people nested under the channel they're in.
-- A persistent voice "dock" at the bottom that survives tab changes: current channel, who is
-  speaking, mute / deafen / speaker / leave, all one thumb away.
-- Speaking rings on avatars instead of a separate speaker icon.
-- Distinct tabs for the channel tree and chat, with an unread badge, instead of one screen that
-  tries to do both.
-- Presence toasts (joined/left/moved) that don't interrupt.
-
-**From the Claude app / Anthropic design language**
-
-- Warm cream canvas (`#FAF9F5`) and warm black (`#181715`) instead of Discord's cold greys.
-- One coral accent (`#CC785C`) used sparingly: joins, active tab, own message bubbles, CTA.
-- Serif display type (New York on iOS) for server and channel names, humanist sans for UI.
-- Elevation by colour blocking (card on canvas) rather than shadows.
-- Copy written in sentences ("Hold the button to talk"), not labels.
-
-## Structure
-
-```
-Home (NavigationStack)
-├── Favourites / Recent / On this network   ← live users & latency from a UDP probe
-├── + Add server / Quick connect
-├── Public directory (searchable, grouped by country, live counts)
-└── Settings → Voice & audio, Certificates, Appearance, Behaviour
-
-Session (full screen, replaces Home while connected)
-├── Header: server name, state, ping pill, leave
-├── Channels tab: collapsible tree with search, join buttons, speaking rings
-├── Chat tab: unified timeline, scope picker (channel / tree / DM), images
-├── Server tab: welcome, versions, connection stats, certificate, permissions
-└── Dock: VoiceBar (+ PTT button or VAD meter) and the tab strip
+```sh
+node scripts/generate-themes.mjs
+node scripts/generate-themes.mjs --check
 ```
 
-Sheets: user (local mute/volume, message, moderation gated on real permissions, stats),
-channel (join, listen, message, manage), certificate trust (first contact vs changed), server
-edit, quick connect, identity create/import.
+The generator writes `web/app/theme-data.js`, `web/app/tokens.css`,
+`Mutter/Shared/ThemeCatalog.swift`, the PWA launch colors, and the native accent/launch colors.
+Generated files are checked in, so building or running the app needs no extra generation step. CI rejects stale
+outputs. Do not add a second palette in a component, window, or widget.
 
-## Tokens
+| Theme | Character |
+| --- | --- |
+| Carbon | Graphite and silver |
+| Graphite | Charcoal and iris |
+| Midnight | Deep navy and ice |
+| Slate | Steel and periwinkle |
+| Moss | Forest and sage |
+| Plum | Aubergine and rose |
+| Paper | Parchment and clay |
+| Ultra | Obsidian and citron |
+| Ember | Espresso and apricot |
+| Orchid | Velvet and lilac |
+| Mint | Deep teal and sea glass |
 
-See `app/Mutter/Design/Theme.swift`. Radii 8/12/16, 4-pt spacing, adaptive light/dark palettes,
-semantic green (speaking), amber (warning), red (danger), indigo (whisper/listen).
+Every theme has light and dark variants. New installs use Carbon and the system appearance.
+Existing saved theme names are preserved. Web settings written before the appearance selector
+retain their former appearance (Paper light, the other themes dark). The native app retains
+its existing appearance preference. Live Activities use the selected theme's dark variant to
+fit the lock screen and Dynamic Island; their theme travels with the activity state.
 
-## Decisions
+## Color roles
 
-- Custom bottom dock instead of `TabView` so the voice bar sits above the tabs on every screen.
-- Tapping a channel row opens details; the explicit arrow joins. Accidental joins on a phone are
-  worse than one extra tap, and long-press/context menus cover power users.
-- Voice activity is the default transmit mode with a visible meter and threshold marker; PTT is
-  a full-width button (hold or toggle) because the old app's small PTT was a top complaint.
-- Certificate pinning with a human-readable prompt rather than silently trusting everything.
+- `bg`, `surface`, `elevated`, and `sunken` establish depth. Use `separator` for boundaries and
+  `surfaceHighlight` for the gentle edge lighting used by native cards.
+- `ink`, `body`, and `muted` establish text hierarchy. The generator tunes their luminance to
+  keep text readable across all four surfaces, with at least 4.8:1 contrast (7:1 for `ink`).
+- `accent` is for selection, actions, links, and unread messages. `secondary` provides ambient
+  color and decorative variation. Text on a filled action uses `onAccent`.
+- Green means voice/presence, red means mute/error/destructive action, amber means caution,
+  and violet means whisper or video sharing. Filled status controls use `onStatus`.
+- Avatars use six related colors derived from the active palette and the same UTF-8 name hash
+  on all clients. Their foreground is `onAvatar`; do not introduce a separate avatar palette.
+- Video/image surfaces remain black with light overlays regardless of theme. These are media
+  colors, not application backgrounds.
+
+The generator checks button and avatar contrast as well as text. These are token checks;
+rendered surfaces, opacity, hover states, and layouts still need visual review.
+
+## Surfaces and motion
+
+Use low-opacity accent/secondary light at the edges of large surfaces, subtle sheen on cards
+and the voice dock, and one soft shadow treatment for floating surfaces. Content stays on a
+quiet background. Keep the radius scale at 8/12/16/20 points, with smaller radii for compact
+controls and full circles/capsules where the control calls for them.
+
+The motion scale is 120 ms for press/hover, 180 ms for small changes, 240 ms for panels, and
+260 ms for theme changes, using the shared easing curve. Theme changes preserve the session,
+open sheets, drafts, and view identity. Web floating surfaces use `motion.js` for cancellable
+entrance/exit animations; avoid independent timeout-based hide logic. Respect reduced motion.
+Speaking halos follow the active speaking state without an unrelated continuous pulse.
+
+The in-app mark and platform icons come from `docs/brand/icon.svg`:
+
+```sh
+swift scripts/make-appicon.swift
+```
+
+The graphite artwork is shared by the regular and dark iOS icons. Desktop assets retain
+rounded corners, iOS gets square opaque assets, and the browser gets the SVG. The script also
+extracts the monochrome mark used inside the interface.
+
+## Verification
+
+```sh
+node scripts/generate-themes.mjs --check
+CHROME=/path/to/chromium SHOTS=/tmp/mutter-appearance node --test web/test/appearance.test.mjs
+node --test desktop/test/persistence.test.mjs
+```
+
+The appearance check renders all 22 variants, checks theme selection and saved settings,
+keeps a live session and composer in place, tests rapid sheet reopening, checks narrow layouts
+and system/reduced-motion preferences, and renders the real desktop picker with a stubbed
+preload bridge. The Electron test verifies the real shell across two launches. Build the
+`Mutter` scheme in Xcode to verify the native app and widget together. `MutterUITests` cycles
+through every theme in both appearances, checks that Settings stays open, and samples the
+rendered preview to catch a sheet retaining the wrong appearance. Its screenshots are kept in
+the Xcode test results. Native list sections use `.themedRows()` and their containers use
+`.themedList()` so they share the same surface treatment.
+
+`docs/mockups` contains historical explorations. Screenshots from the running app are the
+current visual reference.

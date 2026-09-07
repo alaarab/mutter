@@ -20,11 +20,13 @@ struct IdentitiesView: View {
                     .font(.footnote)
                     .foregroundStyle(Theme.muted)
             }
+            .themedRows()
 
             if model.identities.isEmpty {
                 Section {
                     Button { showCreate = true } label: { Label("Create a certificate", systemImage: "plus") }
                 }
+                .themedRows()
             } else {
                 Section {
                     ForEach(model.identities) { identity in
@@ -65,10 +67,12 @@ struct IdentitiesView: View {
                 } header: { SectionLabel(text: "Your certificates") } footer: {
                     Text("Tap one to make it the default for new servers.")
                 }
+                .themedRows()
             }
 
             if let errorText {
                 Section { Text(errorText).foregroundStyle(Theme.danger).font(.footnote) }
+                .themedRows()
             }
         }
         .themedList()
@@ -143,6 +147,7 @@ struct CreateIdentitySheet: View {
                 } footer: {
                     Text("The name is what servers show for this certificate. Generation takes a couple of seconds.")
                 }
+                .themedRows()
                 if let errorText { Section { Text(errorText).foregroundStyle(Theme.danger) } }
             }
             .navigationTitle("New certificate")

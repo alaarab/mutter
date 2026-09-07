@@ -1,6 +1,7 @@
 import { sanitize } from './chat.js';
 import { ICON } from './icons.js';
 import { $, el, avatar, colorFor } from './ui.js';
+import { isVisible, setVisible } from './motion.js';
 
 const EDGE_MARGIN = 8;
 const TOOLTIP_MARGIN = 4;
@@ -13,11 +14,11 @@ function clamp(value, min, max) {
 }
 
 export function openPopover(anchor, build, { align = 'below' } = {}) {
-  closePopover();
   const popover = $('popover');
+  popover.classList.remove('profile');
   popover.replaceChildren();
   build(popover);
-  popover.hidden = false;
+  setVisible(popover, true);
   const rect = anchor.getBoundingClientRect();
   const width = popover.offsetWidth;
   const height = popover.offsetHeight;
@@ -40,18 +41,21 @@ export function openPopover(anchor, build, { align = 'below' } = {}) {
   }
   popover.style.left = `${clamp(left, EDGE_MARGIN, viewportWidth - width - EDGE_MARGIN)}px`;
   popover.style.top = `${clamp(top, EDGE_MARGIN, viewportHeight - height - EDGE_MARGIN)}px`;
+  popover.style.transformOrigin = `${clamp(rect.left + rect.width / 2 - left, 0, width)}px ${top < rect.top ? '100%' : '0'}`;
   openAnchor = anchor;
   return popover;
 }
 
 export function closePopover() {
-  $('popover').hidden = true;
+  const popover = $('popover');
+  if (popover.contains(document.activeElement)) openAnchor?.focus({ preventScroll: true });
+  setVisible(popover, false);
   openAnchor = null;
 }
 
 document.addEventListener('pointerdown', (event) => {
   const popover = $('popover');
-  if (!popover.hidden && !popover.contains(event.target) && !openAnchor?.contains(event.target)) {
+  if (isVisible(popover) && !popover.contains(event.target) && !openAnchor?.contains(event.target)) {
     closePopover();
   }
 });
