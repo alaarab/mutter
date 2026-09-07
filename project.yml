@@ -38,6 +38,8 @@ targets:
       - path: Mutter
         excludes:
           - "**/.DS_Store"
+      - path: design/fonts
+        buildPhase: resources
     dependencies:
       - package: MumbleCore
         product: MumbleClient
@@ -111,7 +113,7 @@ targets:
       - path: MutterWidgets
       - path: Mutter/Shared
       - path: Mutter/Design/Theme.swift
-      - path: Mutter/Resources/Fonts
+      - path: design/fonts
         buildPhase: resources
     info:
       path: MutterWidgets/Info.plist

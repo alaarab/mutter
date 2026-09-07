@@ -1,4 +1,3 @@
-// Generated from design/themes.json by scripts/generate-themes.mjs. Do not edit.
 import Foundation
 
 struct ThemeColors {

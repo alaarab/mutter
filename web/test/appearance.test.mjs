@@ -52,7 +52,7 @@ test('every theme renders in both appearances without resetting the session or o
     }
   }
 
-  // A cancelled exit must not hide the newly reopened sheet.
+
   await page.click('#settingsClose');
   await page.click('#railSettings');
   await sleep(300);
@@ -82,7 +82,7 @@ test('every theme renders in both appearances without resetting the session or o
   if (environment.shots) await page.screenshot(path.join(environment.shots, 'voice-midnight.png'));
   assert.deepEqual(page.errors(), []);
 
-  // Render the real desktop picker with a stub of its two-method preload API.
+
   const picker = await environment.browser.newPage();
   await picker.send('Emulation.setDeviceMetricsOverride', { width: 760, height: 532, deviceScaleFactor: 1, mobile: false });
   await picker.send('Page.addScriptToEvaluateOnNewDocument', { source: `window.picker = {

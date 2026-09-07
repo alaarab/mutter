@@ -5,8 +5,8 @@ export function isFingerprint(value) {
   return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 }
 
-// TLS encryption is established first; no application data may flow until this
-// check succeeds or the user explicitly accepts this exact certificate.
+
+
 export function inspectPeer(socket, host, expectedFingerprint) {
   const certificate = socket.getPeerCertificate();
   if (!certificate.raw) {

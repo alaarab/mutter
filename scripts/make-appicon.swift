@@ -96,7 +96,7 @@ guard let source = try? String(contentsOfFile: master, encoding: .utf8) else {
 }
 
 let base = squared(source)
-// The graphite master is designed for both appearances; do not recolor its palette here.
+
 let icon = flattened(rasterize(base, "ios"))
 write(icon, to: "\(outDir)/AppIcon.png")
 write(icon, to: "\(outDir)/AppIcon-Dark.png")
@@ -117,5 +117,5 @@ guard let pathRange = source.range(of: #"<path\s[^>]+/>"#, options: .regularExpr
 let markPath = String(source[pathRange]).replacingOccurrences(of: #"stroke="[^"]+""#, with: #"stroke="currentColor""#, options: .regularExpression)
 let mark = #"<svg viewBox="0 0 512 512" aria-hidden="true">"# + markPath + "</svg>"
 let encoded = try JSONSerialization.data(withJSONObject: mark, options: [.fragmentsAllowed, .withoutEscapingSlashes])
-let module = "// Generated from docs/brand/icon.svg by scripts/make-appicon.swift.\nexport const MARK = " + String(decoding: encoded, as: UTF8.self) + ";\n"
+let module = "export const MARK = " + String(decoding: encoded, as: UTF8.self) + ";\n"
 try module.write(toFile: "web/app/brand.js", atomically: true, encoding: .utf8)
