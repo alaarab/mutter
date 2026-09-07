@@ -52,6 +52,7 @@ class DeniedPermissionsTest {
             }
             assertFalse(app.audio.transmitting.value)
             assertTrue(app.client.state.value.connected)
+            ui.dismissKeyboard()
             val session = app.client.state.value.me
             ui.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
             InstrumentationRegistry.getInstrumentation()

@@ -42,8 +42,10 @@ Keep that key across releases so future builds can update existing installs.
   resized to server limits, unread counts, and direct-message notifications.
 - WebRTC screen viewing compatible with the other Mutter clients. Screen broadcasting and
   share audio are not included.
-- All 11 shared themes in light, dark, and system appearance, bundled fonts, transitions,
-  and an adaptive/monochrome launcher icon derived from `docs/brand/icon.svg`.
+- All 11 shared themes in light, dark, and system appearance, miniature theme previews,
+  shared typography and motion, and an adaptive/monochrome launcher icon from `docs/brand/icon.svg`.
+- Adaptive call controls and people cards, speaking/mute indicators, grouped settings and profiles,
+  and a chat composer with keyboard Send support and layouts for small or landscape windows.
 
 Server passwords, access tokens, pins and certificate files are encrypted with a device-bound
 Android Keystore key. Backup and device transfer exclude this data. Signing keys and local
@@ -66,12 +68,16 @@ root, then run the instrumentation suite in another terminal:
 
 ```bash
 node android/test-server.mjs
-# Other terminal:
+```
+
+In another terminal:
+
+```bash
 cd android
 ./gradlew connectedDebugAndroidTest
 ```
 
-Tests use the emulator's `10.0.2.2` host address and ports 64740–64745. They cover actual TLS
+Tests use the emulator's `10.0.2.2` host address and ports 64740–64746. They cover actual TLS
 consent, both voice formats, encrypted UDP and TCP voice, chat, channel changes, background
 connections, automatic reconnect, notification controls, UDP interruption and recovery, changed
 certificates, password rejection, channel edits, all theme variants, server-edit recreation,

@@ -1,17 +1,24 @@
 package com.alaarab.mutter.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 import com.alaarab.mutter.data.Settings
 import org.json.JSONObject
@@ -60,7 +67,30 @@ data class ThemeOption(
 
 class ThemeCatalog(source: String) {
     private val json = JSONObject(source)
-    val duration = json.getJSONObject("motion").getInt("theme")
+    private val motion = json.getJSONObject("motion")
+    val duration = motion.getInt("theme")
+    val fast = motion.getInt("fast")
+    val standard = motion.getInt("standard")
+    val panel = motion.getInt("panel")
+    val easing =
+        motion.getJSONArray("ease").let {
+            CubicBezierEasing(
+                it.getDouble(0).toFloat(),
+                it.getDouble(1).toFloat(),
+                it.getDouble(2).toFloat(),
+                it.getDouble(3).toFloat(),
+            )
+        }
+    val shapes =
+        json.getJSONObject("radii").let {
+            Shapes(
+                extraSmall = RoundedCornerShape(it.getInt("small").dp),
+                small = RoundedCornerShape(it.getInt("medium").dp),
+                medium = RoundedCornerShape(it.getInt("large").dp),
+                large = RoundedCornerShape(it.getInt("tile").dp),
+                extraLarge = RoundedCornerShape((it.getInt("tile") + it.getInt("small")).dp),
+            )
+        }
     val themes: List<ThemeOption> =
         json.getJSONObject("themes").let { themes ->
             themes
@@ -117,7 +147,12 @@ fun MutterTheme(settings: Settings, content: @Composable () -> Unit) {
     val target = if (dark) selected.dark else selected.light
     val colors =
         target.colors.mapValues { (_, value) ->
-            animateColorAsState(value, tween(catalog.duration), label = "theme").value
+            animateColorAsState(
+                    value,
+                    tween(catalog.duration, easing = catalog.easing),
+                    label = "theme",
+                )
+                .value
         }
     val p = Palette(colors)
     val body = remember {
@@ -134,6 +169,7 @@ fun MutterTheme(settings: Settings, content: @Composable () -> Unit) {
             Font("BricolageDisplay-ExtraBold.ttf", context.assets, FontWeight.ExtraBold),
         )
     }
+    val inverse = if (dark) selected.light else selected.dark
     val base = if (dark) darkColorScheme() else lightColorScheme()
     val scheme =
         base.copy(
@@ -141,10 +177,33 @@ fun MutterTheme(settings: Settings, content: @Composable () -> Unit) {
             onPrimary = p["onAccent"],
             primaryContainer = p.elevated,
             onPrimaryContainer = p.ink,
-            secondary = p.whisper,
-            onSecondary = p["onStatus"],
+            secondary = p.accent,
+            onSecondary = p["onAccent"],
             secondaryContainer = p.elevated,
             onSecondaryContainer = p.ink,
+            tertiary = p.whisper,
+            onTertiary = p["onStatus"],
+            tertiaryContainer = p.whisper.copy(alpha = .12f).compositeOver(p.surface),
+            onTertiaryContainer = p.whisper,
+            inverseSurface = inverse.surface,
+            inverseOnSurface = inverse.ink,
+            inversePrimary = inverse.accent,
+            surfaceTint = p.accent,
+            surfaceBright = p.elevated,
+            surfaceDim = p["sunken"],
+            scrim = selected.dark["sunken"],
+            primaryFixed = selected.light.accent,
+            primaryFixedDim = selected.light.accent,
+            onPrimaryFixed = selected.light["onAccent"],
+            onPrimaryFixedVariant = selected.light["onAccent"],
+            secondaryFixed = selected.light.accent,
+            secondaryFixedDim = selected.light.accent,
+            onSecondaryFixed = selected.light["onAccent"],
+            onSecondaryFixedVariant = selected.light["onAccent"],
+            tertiaryFixed = selected.light.whisper,
+            tertiaryFixedDim = selected.light.whisper,
+            onTertiaryFixed = selected.light["onStatus"],
+            onTertiaryFixedVariant = selected.light["onStatus"],
             background = p.background,
             onBackground = p.ink,
             surface = p.surface,
@@ -160,53 +219,61 @@ fun MutterTheme(settings: Settings, content: @Composable () -> Unit) {
             outlineVariant = p.ink.copy(alpha = .12f),
             error = p.danger,
             onError = p["onStatus"],
+            errorContainer = p.danger.copy(alpha = .12f).compositeOver(p.surface),
+            onErrorContainer = p.danger,
+        )
+    fun headingStyle(size: Int, height: Int, weight: FontWeight = FontWeight.Bold) =
+        TextStyle(
+            fontFamily = heading,
+            fontWeight = weight,
+            fontSize = size.sp,
+            lineHeight = height.sp,
+        )
+    fun bodyStyle(size: Int, height: Int, weight: FontWeight = FontWeight.Normal) =
+        TextStyle(
+            fontFamily = body,
+            fontWeight = weight,
+            fontSize = size.sp,
+            lineHeight = height.sp,
         )
     val typography =
         Typography(
-            displaySmall =
-                TextStyle(
-                    fontFamily = heading,
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 36.sp,
-                    lineHeight = 42.sp,
-                ),
-            headlineLarge =
-                TextStyle(
-                    fontFamily = heading,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 30.sp,
-                    lineHeight = 36.sp,
-                ),
-            headlineSmall =
-                TextStyle(
-                    fontFamily = heading,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 24.sp,
-                    lineHeight = 30.sp,
-                ),
-            titleLarge =
-                TextStyle(
-                    fontFamily = heading,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 22.sp,
-                    lineHeight = 28.sp,
-                ),
-            titleMedium =
-                TextStyle(
-                    fontFamily = body,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
-                    lineHeight = 23.sp,
-                ),
-            bodyLarge = TextStyle(fontFamily = body, fontSize = 16.sp, lineHeight = 24.sp),
-            bodyMedium = TextStyle(fontFamily = body, fontSize = 14.sp, lineHeight = 21.sp),
-            bodySmall = TextStyle(fontFamily = body, fontSize = 12.sp, lineHeight = 18.sp),
-            labelLarge =
-                TextStyle(fontFamily = body, fontWeight = FontWeight.Bold, fontSize = 14.sp),
-            labelMedium =
-                TextStyle(fontFamily = body, fontWeight = FontWeight.SemiBold, fontSize = 12.sp),
+            displayLarge = headingStyle(52, 60, FontWeight.ExtraBold),
+            displayMedium = headingStyle(44, 52, FontWeight.ExtraBold),
+            displaySmall = headingStyle(36, 42, FontWeight.ExtraBold),
+            headlineLarge = headingStyle(30, 36),
+            headlineMedium = headingStyle(26, 32),
+            headlineSmall = headingStyle(24, 30),
+            titleLarge = headingStyle(22, 28),
+            titleMedium = bodyStyle(16, 23, FontWeight.Bold),
+            titleSmall = bodyStyle(14, 20, FontWeight.Bold),
+            bodyLarge = bodyStyle(16, 24),
+            bodyMedium = bodyStyle(14, 21),
+            bodySmall = bodyStyle(12, 18),
+            labelLarge = bodyStyle(14, 20, FontWeight.Bold),
+            labelMedium = bodyStyle(12, 18, FontWeight.SemiBold),
+            labelSmall = bodyStyle(11, 16, FontWeight.SemiBold),
         )
     CompositionLocalProvider(LocalPalette provides p, LocalCatalog provides catalog) {
-        MaterialTheme(colorScheme = scheme, typography = typography, content = content)
+        MaterialTheme(
+            colorScheme = scheme,
+            typography = typography,
+            shapes = catalog.shapes,
+            content = content,
+        )
+    }
+}
+
+@Composable
+fun SheetSystemBars() {
+    val view = LocalView.current
+    val light = LocalPalette.current.background.luminance() > .5f
+    SideEffect {
+        (view.parent as? DialogWindowProvider)?.window?.let { window ->
+            WindowCompat.getInsetsController(window, window.decorView).apply {
+                isAppearanceLightStatusBars = light
+                isAppearanceLightNavigationBars = light
+            }
+        }
     }
 }

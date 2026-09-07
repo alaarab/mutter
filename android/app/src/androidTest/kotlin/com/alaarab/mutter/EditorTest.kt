@@ -45,8 +45,13 @@ class EditorTest {
         ui.runOnIdle { app.store.saveServer(original) }
         scrollTo(hasContentDescription("Edit $name")).performClick()
         scrollTo(hasText("Name") and hasSetTextAction()).performTextReplacement("$name-edited")
+        scrollTo(hasText("Name") and hasSetTextAction()).assertTextContains("$name-edited")
         ui.activityRule.scenario.recreate()
+        scrollTo(hasText("Name") and hasSetTextAction()).assertTextContains("$name-edited")
         scrollTo(hasText("Save")).performClick()
+        ui.waitUntil(5000) {
+            app.store.servers.value.any { it.id == original.id && it.name == "$name-edited" }
+        }
         val saved =
             app.store.servers.value.filter {
                 it.host == original.host && it.username == original.username
