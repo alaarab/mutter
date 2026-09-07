@@ -1,0 +1,5 @@
+{
+  "device": "YOUR-DEVICE-IDENTIFIER",
+  "keychain": "~/.local/share/apple-signing/signing.keychain-db",
+  "keychain_password_file": "~/.local/share/apple-signing/keychain-password"
+}
