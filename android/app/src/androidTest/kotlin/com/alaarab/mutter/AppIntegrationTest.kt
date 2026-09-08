@@ -71,10 +71,14 @@ class AppIntegrationTest {
         assertTrue(app.client.state.value.channels.values.any { it.name == "Lounge" })
         ui.runOnIdle { app.client.join(1) }
         ui.waitUntil(5000) { app.client.state.value.self?.channel == 1 }
-        ui.onNodeWithText("Channels", useUnmergedTree = true).performClick()
-        ui.onNodeWithText("Lounge", useUnmergedTree = true).assertExists()
-        ui.onNodeWithText("Chat", useUnmergedTree = true).performClick()
-        ui.onNodeWithText("Say something…").performTextInput("Hello from Android")
+        ui.onNodeWithTag("tab-channels").performClick()
+        ui.onNode(
+                hasText("Lounge") and hasAnyAncestor(hasTestTag("channelTree")),
+                useUnmergedTree = true,
+            )
+            .assertExists()
+        ui.onNodeWithTag("tab-chat").performClick()
+        ui.onNodeWithText("Message").performTextInput("Hello from Android")
         ui.onNodeWithContentDescription("Send message").performClick()
         ui.waitUntil(5000) {
             app.client.state.value.messages.any { it.html.contains("Hello from Android") }
@@ -82,10 +86,10 @@ class AppIntegrationTest {
         assertTrue(
             app.client.state.value.messages.any { it.own && it.html == "Hello from Android" }
         )
-        ui.onNodeWithText("Say something…").performTextInput("Keep this draft")
+        ui.onNodeWithText("Message").performTextInput("Keep this draft")
         ui.dismissKeyboard()
-        ui.onNodeWithText("Voice", useUnmergedTree = true).performClick()
-        ui.onNodeWithText("Chat", useUnmergedTree = true).performClick()
+        ui.onNodeWithTag("tab-channels").performClick()
+        ui.onNodeWithTag("tab-chat").performClick()
         ui.onNodeWithText("Keep this draft").assertExists()
         ui.activityRule.scenario.recreate()
         ui.onNodeWithText("Keep this draft").assertExists()
@@ -166,7 +170,7 @@ class AppIntegrationTest {
             ThemeCatalog(app.assets.open("themes.json").bufferedReader().use { it.readText() })
         assertEquals(11, catalog.themes.size)
         ui.onNodeWithContentDescription("Settings").performClick()
-        ui.onNodeWithText("Make it yours").assertIsDisplayed()
+        ui.onNodeWithText("Settings").assertIsDisplayed()
         for (mode in listOf("light", "dark")) {
             for (theme in catalog.themes) {
                 ui.runOnIdle {
@@ -175,7 +179,7 @@ class AppIntegrationTest {
                     )
                 }
                 ui.waitForIdle()
-                ui.onNodeWithText("Make it yours").assertIsDisplayed()
+                ui.onNodeWithText("Settings").assertIsDisplayed()
                 assertEquals(theme.id, app.store.settings.value.theme)
             }
         }

@@ -11,9 +11,6 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.alaarab.mutter.MutterApplication
@@ -38,75 +35,61 @@ fun UserSheet(
     val p = LocalPalette.current
     LazyColumn(
         Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 32.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Column(
-                Modifier.fillMaxWidth()
-                    .clip(MaterialTheme.shapes.large)
-                    .background(
-                        Brush.verticalGradient(listOf(p.accent.copy(alpha = .12f), p.surface))
-                    )
-                    .border(1.dp, p["separator"].copy(alpha = .6f), MaterialTheme.shapes.large)
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                UserAvatar(profile, now, 80)
-                Text(
-                    user.name,
-                    style = MaterialTheme.typography.headlineMedium,
-                    textAlign = TextAlign.Center,
-                )
-                Hint(
-                    "${state.channels[user.channel]?.name ?: "Channel"}${if (isSelf) " · You" else ""}"
-                )
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+            AppCard(Modifier.fillMaxWidth()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    StatusPill(
-                        userStatus(profile, now),
-                        if (userStatus(profile, now) == "Speaking") p.speaking else p.muted,
-                    )
-                    if (user.registered >= 0)
-                        StatusPill("Registered", p.accent, Icons.Rounded.VerifiedUser)
-                    if (user.priority) StatusPill("Priority speaker", p.accent, Icons.Rounded.Star)
+                    UserAvatar(profile, now, 56)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(user.name, style = MaterialTheme.typography.headlineMedium)
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            if (user.registered >= 0)
+                                StatusPill("Registered", p.muted, Icons.Rounded.Verified)
+                            if (user.priority) StatusPill("Priority", p["warn"], Icons.Rounded.Star)
+                            if (userStatus(profile, now) == "Speaking")
+                                StatusPill("Speaking", p.speaking, Icons.Rounded.GraphicEq)
+                        }
+                        Hint(state.channels[user.channel]?.name ?: "Channel")
+                    }
+                }
+                if (user.comment.isNotBlank()) {
+                    SectionDivider()
+                    RichMessage(user.comment)
                 }
             }
         }
-        if (user.comment.isNotBlank())
+        if (!isSelf)
             item {
-                SectionLabel("About")
-                AppCard(Modifier.fillMaxWidth()) { RichMessage(user.comment) }
-            }
-        if (!isSelf) {
-            item {
-                Button(message, Modifier.fillMaxWidth()) {
-                    Icon(Icons.Rounded.Forum, null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Direct message")
-                }
-            }
-            item {
-                SectionLabel("Your mix")
+                SectionLabel("For you only")
                 AppCard(Modifier.fillMaxWidth()) {
                     ToggleRow(
-                        "Mute locally",
+                        "Mute for me",
                         user.localMute,
                         { app.client.localUser(user.session, mute = it) },
                     )
-                    Text("Their volume · ${(user.volume * 100).toInt()}%")
+                    SectionDivider()
+                    Text("Volume ${(user.volume * 100).toInt()}%")
                     AppSlider(
                         user.volume,
                         { app.client.localUser(user.session, volume = it) },
                         valueRange = 0f..1f,
                     )
-                    Hint("These controls only change what you hear.")
+                    SectionDivider()
+                    TextButton(message) {
+                        Icon(Icons.Rounded.Forum, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Send a message")
+                    }
                 }
             }
-        }
         item {
             AppCard(Modifier.fillMaxWidth()) {
                 SettingsLink(

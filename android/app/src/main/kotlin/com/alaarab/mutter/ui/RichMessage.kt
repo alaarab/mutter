@@ -14,20 +14,25 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 @Composable
-fun RichMessage(html: String) {
+fun RichMessage(
+    html: String,
+    color: Color = LocalPalette.current.body,
+) {
     val p = LocalPalette.current
     val context = LocalContext.current
     val annotated =
-        remember(html, p.accent) {
+        remember(html, color) {
             val text =
                 Html.fromHtml(
                     html.replace(Regex("<img\\b[^>]*>", RegexOption.IGNORE_CASE), ""),
@@ -49,7 +54,13 @@ fun RichMessage(html: String) {
                         addLink(
                             LinkAnnotation.Url(
                                 span.url,
-                                TextLinkStyles(style = SpanStyle(color = p.accent)),
+                                TextLinkStyles(
+                                    style =
+                                        SpanStyle(
+                                            color = color,
+                                            textDecoration = TextDecoration.Underline,
+                                        )
+                                ),
                             ),
                             text.getSpanStart(span).coerceAtMost(length),
                             text.getSpanEnd(span).coerceAtMost(length),
@@ -59,7 +70,7 @@ fun RichMessage(html: String) {
             }
         }
     if (annotated.isNotBlank())
-        Text(annotated, color = p.body, style = MaterialTheme.typography.bodyMedium)
+        Text(annotated, color = color, style = MaterialTheme.typography.bodyLarge)
     val images =
         remember(html) {
             Regex("<img\\b[^>]*src=[\"']([^\"']+)[\"'][^>]*>", RegexOption.IGNORE_CASE)

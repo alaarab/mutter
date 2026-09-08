@@ -40,10 +40,9 @@ class DeniedPermissionsTest {
             ui.waitUntil(15000) { app.client.state.value.certificate != null }
             ui.runOnIdle { app.client.answerTrust(true) }
             ui.waitUntil(15000) { app.client.state.value.connected }
-            ui.onNodeWithText("Microphone off").assertIsDisplayed()
-            ui.onNodeWithText("Chat", useUnmergedTree = true).performClick()
-            ui.onNodeWithText("Say something…")
-                .performTextInput("Chat without microphone permission")
+            ui.onNodeWithContentDescription("Enable microphone").assertIsDisplayed()
+            ui.onNodeWithTag("tab-chat").performClick()
+            ui.onNodeWithText("Message").performTextInput("Chat without microphone permission")
             ui.onNodeWithContentDescription("Send message").performClick()
             ui.waitUntil(5000) {
                 app.client.state.value.messages.any {
@@ -62,7 +61,7 @@ class DeniedPermissionsTest {
                     Manifest.permission.RECORD_AUDIO,
                 )
             ui.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
-            ui.onNodeWithText("Microphone off").assertDoesNotExist()
+            ui.onNodeWithContentDescription("Enable microphone").assertDoesNotExist()
             ui.onNodeWithTag("talkButton").performTouchInput { down(center) }
             ui.waitUntil(10000) { app.audio.transmitting.value }
             ui.onNodeWithTag("talkButton").performTouchInput { up() }
