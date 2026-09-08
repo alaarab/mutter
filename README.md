@@ -11,13 +11,12 @@ clients share the same fonts and 11 themes, each with light and dark appearances
 <table>
   <tr><th>iPhone</th><th>Android</th></tr>
   <tr>
-    <td><img src="docs/images/phone-layout/iphone-channels-dark.png" width="300" alt="Mutter on iPhone, showing people in a channel tree above the call controls"></td>
-    <td><img src="docs/images/phone-layout/android-channels-dark.png" width="300" alt="Mutter on Android, with the same channel tree and call-control layout"></td>
+    <td><img src="docs/images/phone-layout/iphone-home-dark.png" width="300" alt="Mutter on iPhone, showing the home screen with Settings, Add server, and Browse"></td>
+    <td><img src="docs/images/phone-layout/android-home-dark.png" width="300" alt="Mutter on Android, with the same home screen controls"></td>
   </tr>
 </table>
 
-Actual simulator captures in Plum dark, using a test server and fictional participants.
-The iPhone’s microphone warning comes from the simulator.
+Actual home screens in Plum dark, captured from the running iPhone and Android apps.
 [See the phone layout comparison →](docs/phone-layout.md)
 
 ## What you can do

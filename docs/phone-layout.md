@@ -5,44 +5,22 @@ follows the iPhone layout: the same three tabs, people listed under their channe
 controls within reach at the bottom of the screen.
 
 This page records the September 7, 2026 layout pass. The images are captures from the running
-apps, using the same Plum theme and fictional people on a test server.
+apps in the Plum theme. The channel and chat examples use fictional people on a test server.
 
 ## Side by side
 
-### Channels · Plum dark
+### Home · Plum dark
 
-Both apps open a connection on Channels. Search sits above the tree, people appear inside
-their rooms, and the call dock stays below the list. Android’s separate Voice grid is gone.
+Settings sits at the top left, with browsing and adding servers at the top right. Both apps
+start with the same simple choices when you haven’t saved a server yet.
 
 <table>
   <tr><th>iPhone · iOS 26.5</th><th>Android · Android 16</th></tr>
   <tr>
-    <td><img src="images/phone-layout/iphone-channels-dark.png" width="320" alt="iPhone Channels screen in Plum dark, with an indented channel tree and push-to-talk dock"></td>
-    <td><img src="images/phone-layout/android-channels-dark.png" width="320" alt="Android Channels screen in Plum dark, using the same tree and dock arrangement"></td>
+    <td><img src="images/phone-layout/iphone-home-dark.png" width="320" alt="iPhone home screen in Plum dark, showing Settings, Add server, and Browse"></td>
+    <td><img src="images/phone-layout/android-home-dark.png" width="320" alt="Android home screen in Plum dark, with the same controls and empty state"></td>
   </tr>
 </table>
-
-The iPhone simulator has no microphone input, which explains its warning below the talk button.
-The captures have different screen dimensions, so the amount of visible content varies.
-
-<details>
-<summary>Chat · Plum dark</summary>
-
-Messages from other people sit on the left; yours sit on the right. The destination is beside
-the composer, with photo and send controls at either end.
-
-<table>
-  <tr><th>iPhone</th><th>Android</th></tr>
-  <tr>
-    <td><img src="images/phone-layout/iphone-chat-dark.png" width="320" alt="iPhone chat with incoming messages on the left, an outgoing message on the right, and the composer above the call dock"></td>
-    <td><img src="images/phone-layout/android-chat-dark.png" width="320" alt="Android chat following the same message alignment and composer placement"></td>
-  </tr>
-</table>
-
-Android uses the shared foreground color for text on an accent background. That makes its
-outgoing text dark in this theme and keeps it readable against the pale pink bubble.
-
-</details>
 
 <details>
 <summary>Settings · Plum light</summary>
@@ -57,6 +35,26 @@ settings. Theme previews show the same colors you’ll see in the app.
     <td><img src="images/phone-layout/android-settings-light.png" width="320" alt="Android settings in Plum light, with the same section order and theme preview grid"></td>
   </tr>
 </table>
+
+</details>
+
+<details>
+<summary>Channels and chat on Android · Plum dark</summary>
+
+The Android session now follows the iPhone structure. Channels opens first, with people listed
+inside their rooms and call controls below. Chat keeps incoming messages on the left, yours on
+the right, and the destination beside the composer.
+
+<table>
+  <tr><th>Channels · Android</th><th>Chat · Android</th></tr>
+  <tr>
+    <td><img src="images/phone-layout/android-channels-dark.png" width="320" alt="Android Channels screen in Plum dark, with an indented channel tree and push-to-talk dock"></td>
+    <td><img src="images/phone-layout/android-chat-dark.png" width="320" alt="Android chat, with incoming messages on the left and an outgoing message on the right"></td>
+  </tr>
+</table>
+
+Text on filled chat bubbles uses the shared foreground color. It’s dark on this theme’s pale
+pink accent so messages stay readable.
 
 </details>
 
