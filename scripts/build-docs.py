@@ -53,10 +53,8 @@ class Document(HTMLParser):
         for name in ("href", "src"):
             if name in values:
                 values[name] = resolve_link(self.source, values[name])
-        if tag == "img":
-            values["loading"] = "lazy"
-            if not values.get("alt"):
-                raise ValueError(f"{self.source}: image needs alt text")
+        if tag == "img" and not values.get("alt"):
+            raise ValueError(f"{self.source}: image needs alt text")
         attributes = "".join(
             f' {name}="{html.escape(value, quote=True)}"'
             if value is not None

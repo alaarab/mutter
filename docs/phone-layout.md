@@ -1,62 +1,7 @@
-# Mutter on iPhone and Android
+# Phone layout
 
-Switching phones shouldn’t mean learning where everything moved. Mutter’s Android app now
-follows the iPhone layout: the same three tabs, people listed under their channels, and call
-controls within reach at the bottom of the screen.
-
-This page records the September 7, 2026 layout pass. The images are captures from the running
-apps in the Plum theme. The channel and chat examples use fictional people on a test server.
-
-## Side by side
-
-### Home · Plum dark
-
-Settings sits at the top left, with browsing and adding servers at the top right. Both apps
-start with the same simple choices when you haven’t saved a server yet.
-
-<table>
-  <tr><th>iPhone · iOS 26.5</th><th>Android · Android 16</th></tr>
-  <tr>
-    <td><img src="images/phone-layout/iphone-home-dark.png" width="320" alt="iPhone home screen in Plum dark, showing Settings, Add server, and Browse"></td>
-    <td><img src="images/phone-layout/android-home-dark.png" width="320" alt="Android home screen in Plum dark, with the same controls and empty state"></td>
-  </tr>
-</table>
-
-<details>
-<summary>Settings · Plum light</summary>
-
-Voice and certificates come first, followed by your default username, appearance, and behaviour
-settings. Theme previews show the same colors you’ll see in the app.
-
-<table>
-  <tr><th>iPhone</th><th>Android</th></tr>
-  <tr>
-    <td><img src="images/phone-layout/iphone-settings-light.png" width="320" alt="iPhone settings in Plum light, with voice and certificate links, username, and a grid of theme previews"></td>
-    <td><img src="images/phone-layout/android-settings-light.png" width="320" alt="Android settings in Plum light, with the same section order and theme preview grid"></td>
-  </tr>
-</table>
-
-</details>
-
-<details>
-<summary>Channels and chat on Android · Plum dark</summary>
-
-The Android session now follows the iPhone structure. Channels opens first, with people listed
-inside their rooms and call controls below. Chat keeps incoming messages on the left, yours on
-the right, and the destination beside the composer.
-
-<table>
-  <tr><th>Channels · Android</th><th>Chat · Android</th></tr>
-  <tr>
-    <td><img src="images/phone-layout/android-channels-dark.png" width="320" alt="Android Channels screen in Plum dark, with an indented channel tree and push-to-talk dock"></td>
-    <td><img src="images/phone-layout/android-chat-dark.png" width="320" alt="Android chat, with incoming messages on the left and an outgoing message on the right"></td>
-  </tr>
-</table>
-
-Text on filled chat bubbles uses the shared foreground color. It’s dark on this theme’s pale
-pink accent so messages stay readable.
-
-</details>
+Channels, messages, and call controls stay within reach. This guide covers where to find
+everything in the mobile apps, from joining a channel to changing your theme.
 
 ## Where things belong
 
@@ -77,8 +22,7 @@ landscape windows put push-to-talk beside the other call controls and let search
 the channel list. When the keyboard takes most of the screen, the input gets priority.
 
 The browser and Electron keep their wider layouts while sharing Mutter’s colors, fonts,
-and visual style. This pass changed the Android interface; the shipping iPhone interface
-provided the reference.
+and visual style.
 
 ## Colors that mean the same thing
 
