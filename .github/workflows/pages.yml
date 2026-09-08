@@ -1,0 +1,46 @@
+name: docs
+
+on:
+  push:
+    branches: [main]
+    paths: ['README.md', 'docs/**', 'design/**', 'android/README.md', 'android/VALIDATION.md', 'android/app/src/main/assets/themes.json', 'web/README.md', 'desktop/README.md', 'scripts/build-docs.py', '.github/workflows/pages.yml']
+  pull_request:
+    paths: ['README.md', 'docs/**', 'design/**', 'android/README.md', 'android/VALIDATION.md', 'android/app/src/main/assets/themes.json', 'web/README.md', 'desktop/README.md', 'scripts/build-docs.py', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: pip install -r docs/site/requirements.txt
+      - run: python scripts/build-docs.py
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: .build/pages/mutter
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - name: Publish docs
+        id: deployment
+        uses: actions/deploy-pages@v4

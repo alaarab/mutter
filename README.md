@@ -1,5 +1,7 @@
 # Mutter
 
+[Documentation](https://alaarab.github.io/mutter/) · [Phone comparison](https://alaarab.github.io/mutter/phone-layout.html)
+
 Join a server, see who’s around, and talk. Mutter is a Mumble client for your browser,
 iPhone, Android phone, or desktop, with voice, chat, and screen viewing in one place.
 
