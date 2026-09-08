@@ -3,7 +3,7 @@
 @font-face { font-family: Bricolage; src: url(fonts/BricolageDisplay-Bold.ttf) format('truetype'); font-weight: 700; font-display: swap; }
 * { box-sizing: border-box; }
 html { scroll-padding-top: 92px; }
-body { margin: 0; color: var(--ink); background: radial-gradient(ellipse at top left, color-mix(in srgb, var(--accent) 8%, transparent), transparent 65%), var(--bg); font: 15px/1.8 Jakarta, system-ui, sans-serif; }
+body { margin: 0; color: var(--ink); background: var(--bg); font: 15px/1.8 Jakarta, system-ui, sans-serif; }
 a { color: var(--accent); text-underline-offset: 3px; }
 a:hover { text-decoration-thickness: 2px; }
 button, summary { cursor: pointer; }

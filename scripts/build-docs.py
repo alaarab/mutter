@@ -152,7 +152,7 @@ def build():
         shutil.copy2(SITE / name, OUTPUT / "assets" / name)
     palettes = json.loads(
         (ROOT / "android/app/src/main/assets/themes.json").read_text()
-    )["themes"]["plum"]
+    )["themes"]["carbon"]
     declarations = {
         mode: ";".join(
             f"--{key}:{value}"

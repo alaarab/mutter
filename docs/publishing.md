@@ -23,9 +23,10 @@ The published artifact contains the selected guides, screenshots, shared fonts, 
 
 ## Appearance
 
-The site uses Mutter’s generated Plum palette and the fonts in `design/fonts`. It follows the
+The site uses Mutter’s generated Carbon palette and the fonts in `design/fonts`. It follows the
 system appearance by default; the theme button also offers light and dark. The preference stays
-in the reader’s browser. Update the shared palette through the usual theme generator.
+in the reader’s browser. Backgrounds, navigation, and links stay monochrome. Update the shared
+palette through the usual theme generator.
 
 ## Deployment
 
