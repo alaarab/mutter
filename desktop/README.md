@@ -1,8 +1,8 @@
 # Mutter Desktop
 
-The web client and its bridge in one window. Nothing here is new code: the main process runs
-`web/bridge/server.mjs` exactly as WSL does, and the window loads the same `web/app`. What the
-shell adds is the part a browser can't give you.
+The web client and its bridge in one window. The main process runs `web/bridge/server.mjs`,
+and the window loads the shared `web/app`. The shell adds desktop capture, global push to
+talk, and protected password storage.
 
 **Why it exists.** A managed browser carries its employer's policies onto every network, and a
 common one disables WebRTC over UDP — voice keeps working because the bridge sends that from
@@ -19,12 +19,17 @@ Same three shapes as VS Code. Grab one from the [releases](https://github.com/al
 | File | Like VS Code's… | What happens |
 |---|---|---|
 | `Mutter-x.y.z-win-setup.exe` | User Setup | Installs to `%LOCALAPPDATA%\Programs\Mutter`, Start menu and desktop shortcut, no admin prompt. Settings in `%APPDATA%\Mutter`. |
-| `Mutter-x.y.z-win.zip` | .zip download | Unzip anywhere and run `Mutter.exe`. Create a `data` folder beside it and *everything* the app remembers lives there — move the folder, move your setup. |
+| `Mutter-x.y.z-win.zip` | .zip download | Unzip anywhere and run `Mutter.exe`. Create a `data` folder beside it to keep server details and settings with the app. |
 | `Mutter-x.y.z-win-portable.exe` | Portable Mode | One file. Keeps a `data` folder beside itself, so a USB stick carries the app and its servers together. |
 | `.dmg` / `.AppImage` | — | macOS and Linux. The `data`-folder rule works for the AppImage too. |
 
 They are unsigned, so Windows SmartScreen will say "unrecognised app" the first time: *More info →
 Run anyway*.
+
+Saved passwords and TURN secrets use the operating system’s credential protection. Moving a
+portable profile to another computer or OS account may require entering passwords again.
+If secure storage is unavailable, passwords stay in memory for the current session; Mutter
+does not fall back to a plaintext file. Existing localStorage passwords migrate on launch.
 
 ### On a managed work laptop, don't
 
@@ -70,8 +75,9 @@ BrowserWindow ──http/ws──▶ bridge (in the main process) ──TLS + UD
 - `web/` and the fonts are shipped as extra resources next to the app, not inside the archive,
   so they can be inspected and edited in place. The bridge finds them through
   `process.resourcesPath`.
-- The renderer runs sandboxed with context isolation and no preload; it is the plain web client.
-  Only the picker page has a preload, and it exposes two functions. The picker loads the shared
+- The renderer runs sandboxed with context isolation. Its preload exposes only credential
+  reads and writes; the main process checks the requesting window, frame, and URL. The picker
+  has a separate preload exposing its selection controls. The picker loads the shared
   web assets and receives the main window’s selected theme and appearance before it is shown. The main process talks to
   the page only through `executeJavaScript` against `window.mutter`, to read the push-to-talk
   binding and to press or release it.

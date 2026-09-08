@@ -16,6 +16,7 @@ struct ServerEditView: View {
     @State private var isFavorite: Bool
     @State private var accentIndex: Int
     @State private var connectAfterSave = false
+    @State private var saveError: String?
 
     init(server: SavedServer?, prefillHost: String? = nil, prefillPort: UInt16? = nil, prefillName: String? = nil) {
         original = server
@@ -91,7 +92,7 @@ struct ServerEditView: View {
                 if original != nil {
                     Section {
                         Button(role: .destructive) {
-                            if let original { model.servers.remove(original) }
+                            if let original, !model.servers.remove(original) { showSaveError(); return }
                             dismiss()
                         } label: { Text("Remove server") }
                     }
@@ -119,6 +120,9 @@ struct ServerEditView: View {
                 if let original { password = model.servers.password(for: original) ?? "" }
                 if username.isEmpty { username = model.settings.defaultUsername }
             }
+            .alert("Couldn't save server", isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: { Text(saveError ?? "Please try again.") }
         }
     }
 
@@ -135,9 +139,13 @@ struct ServerEditView: View {
         if let original, original.host != server.host || original.port != server.port {
             server.certificateFingerprint = nil
         }
-        model.servers.upsert(server)
-        model.servers.setPassword(password, for: server)
+        guard model.servers.upsert(server), model.servers.setPassword(password, for: server) else { showSaveError(); return }
         dismiss()
         if connect { model.connect(server) }
+    }
+
+    private func showSaveError() {
+        saveError = model.servers.storageError
+        model.servers.storageError = nil
     }
 }

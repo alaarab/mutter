@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Observation
+import MumbleClient
 
 enum Appearance: String, CaseIterable, Identifiable, Codable {
     case system, light, dark
@@ -70,6 +71,9 @@ private extension UserDefaults {
 @Observable
 final class AppSettings {
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let credentials: any CredentialStore
+    @ObservationIgnored private var turnCredentialsLoaded = true
+    var storageError: String?
 
     var transmitMode: TransmitMode { didSet { defaults.set(transmitMode.rawValue, forKey: "transmitMode") } }
     var vadThresholdDb: Float { didSet { defaults.set(vadThresholdDb, forKey: "vadThresholdDb") } }
@@ -80,7 +84,18 @@ final class AppSettings {
     var mixWithOthers: Bool { didSet { defaults.set(mixWithOthers, forKey: "mixWithOthers") } }
     var turnURL: String { didSet { defaults.set(turnURL, forKey: "turnURL") } }
     var turnUsername: String { didSet { defaults.set(turnUsername, forKey: "turnUsername") } }
-    var turnPassword: String { didSet { defaults.set(turnPassword, forKey: "turnPassword") } }
+    var turnPassword: String {
+        didSet {
+            guard turnCredentialsLoaded else {
+                storageError = "Saved credentials could not be read. Unlock your device and reopen Mutter before editing them."
+                return
+            }
+            do {
+                try credentials.set(Data(turnPassword.utf8), for: "turnPassword")
+                defaults.removeObject(forKey: "turnPassword")
+            } catch { storageError = error.localizedDescription }
+        }
+    }
     var appearance: Appearance { didSet { defaults.set(appearance.rawValue, forKey: "appearance") } }
     var theme: ThemeStyle {
         didSet {
@@ -101,8 +116,9 @@ final class AppSettings {
     var autoSensitivity: Bool { didSet { defaults.set(autoSensitivity, forKey: "autoSensitivity") } }
     var headsetButtonAction: HeadsetAction { didSet { defaults.set(headsetButtonAction.rawValue, forKey: "headsetButtonAction") } }
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, credentials: any CredentialStore = KeychainCredentials()) {
         self.defaults = defaults
+        self.credentials = credentials
         transmitMode = defaults.rawValue("transmitMode", default: .voiceActivity)
         vadThresholdDb = defaults.value("vadThresholdDb", default: -38)
         bitrate = defaults.value("bitrate", default: 40_000)
@@ -129,6 +145,13 @@ final class AppSettings {
         autoSensitivity = defaults.value("autoSensitivity", default: true)
         headsetButtonAction = defaults.rawValue("headsetButtonAction", default: .toggleMute)
         Theme.style = theme
+        do {
+            let legacy = defaults.string(forKey: "turnPassword").map { Data($0.utf8) }
+            let saved = try credentials.migrate(legacy, for: "turnPassword") {
+                defaults.removeObject(forKey: "turnPassword")
+            }
+            turnPassword = saved.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        } catch { turnCredentialsLoaded = false; storageError = error.localizedDescription }
     }
 
     var audioPreferences: AudioPreferences {

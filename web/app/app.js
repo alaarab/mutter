@@ -6,7 +6,7 @@ import { mountRoom } from './room.js';
 import { THEMES, DEFAULT_THEME, applyTheme } from './themes.js';
 import { isVisible, setVisible } from './motion.js';
 import { mountAppearance } from './appearance.js';
-import { settings, saveSettings, servers, rememberServer, forgetServer, collapsedFor, certificateFor, rememberCertificate } from './store.js';
+import { settings, saveSettings, servers, rememberServer, forgetServer, collapsedFor, certificateFor, rememberCertificate, credentialStorage } from './store.js';
 import { confirmCertificate } from './certificate.js';
 import { DEFAULT_IMAGE_LIMIT, sanitize, imageToHtml, escapeHtml, plainText, openViewer } from './chat.js';
 import { DEFAULT_PORT } from '../src/mumble.js';
@@ -112,6 +112,14 @@ migrateSettings();
 applyTheme(settings.theme, settings.appearance);
 applyTextSize(settings.textSize);
 mountIcons();
+function updateCredentialStatus() {
+  $('rememberLabel').textContent = credentialStorage.available ? 'Remember password securely' : 'Keep password for this session';
+  $('turnCredentialHint').textContent = credentialStorage.available ? 'Credentials are saved in secure storage.' : 'Credentials stay in memory for this session.';
+  $('credentialStatus').hidden = !credentialStorage.notice;
+  $('credentialStatus').textContent = credentialStorage.notice;
+}
+updateCredentialStatus();
+window.addEventListener('mutter-credential-storage', updateCredentialStatus);
 const appearanceControls = mountAppearance({
   container: $('themes'), selector: $('appearance'), description: $('themeDescription'),
   settings, save: saveSettings,

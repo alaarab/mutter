@@ -21,7 +21,7 @@ jobs:
           package-manager-cache: false
       - run: npm audit --audit-level=low
         working-directory: desktop
-      - run: node --test --test-concurrency=1 web/test/bridge.test.mjs web/test/peer-certificate.test.mjs web/test/certificate.test.mjs web/test/chat-security.test.mjs web/test/signal-security.test.mjs desktop/test/security.test.mjs
+      - run: node --test --test-concurrency=1 web/test/bridge.test.mjs web/test/peer-certificate.test.mjs web/test/certificate.test.mjs web/test/chat-security.test.mjs web/test/credentials.test.mjs web/test/signal-security.test.mjs desktop/test/security.test.mjs desktop/test/credentials.test.mjs
         env:
           CHROME: google-chrome
   swift:
@@ -36,3 +36,6 @@ jobs:
           package-manager-cache: false
       - run: swift test --package-path Packages/MumbleCore
       - run: node --test web/test/native.test.mjs
+      - run: npm ci
+        working-directory: desktop
+      - run: node --test desktop/test/safe-storage.test.mjs

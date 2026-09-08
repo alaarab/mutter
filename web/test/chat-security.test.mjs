@@ -1,6 +1,35 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import http from 'node:http';
 import { startEnvironment } from './harness.mjs';
+
+test('chat images make no remote requests until explicitly loaded', { timeout: 30_000 }, async t => {
+  const requests = [];
+  const remote = http.createServer((request, response) => {
+    requests.push({ url: request.url, referrer: request.headers.referer });
+    response.writeHead(200, { 'content-type': 'image/png' });
+    response.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=', 'base64'));
+  });
+  await new Promise(resolve => remote.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => remote.close(resolve)));
+  const environment = await startEnvironment();
+  t.after(() => environment.close());
+  const page = await environment.browser.newPage(environment.bridge.url);
+  const origin = `http://127.0.0.1:${remote.address().port}`;
+  await page.eval(`(async () => {
+    const { sanitize, plainText } = await import('/app/chat.js');
+    const markup = '<img src="${origin}/image"><iframe src="${origin}/frame"></iframe><link rel="stylesheet" href="${origin}/style">';
+    plainText(markup);
+    const host = document.createElement('div'); host.id = 'remote-test';
+    host.append(sanitize(markup)); document.body.append(host);
+  })()`);
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.deepEqual(requests, []);
+  assert.equal(await page.eval("document.querySelectorAll('#remote-test img').length"), 0);
+  await page.eval("document.querySelector('#remote-test .image-load').click()");
+  await page.waitFor("document.querySelector('#remote-test img')?.complete");
+  assert.deepEqual(requests, [{ url: '/image', referrer: undefined }]);
+});
 
 test('hostile markup stays inert and cannot break chat rendering', { timeout: 30_000 }, async t => {
   const environment = await startEnvironment();

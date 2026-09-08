@@ -1,8 +1,9 @@
-import { app, BrowserWindow, session, desktopCapturer, shell, ipcMain, nativeImage, dialog } from 'electron';
+import { app, BrowserWindow, session, desktopCapturer, shell, ipcMain, nativeImage, dialog, safeStorage } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { allowsPermission, isAppURL, isExternalURL } from './security.js';
+import { CredentialVault } from './credentials.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const webRoot = app.isPackaged ? path.join(process.resourcesPath, 'web') : path.join(here, '..', 'web');
@@ -91,7 +92,7 @@ function createMainWindow(url) {
     autoHideMenuBar: true,
     show: false,
     icon: nativeImage.createFromPath(iconPath),
-    webPreferences: { contextIsolation: true, sandbox: true, spellcheck: true, offscreen: SMOKE },
+    webPreferences: { contextIsolation: true, sandbox: true, spellcheck: true, offscreen: SMOKE, preload: path.join(here, 'preload.cjs') },
   });
   window.once('ready-to-show', () => {
     if (!SMOKE) {
@@ -281,6 +282,24 @@ app.whenReady().then(async () => {
   if (SMOKE) console.log('smoke: Electron ready');
   configureBridgeEnvironment();
   const url = await startBridge();
+  const vault = new CredentialVault(path.join(app.getPath('userData'), 'credentials.enc'), {
+    available: () => safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || !['basic_text', 'unknown'].includes(safeStorage.getSelectedStorageBackend())),
+    encrypt: value => safeStorage.encryptString(value),
+    decrypt: value => safeStorage.decryptString(value),
+  });
+  const validateSender = event => {
+    if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame || !isAppURL(event.senderFrame.url, url)) {
+      throw new Error('Invalid credential request');
+    }
+  };
+  ipcMain.handle('mutter:credentials:read', event => {
+    validateSender(event);
+    try { return vault.read(); } catch { return { available: false, error: 'Saved passwords are unavailable. Unlock secure storage and reopen Mutter.' }; }
+  });
+  ipcMain.handle('mutter:credentials:write', (event, value) => {
+    validateSender(event);
+    vault.write(value);
+  });
   installScreenPicker(url);
   mainWindow = createMainWindow(url);
   await mainWindow.loadURL(url);

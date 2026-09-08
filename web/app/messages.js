@@ -81,9 +81,9 @@ export class MessageList {
     }
     const content = el('div', { className: 'content' });
     content.append(sanitize(message.html));
-    for (const image of content.querySelectorAll('img')) {
-      image.addEventListener('click', () => this.ctx.onImage?.(image.src));
-    }
+    content.addEventListener('click', event => {
+      if (event.target instanceof HTMLImageElement) this.ctx.onImage?.(event.target.src);
+    });
     body.append(content);
     if (message.failed) {
       body.append(failedNote(message));

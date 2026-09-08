@@ -157,7 +157,7 @@ final class AudioEngine: VoiceSink {
     private var categoryOptions: AVAudioSession.CategoryOptions {
         var options: AVAudioSession.CategoryOptions
         switch route {
-        case .bluetooth: options = [.allowBluetooth, .allowBluetoothA2DP]
+        case .bluetooth: options = [.allowBluetoothHFP, .allowBluetoothA2DP]
         case .speaker: options = [.defaultToSpeaker]
         case .earpiece: options = []
         }

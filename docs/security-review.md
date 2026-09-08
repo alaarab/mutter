@@ -2,6 +2,8 @@
 
 Reviewed September 8, 2026, across Mutter’s browser client, local bridge, Electron shell,
 Swift packages, iOS app, Android app, dependency manifests, Git history, and GitHub workflows.
+All confirmed security findings from this review have been addressed, including the Android
+build dependencies, stored credentials, and remote-image privacy items left open in the first pass.
 This combines automated scans, source review, malformed-input tests, and running-app checks.
 It is a point-in-time review, not a guarantee that every vulnerability has been found.
 
@@ -10,6 +12,9 @@ It is a point-in-time review, not a guarantee that every vulnerability has been 
 | Area | Finding | Change |
 | --- | --- | --- |
 | Android dependencies | Bouncy Castle 1.81 / 1.81.1 matched two published advisories | Updated all three resolved Bouncy Castle artifacts to 1.85 and retained their bundled license notices. |
+| Android build dependencies | 12 resolved artifacts matched 45 distinct advisories | Updated Kotlin to 2.4.20 and constrained the affected plugin dependencies to patched versions. The resolved runtime and build graphs now have zero OSV matches; CI repeats the scan. |
+| Stored credentials | Browser/Electron passwords and iOS TURN credentials/access tokens used ordinary app storage | Browser secrets are session-only. Electron uses OS-backed encryption when available. iOS migrates TURN credentials and tokens to Keychain. Migration and storage-failure tests protect existing secrets from accidental overwrite. |
+| Remote chat images | External images could expose a viewer’s address before consent | Parse markup in an inert template and show a load button. No external image request occurs until clicked; requests omit the referrer. |
 | Android video | The app shipped an older M144 WebRTC binary | Updated to the distributor’s 150.7871.01 release and verified live video decoding. |
 | Browser chat | An inherited object property could make malformed markup throw during rendering | Restricted the formatting allowlist to its own properties and added hostile-markup regression coverage. |
 | iOS chat | Server HTML reached the attributed-string importer with insufficient filtering | Added a formatting/link allowlist; removed resource-bearing markup; bounded text, embedded-image decoding, and cache memory. |
@@ -17,7 +22,7 @@ It is a point-in-time review, not a guarantee that every vulnerability has been 
 | Browser bridge | Responses lacked a Content Security Policy | Added CSP and a no-referrer policy, including blocked frames, objects, and inline scripts. |
 | Screen sharing | JavaScript/iOS reassembly and candidate queues lacked consistent resource limits | Added packet, pending-message, decompression, and candidate bounds; rejected inconsistent fragment headers and malformed streams. |
 | Native share controls | iOS did not consistently authenticate the sender of stop/ICE messages; Android could throw on malformed candidate entries | Bound controls to the active sender/share, rejected unknown senders, capped announcements, and ignored malformed candidates. |
-| Build workflows | Actions used mutable tags, checkouts retained credentials, and permissions/cache defaults were broader than needed | Pinned actions to commit hashes, disabled persisted checkout credentials, scoped permissions, and disabled release package caching. |
+| Build workflows | Actions used mutable tags, checkouts retained credentials, and permissions/cache defaults were broader than needed | Pinned actions to commit hashes, disabled persisted checkout credentials, scoped permissions, disabled release package caching, and replaced the release action with the runner’s GitHub CLI. |
 | Repository hygiene | RNNoise’s referenced license was missing and a reused source checkout could bypass its build pin | Restored the upstream license, included it in desktop distributions, and required a clean checkout of the pinned source commit. |
 | Maintenance | Sensitive local file patterns and recurring security regressions lacked coverage | Expanded ignore rules, pinned the iOS Opus version, added security CI and weekly dependency updates, and removed two Swift concurrency warnings. |
 
@@ -38,17 +43,18 @@ applies to this Android binary.
 | npm audit, including development dependencies | No known vulnerabilities in the desktop lockfile. |
 | pip-audit | No known vulnerabilities in the two pinned docs dependencies. |
 | OSV, Android runtime | 64 resolved Maven artifacts; no advisory matches after the updates. |
-| OSV, Android build toolchain | 144 resolved build artifacts; 12 artifacts match 45 distinct advisories. These remain open and are detailed below. |
-| Semgrep security-audit rules | 241 files scanned; no findings or scan errors. Manual review found issues outside those rules’ coverage. |
-| Gitleaks, all Git refs | 67 commits scanned; one reviewed false positive, no confirmed committed credential. |
-| Gitleaks, current source tree | Same false positive in a WebSocket test; no confirmed credential. |
-| Zizmor | Security findings addressed. One informational suggestion remains to replace the pinned release action with the runner’s `gh` CLI. |
+| OSV, Android build toolchain | 143 resolved build artifacts; no advisory matches. [Resolved inventory](security/android-build-audit.json). |
+| Semgrep security-audit rules | 248 files scanned; no scan errors. One generic Python HTTPS API warning was reviewed: the auditor uses a fixed HTTPS host and an explicit certificate-verifying TLS context. |
+| Gitleaks, all Git refs | 68 commits scanned; no unsuppressed findings. One historical test-data false positive has an exact commit/path/rule/line exception. |
+| Gitleaks, current source tree | No findings in tracked source and new source files. Generated Android build-cache bytes produced two unrelated matches when included in a broader directory scan. |
+| Zizmor | No findings. |
 | Android lint | Build passes with 21 warnings, including dependency/style suggestions and the custom certificate-verification warning discussed below. |
 | Repository checks | No whitespace errors or first-party code comments; required language directives remain. Gradle’s wrapper JAR matches the publisher’s SHA-256. |
 
-The secret scanner’s only match is the public RFC 6455 sample WebSocket handshake value in
-`web/test/bridge.test.mjs`. It is test data, not a service credential. No history rewrite or
-credential rotation is warranted for that match.
+The historical secret-scanner exception is the public RFC 6455 sample handshake value in
+`web/test/bridge.test.mjs`. The current test generates a fresh nonce. The exception applies only
+to that historical match; it does not exclude the file or disable a detector. No history rewrite
+or credential rotation is warranted for that test value.
 
 The browser bridge binds to loopback and validates Host, Origin, a random bridge token,
 WebSocket framing, and certificate approval before forwarding credentials. Android’s custom
@@ -59,51 +65,70 @@ or a matching saved pin before authentication. Tests cover rejection and pin reu
 ## Runtime verification
 
 - Swift package: 55 tests passed, including the new HTML sanitizer cases.
-- iOS simulator build: succeeded. Native probes also passed malformed signaling, audio
-  playout, and reconnect scenarios.
+- iOS simulator build: succeeded. The signed app migrated legacy TURN credentials and access
+  tokens out of plaintext storage; both values reopened through the iOS Keychain API. An unsigned
+  build refused Keychain access and retained the
+  originals. Native probes also passed migration/failure, malformed signaling, audio playout,
+  and reconnect scenarios.
 - Android: 13 JVM tests passed; APK build and lint passed; nine emulator integration/storage
   tests passed; the updated WebRTC engine decoded real desktop video in a separate interop test.
+  A certificate-prompt test initially raced the rendered dialog; it now waits for visibility,
+  and the complete nine-test run passed after that correction.
 - Electron: connected to a local fixture, sent chat, and acquired a microphone stream through
-  the restricted permission handler. Navigation policy and persistence tests passed.
-- Browser: certificate approval, chat, voice, sharing, themes, persistence, and malformed-input
-  tests ran. The full run had one audio-buffer timing failure while native builds and the
-  emulator were running. It passed on an isolated rerun, with 42.7 dB signal-to-noise ratio,
-  no clicks/dropouts/underruns, and no buffer growth across short talk spurts. The first
-  failure remains evidence of timing sensitivity under load.
+  the restricted permission handler. Navigation, persistence, vault-failure, and credential IPC
+  isolation checks passed. The real OS-encryption round-trip test was skipped locally because
+  this session’s OS store was unavailable; the test verified no plaintext fallback and also runs
+  in macOS CI. The encryption adapter was exercised separately with authenticated-encryption
+  fixtures, including tampered ciphertext and failed writes.
+- Browser and desktop regression suite: 41 passed, zero failed, and the one OS-storage skip
+  described above. Coverage includes certificate approval, credentials, remote-image consent,
+  chat, voice, sharing, themes, persistence, and malformed input. The previous audit’s audio
+  timing failure under heavy host load did not recur in this full run.
 
-## Open Android build-tool findings
+## Android build-tool remediation
 
-These libraries belong to the Gradle/plugin classpath, not the APK’s runtime dependency graph.
-Version matches establish exposure in the build environment; they do not prove each affected
-API is reachable during this project’s build. The complete matching IDs are in the
-[build dependency findings](security/android-build-audit.json).
+The 45 advisory matches from the first pass belonged to the Gradle/plugin classpath, rather
+than the APK’s runtime graph. The following versions resolved successfully in a clean build:
 
-| Build dependency | Resolved version | Advisory matches |
+| Dependency | Previous | Current |
 | --- | --- | --- |
-| Kotlin Gradle plugin | 2.2.20 | 1 |
-| Bouncy Castle PKIX / provider | 1.79 | 3 across two artifacts |
-| Commons Compress | 1.21 | 2 |
-| jose4j | 0.9.5 | 1 |
-| JDOM | 2.0.6 | 1 |
-| Netty HTTP/2, HTTP, proxy, handler, codec, common | 4.1.110.Final | 38 matches across six artifacts, including a shared advisory |
+| Kotlin Gradle plugin / Compose compiler | 2.2.20 | 2.4.20 |
+| Bouncy Castle PKIX / provider | 1.79 | 1.85 |
+| Commons Compress | 1.21 | 1.28.0 |
+| jose4j | 0.9.5 | 0.9.6 |
+| JDOM | 2.0.6 | 2.0.6.1 |
+| Netty build dependencies | 4.1.110.Final | 4.1.137.Final |
 
-The Kotlin finding concerns KAPT incremental-cache deserialization. Mutter does not apply
-KAPT; the [upstream fix](https://github.com/JetBrains/kotlin/commit/bf51df665b458fda7c3eaf436c4d88dc119d7ec6)
-is in that subsystem. CI now disables Gradle cache restoration to reduce exposure to poisoned
-build caches. This is a mitigation, not removal of the vulnerable dependencies.
+Android Gradle Plugin remains at 8.13.2. Kotlin’s published
+[compatibility range](https://kotlinlang.org/docs/gradle-configure-project.html) includes this
+plugin and the pinned Gradle version. The explicit transitive constraints are validated by
+unit tests, lint, APK assembly, and emulator integration tests. CI inventories the resolved
+runtime and build classpaths and fails on any OSV match or an incomplete audit response.
 
-The next remediation is an Android Gradle Plugin/Kotlin toolchain upgrade, followed by another
-resolved-classpath scan and clean build, signing, lint, and emulator checks. Forcing unrelated
-transitive versions into the existing plugin would need its own compatibility validation.
+## Credential storage and image privacy
 
-## Remaining work and limits
+- **Browser:** saved server details remain available, but server passwords and TURN secrets
+  stay in memory for the current session. Previously stored plaintext values are removed
+  from localStorage when the app loads. Reloading clears session-only passwords.
+- **Electron:** a sandboxed preload exposes a narrow credential API to the main app frame.
+  Credentials are encrypted with Electron’s OS-backed safeStorage and written atomically.
+  Linux’s plaintext fallback is rejected. When the OS store is unavailable, passwords remain
+  session-only; the UI labels explain which behavior is active. Decryption failures preserve
+  the existing vault and block writes.
+- **iOS:** server passwords, TURN credentials, and access tokens use device-bound Keychain
+  entries. Legacy fields are removed only after secure writes succeed. Failed reads prevent
+  editing unknown saved credentials; failed writes surface an error and preserve old values.
+- **Android:** the existing device-bound Keystore encryption remains in place, with tamper
+  detection and credential-storage tests rerun against the patched toolchain.
+- **Images:** HTTP/HTTPS chat images show a load button identifying the host. A regression test
+  counts network requests and verifies zero requests before consent, then one image request
+  without a referrer after a click. Embedded attachments still display directly.
 
-- **Credential storage:** browser/Electron remembered server passwords and TURN credentials
-  use localStorage. iOS server passwords use Keychain, but TURN credentials use UserDefaults
-  and access tokens remain in the saved-server file. Those values rely on the OS/app profile’s
-  protection. Moving them into platform credential storage needs a tested migration.
-- **Remote images:** browser chat can still load HTTP/HTTPS images automatically. Image hosts
-  can observe the viewer’s network address. A click-to-load setting remains a privacy improvement.
+Removing a value from an app’s storage does not erase old backups or guarantee forensic
+removal from disk. These changes stop ongoing plaintext persistence in the app.
+
+## Coverage and separate maintenance
+
 - **Native binaries:** iOS uses Opus wrapper 1.9.0 and WebRTC 152.0.0; Android uses WebRTC
   150.7871.01; RNNoise is pinned to source commit `1cbdbcf`. OSV commit queries for RNNoise,
   upstream Opus 1.5.2, and the iOS WebRTC source revision returned no matches. This is limited
@@ -128,13 +153,14 @@ uv run --with zizmor zizmor .github
 gitleaks git . --redact --log-opts=--all
 swift test --package-path Packages/MumbleCore
 node --test --test-concurrency=1 web/test/*.test.mjs desktop/test/*.test.mjs
-android/gradlew -p android testDebugUnitTest lintDebug assembleDebug
+android/gradlew -p android securityInventory testDebugUnitTest lintDebug assembleDebug
+python3 scripts/audit-android-dependencies.py
 node scripts/generate-themes.mjs --check
 git diff --check
 ```
 
 Set `CHROME` to a Chromium-compatible browser executable for browser tests. Electron tests
 need `npm ci` in `desktop/`. Android needs JDK 21 and the SDK; emulator test setup is in the
-[Android guide](../android/README.md). Gitleaks intentionally still reports the reviewed test
-constant. Weekly dependency PRs use a seven-day cooldown for ordinary version updates;
+[Android guide](../android/README.md). The historical Gitleaks exception is recorded in
+`.gitleaksignore`. Weekly dependency PRs use a seven-day cooldown for ordinary version updates;
 [security updates are exempt](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#cooldown).

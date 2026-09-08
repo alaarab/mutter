@@ -28,8 +28,9 @@ jobs:
         with:
           cache-disabled: true
       - run: node scripts/generate-themes.mjs --check
-      - run: ./gradlew testDebugUnitTest lintDebug assembleDebug
+      - run: ./gradlew securityInventory testDebugUnitTest lintDebug assembleDebug
         working-directory: android
+      - run: python3 scripts/audit-android-dependencies.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: mutter-android-debug

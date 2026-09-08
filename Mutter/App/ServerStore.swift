@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import Security
 import MumbleClient
 
 struct SavedServer: Identifiable, Codable, Hashable {
@@ -26,16 +25,38 @@ final class ServerStore {
     private(set) var servers: [SavedServer] = []
     private(set) var status: [UUID: ServerPingResult] = [:]
     private(set) var unreachable: Set<UUID> = []
+    var storageError: String?
 
     @ObservationIgnored private let fileURL: URL
+    @ObservationIgnored private let credentials: any CredentialStore
+    @ObservationIgnored private let passwords: any CredentialStore
+    @ObservationIgnored private var credentialsLoaded = true
 
-    init(directory: URL? = nil) {
+    init(directory: URL? = nil, credentials: any CredentialStore = KeychainCredentials(),
+         passwords: any CredentialStore = KeychainCredentials(service: "com.alaarab.mutter.server-password")) {
+        self.credentials = credentials
+        self.passwords = passwords
         let dir = directory ?? AppDirectories.support
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         fileURL = dir.appendingPathComponent("servers.json")
         if let data = try? Data(contentsOf: fileURL),
            let list = try? JSONDecoder().decode([SavedServer].self, from: data) {
             servers = list
+            credentialsLoaded = false
+            do {
+                for index in servers.indices {
+                    let server = servers[index]
+                    let key = "tokens-\(server.id.uuidString)"
+                    let saved = try credentials.data(for: key)
+                    if let saved {
+                        servers[index].tokens = try JSONDecoder().decode([String].self, from: saved)
+                    } else if !server.tokens.isEmpty {
+                        try credentials.set(JSONEncoder().encode(server.tokens), for: key)
+                    }
+                }
+                credentialsLoaded = true
+                persist()
+            } catch { storageError = error.localizedDescription }
         }
     }
 
@@ -48,26 +69,45 @@ final class ServerStore {
             .sorted { ($0.lastConnectedAt ?? .distantPast) > ($1.lastConnectedAt ?? .distantPast) }
     }
 
-    private func persist() {
-        if let data = try? JSONEncoder().encode(servers) {
-            try? data.write(to: fileURL, options: .atomic)
-        }
+    @discardableResult
+    private func persist() -> Bool {
+        guard canSaveCredentials else { return false }
+        do {
+            for server in servers {
+                try credentials.set(JSONEncoder().encode(server.tokens), for: "tokens-\(server.id.uuidString)")
+            }
+            let metadata = servers.map { server in
+                var copy = server
+                copy.tokens = []
+                return copy
+            }
+            try JSONEncoder().encode(metadata).write(to: fileURL, options: .atomic)
+            return true
+        } catch { storageError = error.localizedDescription; return false }
     }
 
-    func upsert(_ server: SavedServer) {
+    @discardableResult
+    func upsert(_ server: SavedServer) -> Bool {
+        guard canSaveCredentials else { return false }
+        do { try credentials.set(JSONEncoder().encode(server.tokens), for: "tokens-\(server.id.uuidString)") }
+        catch { storageError = error.localizedDescription; return false }
         if let i = servers.firstIndex(where: { $0.id == server.id }) {
             servers[i] = server
         } else {
             servers.append(server)
         }
-        persist()
+        return persist()
     }
 
-    func remove(_ server: SavedServer) {
+    @discardableResult
+    func remove(_ server: SavedServer) -> Bool {
+        guard canSaveCredentials else { return false }
+        guard setPassword(nil, for: server) else { return false }
+        do { try credentials.set(nil, for: "tokens-\(server.id.uuidString)") }
+        catch { storageError = error.localizedDescription; return false }
         servers.removeAll { $0.id == server.id }
         status[server.id] = nil
-        setPassword(nil, for: server)
-        persist()
+        return persist()
     }
 
     func server(withID id: UUID) -> SavedServer? {
@@ -91,32 +131,26 @@ final class ServerStore {
         persist()
     }
 
-    private func passwordQuery(_ server: SavedServer) -> [CFString: Any] {
-        [
-            kSecClass: kSecClassGenericPassword,
-            kSecAttrService: "com.alaarab.mutter.server-password",
-            kSecAttrAccount: server.id.uuidString,
-        ]
-    }
-
     func password(for server: SavedServer) -> String? {
-        var query = passwordQuery(server)
-        query[kSecReturnData] = true
-        query[kSecMatchLimit] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let data = result as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
+        do { return try passwords.data(for: server.id.uuidString).flatMap { String(data: $0, encoding: .utf8) } }
+        catch { credentialsLoaded = false; storageError = error.localizedDescription; return nil }
     }
 
-    func setPassword(_ password: String?, for server: SavedServer) {
-        let query = passwordQuery(server)
-        SecItemDelete(query as CFDictionary)
-        guard let password, !password.isEmpty else { return }
-        var add = query
-        add[kSecValueData] = Data(password.utf8)
-        add[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        SecItemAdd(add as CFDictionary, nil)
+    @discardableResult
+    func setPassword(_ password: String?, for server: SavedServer) -> Bool {
+        guard canSaveCredentials else { return false }
+        do {
+            try passwords.set(password.flatMap { $0.isEmpty ? nil : Data($0.utf8) }, for: server.id.uuidString)
+            return true
+        } catch { storageError = error.localizedDescription; return false }
+    }
+
+    private var canSaveCredentials: Bool {
+        guard credentialsLoaded else {
+            storageError = "Saved credentials could not be read. Unlock your device and reopen Mutter before editing them."
+            return false
+        }
+        return true
     }
 
     @MainActor

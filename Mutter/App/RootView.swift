@@ -22,6 +22,14 @@ struct RootView: View {
         .animation(reduceMotion ? nil : ThemeMotion.animation(DesignMotion.theme), value: model.settings.theme)
         .transaction { if reduceMotion { $0.disablesAnimations = true } }
         .background(Theme.background.ignoresSafeArea())
+        .alert("Couldn't save credentials", isPresented: Binding(
+            get: { model.settings.storageError != nil || model.servers.storageError != nil },
+            set: { if !$0 { model.settings.storageError = nil; model.servers.storageError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(model.settings.storageError ?? model.servers.storageError ?? "Please try again.")
+        }
         .sheet(item: $model.trustPrompt) { prompt in
             CertificateTrustSheet(prompt: prompt)
                 .interactiveDismissDisabled()

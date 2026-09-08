@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
 import { after, test } from 'node:test';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -24,7 +25,7 @@ function upgrade({ origin = url, auth = token, host = new URL(url).host, request
     const request = http.request(`${url}${requestPath ?? `/bridge?token=${auth}`}`, {
       headers: {
         Host: host, Origin: origin, Upgrade: 'websocket', Connection: 'Upgrade',
-        'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==', 'Sec-WebSocket-Version': '13',
+        'Sec-WebSocket-Key': randomBytes(16).toString('base64'), 'Sec-WebSocket-Version': '13',
       },
     });
     request.on('upgrade', (response, socket) => resolve({ status: response.statusCode, socket }));

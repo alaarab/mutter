@@ -5,6 +5,20 @@ const SERVERS_KEY = 'mutter.servers';
 const COLLAPSED_KEY = 'mutter.collapsed';
 const CERTIFICATES_KEY = 'mutter.certificates';
 const MAX_SAVED_SERVERS = 12;
+export const credentialStorage = { available: false, notice: '' };
+let restored = { servers: {}, turn: '' };
+try {
+  const result = await window.mutterCredentials?.read();
+  if (result?.available) {
+    credentialStorage.available = true;
+    restored = result.value;
+  }
+  credentialStorage.notice = result?.error ?? '';
+} catch {
+  credentialStorage.notice = 'Saved passwords are unavailable. Reopen Mutter after unlocking secure storage.';
+}
+let lastSavedCredentials = JSON.stringify(restored);
+let credentialWrites = Promise.resolve();
 
 function loadJson(key, fallback) {
   try {
@@ -35,12 +49,54 @@ export const settings = loadObject(SETTINGS_KEY, {
   turn: { url: '', username: '', credential: '' },
 });
 settings.appearance = appearanceForSettings(loadJson(SETTINGS_KEY, {}));
+settings.turn = { url: '', username: '', credential: '', ...settings.turn };
+settings.turn.credential = restored.turn || settings.turn.credential;
 
 export function saveSettings() {
-  saveJson(SETTINGS_KEY, settings);
+  saveJson(SETTINGS_KEY, { ...settings, turn: { ...settings.turn, credential: '' } });
+  return saveCredentials();
 }
 
-export const servers = loadJson(SERVERS_KEY, []);
+const savedServers = loadJson(SERVERS_KEY, []);
+export const servers = (Array.isArray(savedServers) ? savedServers : []).slice(0, MAX_SAVED_SERVERS);
+for (const server of servers) {
+  server.password = restored.servers[secretKey(server)] ?? server.password;
+}
+
+function secretKey(server) {
+  return JSON.stringify([server.host?.toLowerCase(), Number(server.port), server.username]);
+}
+
+function saveServers() {
+  saveJson(SERVERS_KEY, servers.map(({ password, ...server }) => server));
+  return saveCredentials();
+}
+
+function saveCredentials() {
+  if (!credentialStorage.available) return credentialWrites;
+  const value = {
+    servers: Object.fromEntries(servers.filter(server => typeof server.password === 'string').map(server => [secretKey(server), server.password])),
+    turn: settings.turn.credential,
+  };
+  const encoded = JSON.stringify(value);
+  if (encoded === lastSavedCredentials) return credentialWrites;
+  lastSavedCredentials = encoded;
+  credentialWrites = credentialWrites.then(async () => {
+    if (!credentialStorage.available) return;
+    try { await window.mutterCredentials.write(value); }
+    catch {
+      credentialStorage.available = false;
+      credentialStorage.notice = 'Passwords could not be saved securely. They will stay available for this session.';
+      window.dispatchEvent(new Event('mutter-credential-storage'));
+    }
+  });
+  return credentialWrites;
+}
+
+export function flushCredentials() { return credentialWrites; }
+
+saveSettings();
+saveServers();
 
 function certificateKey(host, port) {
   return JSON.stringify([host.toLowerCase(), Number(port)]);
@@ -75,14 +131,14 @@ export function rememberServer(target) {
   if (servers.length > MAX_SAVED_SERVERS) {
     servers.length = MAX_SAVED_SERVERS;
   }
-  saveJson(SERVERS_KEY, servers);
+  return saveServers();
 }
 
 export function forgetServer(host, port) {
   const index = servers.findIndex((server) => server.host === host && server.port === port);
   if (index >= 0) {
     servers.splice(index, 1);
-    saveJson(SERVERS_KEY, servers);
+    return saveServers();
   }
 }
 
