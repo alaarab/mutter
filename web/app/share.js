@@ -502,10 +502,16 @@ export class ScreenShare extends EventTarget {
   }
 
   #addCandidate(connection, candidate) {
+    if (!candidate || typeof candidate.candidate !== 'string' || candidate.candidate.length > 4096) {
+      return;
+    }
     if (connection.remoteDescription) {
       connection.addIceCandidate(candidate).catch((error) => this.#diag(`candidate rejected: ${error.message}`));
     } else {
-      this.#stateOf(connection)?.pendingIce.push(candidate);
+      const pending = this.#stateOf(connection)?.pendingIce;
+      if (pending && pending.length < 256) {
+        pending.push(candidate);
+      }
     }
   }
 
@@ -652,11 +658,11 @@ export class ScreenShare extends EventTarget {
   }
 
   async #onPlugin({ sender, dataId, data }) {
-    if (dataId !== DATA_ID) {
+    if (dataId !== DATA_ID || !this.client.users.has(sender)) {
       return;
     }
     const message = await this.#assembler.push(sender, data);
-    if (!message || typeof message.t !== 'string') {
+    if (!message || typeof message.t !== 'string' || typeof message.id !== 'string' || !message.id || message.id.length > 256) {
       return;
     }
     switch (message.t) {
@@ -699,7 +705,7 @@ export class ScreenShare extends EventTarget {
     const fresh = !this.available.has(sender);
     this.available.set(sender, {
       id: message.id,
-      title: message.title,
+      title: typeof message.title === 'string' ? message.title.slice(0, 512) : 'Screen',
       w: message.w,
       h: message.h,
       audio: !!message.audio,
@@ -718,7 +724,7 @@ export class ScreenShare extends EventTarget {
       this.available.delete(sender);
       this.#emit('available', { sender, ended: true });
     }
-    if (this.watching?.sender === sender) {
+    if (this.watching?.sender === sender && this.watching.id === message.id) {
       this.#dropViewer();
     }
   }
@@ -746,7 +752,7 @@ export class ScreenShare extends EventTarget {
   #onIce(sender, message) {
     const connection = this.#viewerFor(sender, message.id)?.pc ?? this.#sourceFor(message.id)?.peers.get(sender) ?? null;
     if (connection && Array.isArray(message.c)) {
-      for (const candidate of message.c) {
+      for (const candidate of message.c.slice(0, 256)) {
         this.#addCandidate(connection, candidate);
       }
     }

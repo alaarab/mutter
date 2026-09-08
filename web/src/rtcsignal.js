@@ -7,9 +7,13 @@ export const FRAGMENT = 990;
 const FLAG_DEFLATE = 1;
 const COMPRESS_FROM = 160;
 const MAX_FRAGMENTS = 255;
+const MAX_PACKET = 1000;
+const MAX_PENDING = 128;
+const MAX_PAYLOAD = 4 * 1024 * 1024;
 
 export async function encodeSignal(message, msgId) {
   const raw = new TextEncoder().encode(JSON.stringify(message));
+  if (raw.length > MAX_PAYLOAD) throw new Error('signal too large');
   let payload = raw;
   let flags = 0;
   if (raw.length >= COMPRESS_FROM) {
@@ -45,36 +49,39 @@ export class SignalAssembler {
   }
 
   async push(sender, bytes) {
-    if (bytes.length < HEADER || bytes[0] !== VERSION) {
+    if (bytes.length < HEADER || bytes.length > MAX_PACKET || bytes[0] !== VERSION) {
       return null;
     }
     const msgId = bytes[1];
     const index = bytes[2];
     const count = bytes[3];
     const flags = bytes[4];
-    if (count < 1 || index >= count) {
+    if (count < 1 || index >= count || flags > FLAG_DEFLATE) {
       return null;
     }
     this.expireStale();
     const key = `${sender}:${msgId}`;
     let partial = this.partial.get(key);
-    if (!partial || partial.count !== count) {
+    if (partial && (partial.count !== count || partial.flags !== flags)) {
+      this.partial.delete(key);
+      return null;
+    }
+    if (!partial) {
+      if (this.partial.size >= MAX_PENDING) return null;
       partial = { count, flags, parts: new Array(count), received: 0, startedAt: Date.now() };
       this.partial.set(key, partial);
     }
     if (!partial.parts[index]) {
-      partial.parts[index] = bytes.subarray(HEADER);
+      partial.parts[index] = bytes.slice(HEADER);
       partial.received++;
     }
     if (partial.received < count) {
       return null;
     }
     this.partial.delete(key);
-    let payload = concatBytes(partial.parts);
-    if (partial.flags & FLAG_DEFLATE) {
-      payload = await inflate(payload);
-    }
     try {
+      let payload = concatBytes(partial.parts);
+      if (partial.flags & FLAG_DEFLATE) payload = await inflate(payload);
       return JSON.parse(new TextDecoder().decode(payload));
     } catch {
       return null;
@@ -92,8 +99,21 @@ export class SignalAssembler {
 }
 
 async function pipeThrough(bytes, transform) {
-  const stream = new Blob([bytes]).stream().pipeThrough(transform);
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+  const reader = new Blob([bytes]).stream().pipeThrough(transform).getReader();
+  const chunks = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) return concatBytes(chunks);
+      size += value.length;
+      if (size > MAX_PAYLOAD) throw new Error('signal too large');
+      chunks.push(value);
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
 }
 
 function deflate(bytes) {

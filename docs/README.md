@@ -19,6 +19,7 @@ Start with the guide for the app you want to run: desktop, Mac, iOS, Android, or
 - [Phone layout](phone-layout.md): channels, chat, call controls, and settings.
 - [Design system](design.md): themes, fonts, color roles, and motion.
 - [Android validation](../android/VALIDATION.md): tested configurations and remaining device checks.
+- [Security review](security-review.md): scan results, fixes, and remaining risks.
 - [Mumble protocol](protocol.md): connections, messages, and voice transport.
 - [Screen sharing](screen-share.md): Mutter’s WebRTC extension.
 - [TURN setup](turn.md): helping video connect when a direct connection is blocked.

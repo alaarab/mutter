@@ -1,0 +1,38 @@
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - run: npm audit --audit-level=low
+        working-directory: desktop
+      - run: node --test --test-concurrency=1 web/test/bridge.test.mjs web/test/peer-certificate.test.mjs web/test/certificate.test.mjs web/test/chat-security.test.mjs web/test/signal-security.test.mjs desktop/test/security.test.mjs
+        env:
+          CHROME: google-chrome
+  swift:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - run: swift test --package-path Packages/MumbleCore
+      - run: node --test web/test/native.test.mjs

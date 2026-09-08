@@ -1,0 +1,266 @@
+{
+  "review_date": "2026-09-08",
+  "scope": "Android Gradle plugin/buildscript classpath, excluded from APK runtime dependencies",
+  "database": "OSV",
+  "artifacts_scanned": 144,
+  "affected_artifacts": 12,
+  "distinct_advisories": 45,
+  "findings": [
+    {
+      "package": "org.jetbrains.kotlin:kotlin-gradle-plugin",
+      "version": "2.2.20",
+      "advisories": [
+        {
+          "id": "GHSA-r937-wjx7-w2jp",
+          "url": "https://osv.dev/vulnerability/GHSA-r937-wjx7-w2jp"
+        }
+      ]
+    },
+    {
+      "package": "org.bouncycastle:bcpkix-jdk18on",
+      "version": "1.79",
+      "advisories": [
+        {
+          "id": "GHSA-wg6q-6289-32hp",
+          "url": "https://osv.dev/vulnerability/GHSA-wg6q-6289-32hp"
+        }
+      ]
+    },
+    {
+      "package": "org.apache.commons:commons-compress",
+      "version": "1.21",
+      "advisories": [
+        {
+          "id": "GHSA-4265-ccf5-phj5",
+          "url": "https://osv.dev/vulnerability/GHSA-4265-ccf5-phj5"
+        },
+        {
+          "id": "GHSA-4g9r-vxhx-9pgx",
+          "url": "https://osv.dev/vulnerability/GHSA-4g9r-vxhx-9pgx"
+        }
+      ]
+    },
+    {
+      "package": "org.bouncycastle:bcprov-jdk18on",
+      "version": "1.79",
+      "advisories": [
+        {
+          "id": "GHSA-574f-3g2m-x479",
+          "url": "https://osv.dev/vulnerability/GHSA-574f-3g2m-x479"
+        },
+        {
+          "id": "GHSA-c3fc-8qff-9hwx",
+          "url": "https://osv.dev/vulnerability/GHSA-c3fc-8qff-9hwx"
+        }
+      ]
+    },
+    {
+      "package": "org.bitbucket.b_c:jose4j",
+      "version": "0.9.5",
+      "advisories": [
+        {
+          "id": "GHSA-3677-xxcr-wjqv",
+          "url": "https://osv.dev/vulnerability/GHSA-3677-xxcr-wjqv"
+        }
+      ]
+    },
+    {
+      "package": "org.jdom:jdom2",
+      "version": "2.0.6",
+      "advisories": [
+        {
+          "id": "GHSA-2363-cqg2-863c",
+          "url": "https://osv.dev/vulnerability/GHSA-2363-cqg2-863c"
+        }
+      ]
+    },
+    {
+      "package": "io.netty:netty-codec-http2",
+      "version": "4.1.110.Final",
+      "advisories": [
+        {
+          "id": "GHSA-563q-j3cm-6jxm",
+          "url": "https://osv.dev/vulnerability/GHSA-563q-j3cm-6jxm"
+        },
+        {
+          "id": "GHSA-5x3r-wrvg-rp6q",
+          "url": "https://osv.dev/vulnerability/GHSA-5x3r-wrvg-rp6q"
+        },
+        {
+          "id": "GHSA-93wv-jw9v-4972",
+          "url": "https://osv.dev/vulnerability/GHSA-93wv-jw9v-4972"
+        },
+        {
+          "id": "GHSA-c2gf-v879-257j",
+          "url": "https://osv.dev/vulnerability/GHSA-c2gf-v879-257j"
+        },
+        {
+          "id": "GHSA-c69g-56f8-xwqj",
+          "url": "https://osv.dev/vulnerability/GHSA-c69g-56f8-xwqj"
+        },
+        {
+          "id": "GHSA-f6hv-jmp6-3vwv",
+          "url": "https://osv.dev/vulnerability/GHSA-f6hv-jmp6-3vwv"
+        },
+        {
+          "id": "GHSA-prj3-ccx8-p6x4",
+          "url": "https://osv.dev/vulnerability/GHSA-prj3-ccx8-p6x4"
+        },
+        {
+          "id": "GHSA-w9fj-cfpg-grvv",
+          "url": "https://osv.dev/vulnerability/GHSA-w9fj-cfpg-grvv"
+        }
+      ]
+    },
+    {
+      "package": "io.netty:netty-handler-proxy",
+      "version": "4.1.110.Final",
+      "advisories": [
+        {
+          "id": "GHSA-45q3-82m4-75jr",
+          "url": "https://osv.dev/vulnerability/GHSA-45q3-82m4-75jr"
+        }
+      ]
+    },
+    {
+      "package": "io.netty:netty-codec-http",
+      "version": "4.1.110.Final",
+      "advisories": [
+        {
+          "id": "GHSA-38f8-5428-x5cv",
+          "url": "https://osv.dev/vulnerability/GHSA-38f8-5428-x5cv"
+        },
+        {
+          "id": "GHSA-4mp9-239f-g9hg",
+          "url": "https://osv.dev/vulnerability/GHSA-4mp9-239f-g9hg"
+        },
+        {
+          "id": "GHSA-57rv-r2g8-2cj3",
+          "url": "https://osv.dev/vulnerability/GHSA-57rv-r2g8-2cj3"
+        },
+        {
+          "id": "GHSA-6cqp-g7gg-8hr5",
+          "url": "https://osv.dev/vulnerability/GHSA-6cqp-g7gg-8hr5"
+        },
+        {
+          "id": "GHSA-6jqx-86gh-f27w",
+          "url": "https://osv.dev/vulnerability/GHSA-6jqx-86gh-f27w"
+        },
+        {
+          "id": "GHSA-84h7-rjj3-6jx4",
+          "url": "https://osv.dev/vulnerability/GHSA-84h7-rjj3-6jx4"
+        },
+        {
+          "id": "GHSA-8c42-7qj2-3j46",
+          "url": "https://osv.dev/vulnerability/GHSA-8c42-7qj2-3j46"
+        },
+        {
+          "id": "GHSA-f6hv-jmp6-3vwv",
+          "url": "https://osv.dev/vulnerability/GHSA-f6hv-jmp6-3vwv"
+        },
+        {
+          "id": "GHSA-fghv-69vj-qj49",
+          "url": "https://osv.dev/vulnerability/GHSA-fghv-69vj-qj49"
+        },
+        {
+          "id": "GHSA-gcjf-9mgh-3p7g",
+          "url": "https://osv.dev/vulnerability/GHSA-gcjf-9mgh-3p7g"
+        },
+        {
+          "id": "GHSA-hvcg-qmg6-jm4c",
+          "url": "https://osv.dev/vulnerability/GHSA-hvcg-qmg6-jm4c"
+        },
+        {
+          "id": "GHSA-jppx-w49h-x2qq",
+          "url": "https://osv.dev/vulnerability/GHSA-jppx-w49h-x2qq"
+        },
+        {
+          "id": "GHSA-m4cv-j2px-7723",
+          "url": "https://osv.dev/vulnerability/GHSA-m4cv-j2px-7723"
+        },
+        {
+          "id": "GHSA-mvh2-crg5-v77c",
+          "url": "https://osv.dev/vulnerability/GHSA-mvh2-crg5-v77c"
+        },
+        {
+          "id": "GHSA-pwqr-wmgm-9rr8",
+          "url": "https://osv.dev/vulnerability/GHSA-pwqr-wmgm-9rr8"
+        },
+        {
+          "id": "GHSA-q4f6-jm68-57ww",
+          "url": "https://osv.dev/vulnerability/GHSA-q4f6-jm68-57ww"
+        },
+        {
+          "id": "GHSA-v8h7-rr48-vmmv",
+          "url": "https://osv.dev/vulnerability/GHSA-v8h7-rr48-vmmv"
+        },
+        {
+          "id": "GHSA-xxqh-mfjm-7mv9",
+          "url": "https://osv.dev/vulnerability/GHSA-xxqh-mfjm-7mv9"
+        }
+      ]
+    },
+    {
+      "package": "io.netty:netty-handler",
+      "version": "4.1.110.Final",
+      "advisories": [
+        {
+          "id": "GHSA-3qp7-7mw8-wx86",
+          "url": "https://osv.dev/vulnerability/GHSA-3qp7-7mw8-wx86"
+        },
+        {
+          "id": "GHSA-4g8c-wm8x-jfhw",
+          "url": "https://osv.dev/vulnerability/GHSA-4g8c-wm8x-jfhw"
+        },
+        {
+          "id": "GHSA-c4c3-7fpv-j4q5",
+          "url": "https://osv.dev/vulnerability/GHSA-c4c3-7fpv-j4q5"
+        },
+        {
+          "id": "GHSA-c653-97m9-rcg9",
+          "url": "https://osv.dev/vulnerability/GHSA-c653-97m9-rcg9"
+        },
+        {
+          "id": "GHSA-fccg-mwvh-qqg4",
+          "url": "https://osv.dev/vulnerability/GHSA-fccg-mwvh-qqg4"
+        },
+        {
+          "id": "GHSA-x4gw-5cx5-pgmh",
+          "url": "https://osv.dev/vulnerability/GHSA-x4gw-5cx5-pgmh"
+        }
+      ]
+    },
+    {
+      "package": "io.netty:netty-codec",
+      "version": "4.1.110.Final",
+      "advisories": [
+        {
+          "id": "GHSA-3p8m-j85q-pgmj",
+          "url": "https://osv.dev/vulnerability/GHSA-3p8m-j85q-pgmj"
+        },
+        {
+          "id": "GHSA-558v-64gr-wgg4",
+          "url": "https://osv.dev/vulnerability/GHSA-558v-64gr-wgg4"
+        },
+        {
+          "id": "GHSA-mj4r-2hfc-f8p6",
+          "url": "https://osv.dev/vulnerability/GHSA-mj4r-2hfc-f8p6"
+        }
+      ]
+    },
+    {
+      "package": "io.netty:netty-common",
+      "version": "4.1.110.Final",
+      "advisories": [
+        {
+          "id": "GHSA-389x-839f-4rhx",
+          "url": "https://osv.dev/vulnerability/GHSA-389x-839f-4rhx"
+        },
+        {
+          "id": "GHSA-xq3w-v528-46rv",
+          "url": "https://osv.dev/vulnerability/GHSA-xq3w-v528-46rv"
+        }
+      ]
+    }
+  ]
+}

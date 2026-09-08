@@ -12,7 +12,7 @@ packages:
     path: Packages/MumbleCore
   Opus:
     url: https://github.com/OnBeep/Opus-iOS.git
-    from: 1.9.0
+    exactVersion: 1.9.0
   WebRTC:
     url: https://github.com/stasel/WebRTC.git
     exactVersion: 152.0.0

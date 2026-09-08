@@ -20,7 +20,6 @@ public enum ServerPinger {
             let connection = NWConnection(host: NWEndpoint.Host(endpoint.host), port: port, using: params)
             let identifier = UInt64.random(in: 1...UInt64.max)
             var finished = false
-            var sentAt = DispatchTime.now()
 
             func finish(_ result: ServerPingResult?) {
                 guard !finished else { return }
@@ -32,7 +31,7 @@ public enum ServerPinger {
             connection.stateUpdateHandler = { state in
                 switch state {
                 case .ready:
-                    sentAt = DispatchTime.now()
+                    let sentAt = DispatchTime.now()
                     connection.send(content: ServerProbe.request(identifier: identifier), completion: .contentProcessed { _ in })
                     connection.receiveMessage { data, _, _, _ in
                         guard let data, let response = ServerProbe.parse(data), response.identifier == identifier else {

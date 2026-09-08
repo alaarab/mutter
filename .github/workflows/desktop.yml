@@ -5,6 +5,9 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     strategy:
@@ -19,9 +22,13 @@ jobs:
             target: --linux
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 22
+          package-manager-cache: false
       - run: node scripts/generate-themes.mjs --check
       - run: npm ci
         working-directory: desktop
@@ -29,7 +36,7 @@ jobs:
         working-directory: desktop
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: mutter-${{ matrix.os }}
           path: |
@@ -45,9 +52,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions: { contents: write }
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with: { path: artifacts, merge-multiple: true }
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           files: artifacts/*
           generate_release_notes: true

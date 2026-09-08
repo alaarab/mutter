@@ -56,12 +56,13 @@ class ShareViewer(
     }
 
     fun receive(sender: Int, dataId: String, bytes: ByteArray) {
-        if (dataId != "mutter/rtc") return
+        if (dataId != "mutter/rtc" || sender !in client.state.value.users) return
         val payload = codec.receive(sender, bytes) ?: return
         val message =
             runCatching { JSONObject(payload.toString(Charsets.UTF_8)) }.getOrNull() ?: return
         scope.launch {
             val id = message.optString("id")
+            if (id.isBlank() || id.length > 256) return@launch
             when (message.optString("t")) {
                 "announce" ->
                     if (id.isNotBlank() && sender in client.state.value.users) {
@@ -72,10 +73,11 @@ class ShareViewer(
                                 message.optString(
                                     "title",
                                     client.state.value.users[sender]?.name ?: "Screen",
-                                ),
+                                ).take(512),
                             )
                         shares.update {
-                            it.filterNot { old -> old.id == id && old.sender == sender } + share
+                            val others = it.filterNot { old -> old.id == id && old.sender == sender }
+                            if (others.size < 256) others + share else it
                         }
                     }
                 "stop" -> {
@@ -90,13 +92,15 @@ class ShareViewer(
                 "ice" ->
                     if (watching.value?.let { it.id == id && it.sender == sender } == true) {
                         val candidates = message.optJSONArray("c") ?: JSONArray()
-                        repeat(candidates.length()) { index ->
-                            val c = candidates.getJSONObject(index)
+                        repeat(minOf(candidates.length(), 256)) { index ->
+                            val c = candidates.optJSONObject(index) ?: return@repeat
+                            val sdp = c.optString("candidate")
+                            if (sdp.length > 4096) return@repeat
                             val candidate =
                                 IceCandidate(
                                     c.optString("sdpMid"),
                                     c.optInt("sdpMLineIndex"),
-                                    c.optString("candidate"),
+                                    sdp,
                                 )
                             if (ready) peer?.addIceCandidate(candidate)
                             else if (pendingIce.size < 256) pendingIce.add(candidate)

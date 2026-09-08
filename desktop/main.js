@@ -2,6 +2,7 @@ import { app, BrowserWindow, session, desktopCapturer, shell, ipcMain, nativeIma
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { allowsPermission, isAppURL, isExternalURL } from './security.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const webRoot = app.isPackaged ? path.join(process.resourcesPath, 'web') : path.join(here, '..', 'web');
@@ -54,9 +55,13 @@ async function startBridge() {
   return ready;
 }
 
-function installScreenPicker() {
+function installScreenPicker(url) {
   session.defaultSession.setDisplayMediaRequestHandler(
     async (request, callback) => {
+      if (!mainWindow || request.frame !== mainWindow.webContents.mainFrame || !isAppURL(request.frame?.url, url)) {
+        callback({});
+        return;
+      }
       try {
         const sources = await desktopCapturer.getSources({
           types: ['screen', 'window'],
@@ -94,15 +99,24 @@ function createMainWindow(url) {
     }
   });
   window.webContents.setWindowOpenHandler(({ url: target }) => {
-    shell.openExternal(target);
+    if (isExternalURL(target)) shell.openExternal(target).catch(() => {});
     return { action: 'deny' };
   });
-  window.webContents.on('will-navigate', (event, target) => {
-    if (!target.startsWith(url)) {
+  window.webContents.on('will-frame-navigate', (event) => {
+    if (!event.isMainFrame || !isAppURL(event.url, url)) {
       event.preventDefault();
-      shell.openExternal(target);
+      if (event.isMainFrame && isExternalURL(event.url)) shell.openExternal(event.url).catch(() => {});
     }
   });
+  window.webContents.on('will-redirect', (event, target) => {
+    if (!isAppURL(target, url)) event.preventDefault();
+  });
+  session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
+    callback(contents === window.webContents && allowsPermission(permission, details.requestingUrl, contents.getURL(), url, details.isMainFrame));
+  });
+  session.defaultSession.setPermissionCheckHandler((contents, permission, origin, details) =>
+    contents === window.webContents && allowsPermission(permission, origin, contents.getURL(), url, details.isMainFrame)
+  );
   window.on('closed', () => {
     mainWindow = null;
   });
@@ -267,7 +281,7 @@ app.whenReady().then(async () => {
   if (SMOKE) console.log('smoke: Electron ready');
   configureBridgeEnvironment();
   const url = await startBridge();
-  installScreenPicker();
+  installScreenPicker(url);
   mainWindow = createMainWindow(url);
   await mainWindow.loadURL(url);
   if (SMOKE) {

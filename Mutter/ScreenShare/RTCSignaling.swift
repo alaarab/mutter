@@ -10,6 +10,9 @@ enum RTCSignal {
     static let fragmentSize = 990
     static let compressFrom = 160
     static let maxFragments = 255
+    static let maxPacket = 1000
+    static let maxPending = 128
+    static let maxPayload = 4 * 1024 * 1024
     static let reassemblyTimeout: TimeInterval = 10
     static let deflateFlag: UInt8 = 1
 }
@@ -59,6 +62,7 @@ struct SignalFragmenter {
 
     mutating func fragments(for message: SignalMessage) throws -> [Data] {
         var payload = try JSONEncoder().encode(message)
+        guard payload.count <= RTCSignal.maxPayload else { throw SignalError.tooLarge }
         var flags: UInt8 = 0
         if payload.count >= RTCSignal.compressFrom,
            let compressed = Deflate.compress(payload),
@@ -96,7 +100,8 @@ final class SignalReassembler {
     private var pending: [Key: Partial] = [:]
 
     func receive(from sender: UInt32, data: Data) -> SignalMessage? {
-        guard data.count >= RTCSignal.headerSize, data[data.startIndex] == RTCSignal.version else { return nil }
+        guard (RTCSignal.headerSize...RTCSignal.maxPacket).contains(data.count),
+              data[data.startIndex] == RTCSignal.version else { return nil }
         let now = Date()
         pending = pending.filter { now.timeIntervalSince($0.value.startedAt) < RTCSignal.reassemblyTimeout }
         let base = data.startIndex
@@ -104,9 +109,16 @@ final class SignalReassembler {
         let index = Int(data[base + 2])
         let count = Int(data[base + 3])
         let flags = data[base + 4]
-        guard count >= 1, index < count else { return nil }
+        guard count >= 1, index < count, flags <= RTCSignal.deflateFlag else { return nil }
+        if let partial = pending[key], partial.count != count || partial.flags != flags {
+            pending[key] = nil
+            return nil
+        }
+        guard pending[key] != nil || pending.count < RTCSignal.maxPending else { return nil }
         var partial = pending[key] ?? Partial(parts: [:], count: count, flags: flags, startedAt: now)
-        partial.parts[index] = data.subdata(in: (base + RTCSignal.headerSize)..<data.endIndex)
+        if partial.parts[index] == nil {
+            partial.parts[index] = data.subdata(in: (base + RTCSignal.headerSize)..<data.endIndex)
+        }
         if partial.parts.count < count {
             pending[key] = partial
             return nil
@@ -139,7 +151,7 @@ enum Deflate {
 
     static func decompress(_ data: Data) -> Data? {
         var capacity = max(4096, data.count * 8)
-        while capacity <= (1 << 22) {
+        while capacity <= RTCSignal.maxPayload {
             let output: Data? = data.withUnsafeBytes { source in
                 guard let base = source.bindMemory(to: UInt8.self).baseAddress else { return nil }
                 let destination = UnsafeMutablePointer<UInt8>.allocate(capacity: capacity)
