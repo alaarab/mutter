@@ -5,9 +5,9 @@
 Mutter is a Mumble client for desktop, Mac, iOS, Android, and the web.
 Join a server, see who’s around, and talk.
 
-<img src="docs/images/phone-layout/android-channels-carbon-dark.png" width="320" height="711" alt="Mutter on Android in Carbon dark, connected to a server with channels, people, and push-to-talk controls">
+<a href="docs/images/mobile-session.svg"><img src="docs/images/mobile-session.svg" width="320" height="655" alt="Mutter’s channels, people, and call controls"></a>
 
-Mutter on Android, connected to a server in Carbon dark.
+<a href="docs/images/desktop-session.png"><img src="docs/images/desktop-session.png" width="960" height="600" alt="Mutter’s desktop interface with channels, a conversation, and the member list"></a>
 
 ## What you can do
 
