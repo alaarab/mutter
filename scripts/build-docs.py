@@ -16,11 +16,11 @@ BASE = "/mutter/"
 REPOSITORY = "https://github.com/alaarab/mutter"
 PAGES = json.loads((SITE / "pages.json").read_text())
 ROUTES = {source: destination for _, _, source, destination in PAGES}
-ASSETS = {"docs/brand/icon.svg": "assets/icon.svg"}
-ASSETS.update(
-    (str(path.relative_to(ROOT)), f"assets/screenshots/{path.name}")
-    for path in (ROOT / "docs/images/phone-layout").glob("*.png")
-)
+ASSETS = {
+    "docs/brand/icon.svg": "assets/icon.svg",
+    "docs/images/mobile-session.svg": "assets/screenshots/mobile-session.svg",
+    "docs/images/desktop-session.png": "assets/screenshots/desktop-session.png",
+}
 
 
 def resolve_link(source, value):
