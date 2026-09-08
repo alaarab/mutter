@@ -18,7 +18,7 @@ class EditorTest {
 
     private fun scrollTo(matcher: SemanticsMatcher): SemanticsNodeInteraction {
         ui.onAllNodes(hasScrollToNodeAction()).onLast().performScrollToNode(matcher)
-        return ui.onNode(matcher)
+        return ui.onNode(matcher).performScrollTo()
     }
 
     @After
@@ -43,12 +43,16 @@ class EditorTest {
                 favorite = true,
             )
         ui.runOnIdle { app.store.saveServer(original) }
-        scrollTo(hasContentDescription("Edit $name")).performClick()
-        scrollTo(hasText("Name") and hasSetTextAction()).performTextReplacement("$name-edited")
-        scrollTo(hasText("Name") and hasSetTextAction()).assertTextContains("$name-edited")
+        scrollTo(hasContentDescription("Options for $name")).performClick()
+        ui.onNodeWithText("Edit").performClick()
+        scrollTo(hasContentDescription("Name") and hasSetTextAction())
+            .performTextReplacement("$name-edited")
+        scrollTo(hasContentDescription("Name") and hasSetTextAction())
+            .assertTextContains("$name-edited")
         ui.activityRule.scenario.recreate()
-        scrollTo(hasText("Name") and hasSetTextAction()).assertTextContains("$name-edited")
-        scrollTo(hasText("Save")).performClick()
+        scrollTo(hasContentDescription("Name") and hasSetTextAction())
+            .assertTextContains("$name-edited")
+        ui.onNodeWithText("Save").performClick()
         ui.waitUntil(5000) {
             app.store.servers.value.any { it.id == original.id && it.name == "$name-edited" }
         }
@@ -62,17 +66,21 @@ class EditorTest {
 
     @Test
     fun invalidPortIsRejectedAndCorrectedServerCanBeSaved() {
-        scrollTo(hasText("Add server")).performClick()
-        scrollTo(hasText("Name") and hasSetTextAction()).performTextReplacement(name)
-        scrollTo(hasText("Host") and hasSetTextAction()).performTextReplacement("example.invalid")
-        scrollTo(hasText("Port") and hasSetTextAction()).performTextReplacement("65536")
-        scrollTo(hasText("Username") and hasSetTextAction()).performTextReplacement("AndroidReview")
-        scrollTo(hasText("Save")).performClick()
+        ui.onNodeWithContentDescription("Add server").performClick()
+        scrollTo(hasContentDescription("Name") and hasSetTextAction()).performTextReplacement(name)
+        scrollTo(hasContentDescription("Address") and hasSetTextAction())
+            .performTextReplacement("example.invalid")
+        scrollTo(hasContentDescription("Port") and hasSetTextAction())
+            .performTextReplacement("65536")
+        scrollTo(hasContentDescription("Username") and hasSetTextAction())
+            .performTextReplacement("AndroidReview")
+        ui.onNodeWithText("Save").performClick()
         scrollTo(hasText("Enter a host name, a port from 1–65535, and your username."))
             .assertIsDisplayed()
         assertFalse(app.store.servers.value.any { it.name == name })
-        scrollTo(hasText("Port") and hasSetTextAction()).performTextReplacement("64738")
-        scrollTo(hasText("Save")).performClick()
+        scrollTo(hasContentDescription("Port") and hasSetTextAction())
+            .performTextReplacement("64738")
+        ui.onNodeWithText("Save").performClick()
         ui.waitUntil(5000) { app.store.servers.value.any { it.name == name } }
         assertEquals(64738, app.store.servers.value.first { it.name == name }.port)
     }

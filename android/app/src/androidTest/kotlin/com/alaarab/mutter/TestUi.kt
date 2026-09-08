@@ -2,7 +2,7 @@ package com.alaarab.mutter
 
 import android.view.KeyEvent
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
-import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.test.platform.app.InstrumentationRegistry
@@ -16,7 +16,7 @@ fun AndroidComposeTestRule<*, MainActivity>.dismissKeyboard() {
         waitUntil(5000) { !visible() }
     }
     waitUntil(5000) {
-        onAllNodesWithText("Voice", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+        onAllNodesWithTag("sessionNavigation").fetchSemanticsNodes().isNotEmpty()
     }
     waitForIdle()
 }

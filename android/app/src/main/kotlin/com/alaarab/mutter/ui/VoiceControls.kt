@@ -12,21 +12,24 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.VolumeOff
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.*
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -36,7 +39,12 @@ import com.alaarab.mutter.VoiceService
 import com.alaarab.mutter.data.*
 
 @Composable
-fun VoiceControls(app: MutterApplication, state: SessionState, whisper: () -> Unit) {
+fun VoiceControls(
+    app: MutterApplication,
+    state: SessionState,
+    whisper: () -> Unit,
+    settings: () -> Unit,
+) {
     val p = LocalPalette.current
     val context = LocalContext.current
     var microphoneGranted by remember {
@@ -60,131 +68,244 @@ fun VoiceControls(app: MutterApplication, state: SessionState, whisper: () -> Un
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { refreshMicrophone() }
     val level by app.audio.level.collectAsStateWithLifecycle()
     val talking by app.audio.transmitting.collectAsStateWithLifecycle()
-    val settings by app.store.settings.collectAsStateWithLifecycle()
+    val preferences by app.store.settings.collectAsStateWithLifecycle()
     val motion = LocalCatalog.current
     val haptic = LocalHapticFeedback.current
     val muted = state.self?.let { it.selfMute || it.mute || it.suppress } == true
+    var menu by remember { mutableStateOf(false) }
+    var output by remember { mutableStateOf(false) }
     val label =
         when {
-            !microphoneGranted -> "Microphone off"
+            !microphoneGranted -> "Enable microphone"
             talking -> "Talking"
-            muted -> "Muted"
-            settings.voiceMode == "ptt" -> "Hold to talk"
-            settings.voiceMode == "vad" -> "Voice activity"
-            else -> "Open mic"
+            preferences.voiceMode == "ptt" -> "Hold to talk"
+            preferences.voiceMode == "vad" -> "Listening for your voice"
+            else -> "Always transmitting"
         }
     val background by
         animateColorAsState(
-            if (talking) p.speaking else if (muted || !microphoneGranted) p.elevated else p.accent,
+            if (talking) p.speaking else p.elevated,
             tween(motion.fast),
             label = "microphone state",
         )
-    val foreground =
-        if (talking) p["onStatus"] else if (muted || !microphoneGranted) p.ink else p["onAccent"]
-    val talk: @Composable (Modifier) -> Unit = { modifier ->
-        Box(
-            modifier
-                .heightIn(min = 52.dp)
-                .clip(MaterialTheme.shapes.medium)
-                .background(background)
-                .semantics {
-                    contentDescription =
-                        if (microphoneGranted) "Push to talk" else "Enable microphone"
-                    stateDescription = label
-                    role = Role.Button
-                    onClick("Toggle talking") {
-                        if (microphoneGranted) app.audio.held = !app.audio.held
-                        else microphone.launch(Manifest.permission.RECORD_AUDIO)
-                        true
-                    }
-                }
-                .testTag("talkButton")
-                .pointerInput(microphoneGranted) {
-                    detectTapGestures(
-                        onPress = {
-                            if (!microphoneGranted) {
-                                microphone.launch(Manifest.permission.RECORD_AUDIO)
-                                return@detectTapGestures
-                            }
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            app.audio.held = true
-                            try {
-                                tryAwaitRelease()
-                            } finally {
-                                app.audio.held = false
-                            }
-                        }
+    val compact =
+        LocalConfiguration.current.let { it.screenHeightDp < 500 && it.screenWidthDp >= 500 }
+    val controls: @Composable (Modifier) -> Unit = { modifier ->
+        Row(
+            modifier,
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Column(
+                Modifier.weight(1f).padding(end = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(Icons.Rounded.Tag, null, Modifier.size(13.dp), tint = p.accent)
+                    Text(
+                        state.channel?.name ?: "—",
+                        style =
+                            MaterialTheme.typography.bodyMedium.copy(
+                                fontWeight = FontWeight.Medium
+                            ),
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     )
                 }
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Icon(
-                    if (talking) Icons.Rounded.GraphicEq
-                    else if (muted || !microphoneGranted) Icons.Rounded.MicOff
-                    else Icons.Rounded.Mic,
-                    null,
-                    tint = foreground,
-                    modifier = Modifier.size(20.dp),
+                Text(
+                    when {
+                        state.self?.selfDeaf == true -> "Deafened"
+                        muted -> "Muted"
+                        talking -> "Transmitting"
+                        preferences.voiceMode == "ptt" -> "Hold the button to talk"
+                        else -> label
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (talking) p.speaking else p.muted,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(label, color = foreground, style = MaterialTheme.typography.labelLarge)
-                    LinearProgressIndicator(
-                        progress = { (level * 6).coerceIn(0f, 1f) },
-                        modifier = Modifier.width(76.dp).height(2.dp),
-                        color = foreground,
-                        trackColor = Color.Transparent,
-                        drawStopIndicator = {},
+            }
+            RoundControl(
+                if (state.self?.selfMute == true) Icons.Rounded.MicOff else Icons.Rounded.Mic,
+                "Toggle mute",
+                if (state.self?.selfMute == true) p.danger else p.ink,
+                state.self?.selfMute == true,
+            ) {
+                app.client.mute(state.self?.selfMute != true)
+            }
+            RoundControl(
+                if (state.self?.selfDeaf == true) Icons.AutoMirrored.Rounded.VolumeOff
+                else Icons.AutoMirrored.Rounded.VolumeUp,
+                "Toggle deafen",
+                if (state.self?.selfDeaf == true) p.danger else p.ink,
+                state.self?.selfDeaf == true,
+            ) {
+                app.client.deafen(state.self?.selfDeaf != true)
+            }
+            Box {
+                RoundControl(
+                    if (preferences.speaker) Icons.Rounded.SpeakerPhone
+                    else Icons.Rounded.Headphones,
+                    "Audio output",
+                ) {
+                    output = true
+                }
+                DropdownMenu(output, { output = false }) {
+                    listOf(false to "Automatic / headset", true to "Speaker").forEach {
+                        (speaker, title) ->
+                        DropdownMenuItem(
+                            text = { Text(title) },
+                            leadingIcon = {
+                                if (speaker == preferences.speaker) Icon(Icons.Rounded.Check, null)
+                            },
+                            onClick = {
+                                app.store.saveSettings(preferences.copy(speaker = speaker))
+                                app.audio.route()
+                                output = false
+                            },
+                        )
+                    }
+                }
+            }
+            Box {
+                RoundControl(Icons.Rounded.MoreHoriz, "Call options") { menu = true }
+                DropdownMenu(menu, { menu = false }) {
+                    listOf(
+                            "ptt" to "Push to talk",
+                            "vad" to "Voice activity",
+                            "continuous" to "Continuous",
+                        )
+                        .forEach { (mode, title) ->
+                            DropdownMenuItem(
+                                text = { Text(title) },
+                                leadingIcon = {
+                                    if (mode == preferences.voiceMode)
+                                        Icon(Icons.Rounded.Check, null)
+                                },
+                                onClick = {
+                                    app.audio.held = false
+                                    app.store.saveSettings(preferences.copy(voiceMode = mode))
+                                    menu = false
+                                },
+                            )
+                        }
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("Whisper or shout…") },
+                        leadingIcon = { Icon(Icons.Rounded.RecordVoiceOver, null) },
+                        onClick = {
+                            menu = false
+                            whisper()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Settings") },
+                        leadingIcon = { Icon(Icons.Rounded.Settings, null) },
+                        onClick = {
+                            menu = false
+                            settings()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Disconnect", color = p.danger) },
+                        leadingIcon = { Icon(Icons.Rounded.CallEnd, null, tint = p.danger) },
+                        onClick = {
+                            menu = false
+                            app.disconnect()
+                        },
                     )
                 }
             }
         }
     }
-    val controls: @Composable RowScope.() -> Unit = {
-        VoiceToggle(
-            if (state.self?.selfMute == true) Icons.Rounded.MicOff else Icons.Rounded.Mic,
-            "Toggle mute",
-            state.self?.selfMute == true,
-        ) {
-            app.client.mute(state.self?.selfMute != true)
-        }
-        VoiceToggle(
-            if (state.self?.selfDeaf == true) Icons.Rounded.HeadsetOff
-            else Icons.Rounded.Headphones,
-            "Toggle deafen",
-            state.self?.selfDeaf == true,
-        ) {
-            app.client.deafen(state.self?.selfDeaf != true)
-        }
-        ActionIcon(Icons.Rounded.RecordVoiceOver, "Whisper targets", p.whisper, whisper)
-        ActionIcon(Icons.Rounded.CallEnd, "Disconnect", p.danger, app::disconnect)
-    }
-    Column(Modifier.fillMaxWidth()) {
-        SectionDivider()
-        BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-            if (maxWidth >= 480.dp) {
+    val transmit: @Composable (Modifier) -> Unit = { modifier ->
+        if (preferences.voiceMode == "ptt" || !microphoneGranted) {
+            Box(
+                modifier
+                    .heightIn(min = 48.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(background)
+                    .semantics {
+                        contentDescription =
+                            if (microphoneGranted) "Push to talk" else "Enable microphone"
+                        stateDescription = label
+                        role = Role.Button
+                        onClick("Toggle talking") {
+                            if (microphoneGranted) app.audio.held = !app.audio.held
+                            else microphone.launch(Manifest.permission.RECORD_AUDIO)
+                            true
+                        }
+                    }
+                    .testTag("talkButton")
+                    .pointerInput(microphoneGranted) {
+                        detectTapGestures(
+                            onPress = {
+                                if (!microphoneGranted) {
+                                    microphone.launch(Manifest.permission.RECORD_AUDIO)
+                                    return@detectTapGestures
+                                }
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                app.audio.held = true
+                                try {
+                                    tryAwaitRelease()
+                                } finally {
+                                    app.audio.held = false
+                                }
+                            }
+                        )
+                    }
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    talk(Modifier.weight(1f))
-                    controls()
-                }
-            } else {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    talk(Modifier.fillMaxWidth())
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically,
-                        content = controls,
+                    Icon(
+                        if (talking) Icons.Rounded.GraphicEq else Icons.Rounded.TouchApp,
+                        null,
+                        Modifier.size(18.dp),
+                        tint = if (talking) p["onStatus"] else p.ink,
+                    )
+                    Text(
+                        label,
+                        color = if (talking) p["onStatus"] else p.ink,
+                        style = MaterialTheme.typography.labelLarge,
                     )
                 }
             }
+        } else if (preferences.voiceMode == "vad") {
+            LinearProgressIndicator(
+                progress = { (level * 6).coerceIn(0f, 1f) },
+                modifier = modifier.height(6.dp),
+                color = if (talking) p.speaking else p.muted.copy(alpha = .6f),
+                trackColor = p["separator"],
+                drawStopIndicator = {},
+            )
+        }
+    }
+    if (compact) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            controls(Modifier.weight(1f))
+            if (preferences.voiceMode == "ptt" || !microphoneGranted)
+                transmit(Modifier.width(210.dp))
+            else if (preferences.voiceMode == "vad") transmit(Modifier.width(80.dp))
+        }
+    } else {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            controls(Modifier.fillMaxWidth())
+            transmit(Modifier.fillMaxWidth())
         }
     }
     DisposableEffect(Unit) {
@@ -192,28 +313,5 @@ fun VoiceControls(app: MutterApplication, state: SessionState, whisper: () -> Un
             app.audio.held = false
             app.audio.whisperHeld = false
         }
-    }
-}
-
-@Composable
-private fun VoiceToggle(
-    icon: ImageVector,
-    label: String,
-    checked: Boolean,
-    action: () -> Unit,
-) {
-    val p = LocalPalette.current
-    IconToggleButton(
-        checked,
-        { action() },
-        colors =
-            IconButtonDefaults.iconToggleButtonColors(
-                containerColor = p.elevated,
-                contentColor = p.body,
-                checkedContainerColor = p.danger.copy(alpha = .12f),
-                checkedContentColor = p.danger,
-            ),
-    ) {
-        Icon(icon, label, Modifier.size(22.dp))
     }
 }

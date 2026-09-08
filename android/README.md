@@ -44,8 +44,9 @@ Keep that key across releases so future builds can update existing installs.
   share audio are not included.
 - All 11 shared themes in light, dark, and system appearance, miniature theme previews,
   shared typography and motion, and an adaptive/monochrome launcher icon from `docs/brand/icon.svg`.
-- Adaptive call controls and people cards, speaking/mute indicators, grouped settings and profiles,
-  and a chat composer with keyboard Send support and layouts for small or landscape windows.
+- The shared phone layout: Channels, Chat, and Server tabs; an indented channel tree; circular
+  avatars; the same call dock, grouped settings, and profiles as iPhone. Keyboard Send, large text,
+  and short-window adaptations keep controls usable. See [the layout reference](../design/layout.md).
 
 Server passwords, access tokens, pins and certificate files are encrypted with a device-bound
 Android Keystore key. Backup and device transfer exclude this data. Signing keys and local

@@ -175,6 +175,7 @@ class AppStore(private val context: Context) {
             v.optString("turn"),
             v.optString("turnUser"),
             v.optString("turnPassword"),
+            v.optString("defaultUsername"),
         )
 
     private fun settingsJson(v: Settings) =
@@ -194,6 +195,7 @@ class AppStore(private val context: Context) {
             .put("turn", v.turn)
             .put("turnUser", v.turnUser)
             .put("turnPassword", v.turnPassword)
+            .put("defaultUsername", v.defaultUsername)
 }
 
 private fun JSONArray?.objects() =

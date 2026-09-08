@@ -9,13 +9,13 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.VolumeOff
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.*
@@ -34,21 +34,13 @@ fun AppCard(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val p = LocalPalette.current
-    val motion = LocalCatalog.current
-    val border by
-        animateColorAsState(
-            if (highlighted) p.accent.copy(alpha = .45f) else p["separator"].copy(alpha = .65f),
-            tween(motion.standard, easing = motion.easing),
-            label = "card border",
-        )
     Column(
         modifier
-            .clip(MaterialTheme.shapes.large)
-            .background(Brush.linearGradient(listOf(p["surfaceHighlight"], p.surface)))
-            .border(1.dp, border, MaterialTheme.shapes.large)
+            .clip(MaterialTheme.shapes.extraLarge)
+            .background(if (highlighted) p.accent.copy(alpha = .10f) else p.surface)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(18.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
         content = content,
     )
 }
@@ -63,7 +55,7 @@ fun Heading(
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Text(
                 title,
-                style = MaterialTheme.typography.headlineLarge,
+                style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.semantics { heading() },
             )
             if (subtitle != null)
@@ -110,9 +102,9 @@ fun SettingsLink(icon: ImageVector, title: String, subtitle: String, action: () 
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        IconWell(icon)
+        Icon(icon, null, Modifier.size(22.dp), tint = p.accent)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(title, style = MaterialTheme.typography.bodyLarge)
             Hint(subtitle)
         }
         Icon(Icons.Rounded.ChevronRight, null, tint = p.muted, modifier = Modifier.size(18.dp))
@@ -125,7 +117,7 @@ fun SectionDivider() {
 }
 
 @Composable
-fun Avatar(name: String, talking: Boolean = false, size: Int = 42) {
+fun Avatar(name: String, talking: Boolean = false, size: Int = 42, rounded: Boolean = false) {
     val p = LocalPalette.current
     val motion = LocalCatalog.current
     val index =
@@ -138,9 +130,9 @@ fun Avatar(name: String, talking: Boolean = false, size: Int = 42) {
     val initials =
         remember(name) {
             val words = name.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
-            if (words.size > 1) "${words.first().first()}${words.last().first()}".uppercase()
-            else words.firstOrNull()?.take(2)?.uppercase().orEmpty()
+            words.take(2).joinToString("") { it.first().uppercase() }.ifEmpty { "?" }
         }
+    val shape = if (rounded) MaterialTheme.shapes.small else CircleShape
     val ring by
         animateColorAsState(
             if (talking) p.speaking else Color.Transparent,
@@ -148,17 +140,14 @@ fun Avatar(name: String, talking: Boolean = false, size: Int = 42) {
             label = "speaking ring",
         )
     Box(
-        Modifier.size(size.dp)
-            .clip(MaterialTheme.shapes.medium)
-            .background(p["avatar$index"])
-            .border(2.dp, ring, MaterialTheme.shapes.medium),
+        Modifier.size(size.dp).clip(shape).background(p["avatar$index"]).border(2.dp, ring, shape),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             initials,
             color = p["onAvatar"],
             fontWeight = FontWeight.Bold,
-            fontSize = (size * .31).sp,
+            fontSize = (size * .4).sp,
         )
     }
 }
@@ -197,9 +186,9 @@ fun UserAvatar(user: User, now: Long, size: Int = 42) {
     val status = userStatus(user, now)
     val icon =
         when {
-            user.deaf || user.selfDeaf -> Icons.Rounded.HeadsetOff
-            user.localMute || user.mute || user.selfMute || user.suppress -> Icons.Rounded.MicOff
-            user.priority -> Icons.Rounded.Star
+            user.deaf || user.selfDeaf -> Icons.AutoMirrored.Rounded.VolumeOff
+            user.localMute -> Icons.Rounded.HearingDisabled
+            user.mute || user.selfMute || user.suppress -> Icons.Rounded.MicOff
             else -> null
         }
     Box(Modifier.semantics { contentDescription = status }) {
@@ -209,15 +198,19 @@ fun UserAvatar(user: User, now: Long, size: Int = 42) {
                 Modifier.align(Alignment.BottomEnd)
                     .offset(4.dp, 4.dp)
                     .size(if (size < 40) 18.dp else 24.dp)
-                    .background(p.elevated, MaterialTheme.shapes.extraSmall)
-                    .border(2.dp, p.surface, MaterialTheme.shapes.extraSmall),
+                    .background(
+                        if (user.mute || user.deaf) p.danger
+                        else if (user.localMute) p["warn"] else p.muted,
+                        CircleShape,
+                    )
+                    .border(1.5.dp, p.background, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     icon,
                     null,
                     modifier = Modifier.size(if (size < 40) 11.dp else 14.dp),
-                    tint = if (user.priority && status == "Listening") p.accent else p.muted,
+                    tint = p["onStatus"],
                 )
             }
     }
@@ -226,8 +219,8 @@ fun UserAvatar(user: User, now: Long, size: Int = 42) {
 @Composable
 fun StatusPill(text: String, tint: Color = LocalPalette.current.accent, icon: ImageVector? = null) {
     Row(
-        Modifier.background(tint.copy(alpha = .1f), MaterialTheme.shapes.extraSmall)
-            .padding(horizontal = 9.dp, vertical = 5.dp),
+        Modifier.background(tint.copy(alpha = .14f), CircleShape)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
@@ -246,8 +239,8 @@ fun SectionLabel(text: String) {
     Text(
         text.uppercase(),
         color = LocalPalette.current.muted,
-        style = MaterialTheme.typography.labelMedium,
-        letterSpacing = 1.sp,
+        style = MaterialTheme.typography.labelSmall,
+        letterSpacing = 1.4.sp,
         modifier = Modifier.padding(top = 12.dp, bottom = 4.dp).semantics { heading() },
     )
 }
@@ -273,14 +266,14 @@ fun ChoiceRow(choices: List<Pair<String, String>>, selected: String, choose: (St
                         .clip(MaterialTheme.shapes.small)
                         .background(if (selected == id) p.elevated else Color.Transparent)
                         .selectable(selected == id, role = Role.Tab, onClick = { choose(id) })
-                        .heightIn(min = 44.dp)
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                        .heightIn(min = 32.dp)
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         label,
                         color = if (selected == id) p.ink else p.muted,
-                        style = MaterialTheme.typography.labelLarge,
+                        style = MaterialTheme.typography.labelMedium,
                     )
                 }
             }
@@ -308,7 +301,7 @@ fun ToggleRow(
             Text(title, style = MaterialTheme.typography.bodyMedium)
             subtitle?.let { Hint(it) }
         }
-        Switch(checked, null)
+        Switch(checked, null, modifier = Modifier.size(48.dp, 32.dp))
     }
 }
 
@@ -319,7 +312,7 @@ fun EmptyState(icon: ImageVector, title: String, subtitle: String, modifier: Mod
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        IconWell(icon, size = 56)
+        Icon(icon, null, Modifier.size(36.dp), tint = LocalPalette.current.muted)
         Text(
             title,
             style = MaterialTheme.typography.titleLarge,

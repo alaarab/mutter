@@ -32,6 +32,7 @@ data class Settings(
     val turn: String = "",
     val turnUser: String = "",
     val turnPassword: String = "",
+    val defaultUsername: String = "",
 )
 
 data class Channel(

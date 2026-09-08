@@ -112,6 +112,42 @@ adb pull /sdcard/Android/data/com.alaarab.mutter/files/polish-phone android/app/
 font settings, or `adb shell wm size`, `wm density` and `settings put system font_scale`, to change
 the review configuration. Restore those overrides after testing.
 
+## Shared phone layout · September 7, 2026
+
+Android now follows the shipping iPhone layout described in [the shared phone reference](../design/layout.md).
+The separate Voice grid was removed. Both phones use Channels, Chat and Server tabs, a channel
+and person tree, the same call-control order, recipient controls beside the chat composer,
+grouped settings, and horizontal profile headers. Form headers and theme previews follow the
+same structure. Small windows and large text retain platform-appropriate adaptations.
+
+Actual iPhone 17 Pro / iOS 26.5 simulator screenshots were captured from an isolated copy of the
+shipping iPhone app in Plum light and dark, using the same populated fixture as Android. No iPhone
+production code changed. The Android capture covers all 22 theme variants. The iPhone simulator's
+microphone warning reflects the simulator's missing input device.
+
+The full Android 16 regression suite passed all 21 instrumentation tests. All 13 JVM tests
+passed, and the debug build and lint completed with zero lint errors. Shared generated palettes
+passed their contrast checks; the audited text pairs over the new ambient backgrounds and
+message/avatar fills had a minimum contrast of 4.62:1.
+
+`PolishTest` additionally checks channel collapse/search, the initial Channels selection, the
+absence of a separate Voice tab, output and transmit menus, minimizing and returning to a call,
+Server-tab content, theme selection, keyboard submission, modal controls, and persisted default
+usernames. Theme rows are separate lazy-list items so scrolling and accessibility actions can
+reach every choice at large text sizes. App code contains no first-party comments.
+
+The layout and editor checks passed at 360×640 dp and 640×360 dp with 150% text. Landscape
+review exposed chrome consuming the channel list and a wrapping form action; the final layout
+scrolls search with the tree, places push-to-talk beside the call controls in short wide windows,
+and keeps sheet actions on one line. Keyboard Done and form submission release space for
+navigation and validation errors.
+
+All three layout tests also passed with system animator duration disabled. The separate denied-
+permissions test passed connection and chat without microphone or notification permission, then
+resumed push-to-talk after microphone permission was granted without reconnecting. The live-video
+test decoded at least five 640-pixel-wide frames from the shared browser/Electron client.
+Together with the JVM and regression suites, these cover 36 distinct Android tests.
+
 ## Physical devices
 
 The offline `EditorTest`, `StorageTest`, and `AudioCodecTest` classes can run in

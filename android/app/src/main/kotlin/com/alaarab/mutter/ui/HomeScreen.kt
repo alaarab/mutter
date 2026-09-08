@@ -3,20 +3,20 @@ package com.alaarab.mutter.ui
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.*
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.alaarab.mutter.data.*
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
     servers: List<Server>,
@@ -28,118 +28,150 @@ fun HomeScreen(
     onSession: () -> Unit,
     onFavorite: (Server) -> Unit,
 ) {
-    var query by rememberSaveable { mutableStateOf("") }
+    val p = LocalPalette.current
+    var menu by remember { mutableStateOf<String?>(null) }
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
-        item { Heading("Your people.\nYour place.", "Drop in. Say something.") }
+        item {
+            Text(
+                "Mutter",
+                style = MaterialTheme.typography.displaySmall.copy(fontSize = 32.sp),
+                modifier = Modifier.padding(top = 6.dp, bottom = 24.dp),
+            )
+        }
         if (state.connected)
             item {
-                AppCard(Modifier.fillMaxWidth(), onSession) {
-                    Text(
-                        "CONNECTED",
-                        color = LocalPalette.current.speaking,
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                    Text(
-                        state.channel?.name ?: "Voice",
-                        style = MaterialTheme.typography.titleLarge,
-                    )
-                    Hint("Return to your conversation")
-                }
-            }
-        item {
-            BoxWithConstraints(Modifier.fillMaxWidth()) {
-                if (maxWidth < 340.dp || LocalDensity.current.fontScale > 1.2f) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        ServerActionButtons(Modifier.fillMaxWidth(), onAdd, onBrowse)
-                    }
-                } else {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        ServerActionButtons(Modifier.weight(1f), onAdd, onBrowse)
+                AppCard(Modifier.fillMaxWidth(), onSession, highlighted = true) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Icon(Icons.Rounded.GraphicEq, null, tint = p.accent)
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                state.server?.name?.ifBlank { state.server.host } ?: "Connected",
+                                style = MaterialTheme.typography.titleSmall,
+                            )
+                            Hint("Connected · tap to return")
+                        }
+                        Icon(Icons.Rounded.ChevronRight, null, tint = p.muted)
                     }
                 }
-            }
-        }
-        if (servers.isNotEmpty())
-            item {
-                OutlinedTextField(
-                    query,
-                    { query = it },
-                    Modifier.fillMaxWidth(),
-                    placeholder = { Text("Find a server") },
-                    leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                    singleLine = true,
-                    shape = MaterialTheme.shapes.medium,
-                )
             }
         if (servers.isEmpty())
             item {
+                Spacer(Modifier.height(20.dp))
                 EmptyState(
-                    Icons.Rounded.Forum,
-                    "A little closer, wherever you are.",
-                    "Add your Mumble server or find a community in the directory.",
+                    Icons.Rounded.RecordVoiceOver,
+                    "No servers yet",
+                    "Add a Mumble server you know, or browse the public directory.",
                 )
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 12.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Button(onAdd, shape = MaterialTheme.shapes.small) {
+                        Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Add server")
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    FilledTonalButton(onBrowse) {
+                        Icon(Icons.Rounded.Public, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Browse")
+                    }
+                }
             }
-        if (servers.isNotEmpty()) item { SectionLabel("Your servers") }
-        if (servers.isNotEmpty() && servers.none { "${it.name} ${it.host}".contains(query, true) })
-            item {
-                EmptyState(
-                    Icons.Rounded.SearchOff,
-                    "No servers found",
-                    "Try another name or address.",
-                )
-            }
-        items(
-            servers
-                .filter { "${it.name} ${it.host}".contains(query, true) }
-                .sortedWith(
-                    compareByDescending<Server> { it.favorite }.thenByDescending { it.lastUsed }
-                ),
-            key = { it.id },
-        ) { server ->
-            AppCard(Modifier.fillMaxWidth(), { onConnect(server) }) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Avatar(server.name.ifBlank { server.host }, size = 48)
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            server.name.ifBlank { server.host },
-                            style = MaterialTheme.typography.titleMedium,
+        listOf(
+                "Favourites" to servers.filter { it.favorite },
+                "Recent" to servers.filter { !it.favorite }.sortedByDescending { it.lastUsed },
+            )
+            .forEach { (title, group) ->
+                if (group.isNotEmpty()) item { SectionLabel(title) }
+                itemsIndexed(group, key = { _, server -> server.id }) { index, server ->
+                    val shape =
+                        MaterialTheme.shapes.small.copy(
+                            topStart = CornerSize(if (index == 0) 12.dp else 0.dp),
+                            topEnd = CornerSize(if (index == 0) 12.dp else 0.dp),
+                            bottomStart = CornerSize(if (index == group.lastIndex) 12.dp else 0.dp),
+                            bottomEnd = CornerSize(if (index == group.lastIndex) 12.dp else 0.dp),
                         )
-                        Hint("${server.host}:${server.port}")
-                    }
-                    ActionIcon(
-                        if (server.favorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
-                        "Favorite ${server.name}",
-                        if (server.favorite) LocalPalette.current.accent
-                        else LocalPalette.current.muted,
+                    Column(
+                        Modifier.fillMaxWidth()
+                            .background(p.surface, shape)
+                            .combinedClickable(
+                                onClick = { onConnect(server) },
+                                onLongClick = { menu = server.id },
+                            )
+                            .padding(horizontal = 14.dp)
                     ) {
-                        onFavorite(server)
+                        Row(
+                            Modifier.padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Avatar(server.name.ifBlank { server.host }, size = 44, rounded = true)
+                            Column(
+                                Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(3.dp),
+                            ) {
+                                Text(
+                                    server.name.ifBlank { server.host },
+                                    style =
+                                        MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    "${server.host}:${server.port}${if (server.username.isBlank()) "" else " · ${server.username}"}",
+                                    color = p.muted,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Box {
+                                Column(horizontalAlignment = Alignment.End) {
+                                    ServerLatency(server)
+                                    IconButton({ menu = server.id }, Modifier.size(32.dp)) {
+                                        Icon(
+                                            Icons.Rounded.MoreHoriz,
+                                            "Options for ${server.name}",
+                                            Modifier.size(18.dp),
+                                            tint = p.muted,
+                                        )
+                                    }
+                                }
+                                DropdownMenu(menu == server.id, { menu = null }) {
+                                    DropdownMenuItem(
+                                        text = { Text("Edit") },
+                                        onClick = {
+                                            menu = null
+                                            onEdit(server)
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                if (server.favorite) "Unfavourite" else "Favourite"
+                                            )
+                                        },
+                                        onClick = {
+                                            menu = null
+                                            onFavorite(server)
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                        if (index < group.lastIndex) SectionDivider()
                     }
-                    ActionIcon(Icons.Rounded.MoreVert, "Edit ${server.name}") { onEdit(server) }
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Hint(server.username)
-                    ServerLatency(server)
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun ServerActionButtons(modifier: Modifier, onAdd: () -> Unit, onBrowse: () -> Unit) {
-    Button(onAdd, modifier.heightIn(min = 52.dp)) {
-        Icon(Icons.Rounded.Add, null)
-        Spacer(Modifier.width(6.dp))
-        Text("Add server")
-    }
-    OutlinedButton(onBrowse, modifier.heightIn(min = 52.dp)) {
-        Icon(Icons.Rounded.Public, null)
-        Spacer(Modifier.width(6.dp))
-        Text("Discover")
     }
 }

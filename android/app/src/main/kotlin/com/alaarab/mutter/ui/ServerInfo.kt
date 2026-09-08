@@ -11,50 +11,62 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.alaarab.mutter.MutterApplication
 import com.alaarab.mutter.data.*
 import com.alaarab.mutter.protocol.Proto
 
 @Composable
 fun ServerInfo(app: MutterApplication, state: SessionState) {
+    val settings by app.store.settings.collectAsStateWithLifecycle()
+    var disconnect by remember { mutableStateOf(false) }
     var showLog by rememberSaveable { mutableStateOf(false) }
     var registered by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<Int?>(null) }
     var name by rememberSaveable { mutableStateOf("") }
     var removing by remember { mutableStateOf<Int?>(null) }
     LazyColumn(
-        Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 32.dp),
+        Modifier.fillMaxWidth().testTag("serverDetails"),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item {
-            Heading(state.server?.name?.ifBlank { "Server" } ?: "Server", state.version)
-            Hint("${state.server?.host}:${state.server?.port}")
-        }
-        item {
-            AppCard(Modifier.fillMaxWidth()) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    ServerMetric(state.users.size.toString(), "People")
-                    ServerMetric(state.channels.size.toString(), "Channels")
-                    ServerMetric("${state.ping} ms", "Latency")
-                }
-                SectionDivider()
-                StatusPill(
-                    if (state.udp) "Encrypted UDP voice" else "TLS voice tunnel",
-                    LocalPalette.current.speaking,
-                    Icons.Rounded.Lock,
-                )
-            }
-        }
         if (state.welcome.isNotBlank())
             item {
                 SectionLabel("Welcome")
                 AppCard(Modifier.fillMaxWidth()) { RichMessage(state.welcome) }
             }
+        item {
+            SectionLabel("Server")
+            AppCard(Modifier.fillMaxWidth()) {
+                DetailRow("Address", "${state.server?.host}:${state.server?.port}")
+                SectionDivider()
+                DetailRow("Version", state.version)
+                SectionDivider()
+                DetailRow("People online", state.users.size.toString())
+                SectionDivider()
+                DetailRow("Channels", state.channels.size.toString())
+            }
+        }
+        item {
+            SectionLabel("Connection")
+            AppCard(Modifier.fillMaxWidth()) {
+                DetailRow("Voice transport", if (state.udp) "UDP (encrypted)" else "TCP tunnel")
+                SectionDivider()
+                DetailRow("Ping", "${state.ping} ms")
+                SectionDivider()
+                DetailRow("Codec", "Opus ${settings.bitrate / 1000} kbit/s · 20 ms")
+            }
+        }
+        item {
+            SectionLabel("You")
+            AppCard(Modifier.fillMaxWidth()) {
+                DetailRow("Connected as", state.self?.name.orEmpty())
+                SectionDivider()
+                DetailRow("Registered", if ((state.self?.registered ?: -1) >= 0) "Yes" else "No")
+            }
+        }
         if (state.can(0x40000))
             item {
                 OutlinedButton({
@@ -88,7 +100,23 @@ fun ServerInfo(app: MutterApplication, state: SessionState) {
                     color = LocalPalette.current.muted,
                 )
         }
+        item {
+            AppCard(Modifier.fillMaxWidth()) {
+                TextButton({ disconnect = true }, Modifier.fillMaxWidth()) {
+                    Icon(Icons.Rounded.CallEnd, null, tint = LocalPalette.current.danger)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Disconnect", color = LocalPalette.current.danger)
+                }
+            }
+        }
     }
+    if (disconnect)
+        AlertDialog(
+            onDismissRequest = { disconnect = false },
+            title = { Text("Disconnect from this server?") },
+            confirmButton = { TextButton(app::disconnect) { Text("Disconnect") } },
+            dismissButton = { TextButton({ disconnect = false }) { Text("Cancel") } },
+        )
     editing?.let { id ->
         AlertDialog(
             onDismissRequest = { editing = null },
@@ -126,13 +154,5 @@ fun ServerInfo(app: MutterApplication, state: SessionState) {
             },
             dismissButton = { TextButton({ removing = null }) { Text("Cancel") } },
         )
-    }
-}
-
-@Composable
-private fun ServerMetric(value: String, label: String) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(value, style = MaterialTheme.typography.titleLarge)
-        Hint(label)
     }
 }

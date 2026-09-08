@@ -102,10 +102,10 @@ fun IdentitiesScreen(app: MutterApplication) {
         }
     LazyColumn(
         Modifier.fillMaxWidth().imePadding(),
-        contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 32.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { Heading("Your identity", "Certificates make you recognizable to servers.") }
+        item { Hint("Certificates make you recognizable to servers.") }
         items(identities.size) { index ->
             val identity = identities[index]
             AppCard(Modifier.fillMaxWidth()) {

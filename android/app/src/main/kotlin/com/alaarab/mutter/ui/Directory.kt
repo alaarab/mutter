@@ -56,10 +56,9 @@ fun DirectoryScreen(select: (Server) -> Unit) {
     }
     LazyColumn(
         Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 32.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { Heading("Find your people", "Discover a community or a nearby server.") }
         item {
             ChoiceRow(listOf("public" to "Public directory", "local" to "Local network"), tab) {
                 tab = it

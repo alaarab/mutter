@@ -21,11 +21,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CornerSize
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.Chat
-import androidx.compose.material.icons.automirrored.rounded.List
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.listSaver
@@ -34,16 +29,14 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.*
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.alaarab.mutter.MutterApplication
-import com.alaarab.mutter.R
 import com.alaarab.mutter.data.*
 import com.alaarab.mutter.protocol.Proto
 
@@ -131,20 +124,22 @@ fun MutterApp(app: MutterApplication, deepLink: Server? = null, consumed: () -> 
     }
     LaunchedEffect(deepLink) {
         if (deepLink != null) {
-            draft = deepLink
+            draft = deepLink.copy(username = deepLink.username.ifBlank { settings.defaultUsername })
             sheet = "server"
             consumed()
         }
     }
     LaunchedEffect(session.status) {
-        if (session.connected && previousStatus != "connected" && page == "servers") page = "voice"
+        if (session.connected && previousStatus != "connected" && page == "servers")
+            page = "channels"
         if (session.status == "disconnected" && previousStatus != "disconnected") {
             page = "servers"
-            if (sheet in listOf("user", "channel", "whisper", "info")) sheet = null
+            if (sheet in listOf("user", "channel", "whisper")) sheet = null
         }
         previousStatus = session.status
     }
     LaunchedEffect(page, session.messages.lastOrNull()?.id) {
+        if (page == "voice") page = "channels"
         if (page == "chat") app.client.markMessagesRead()
     }
     DisposableEffect(settings.keepAwake, session.connected) {
@@ -159,73 +154,33 @@ fun MutterApp(app: MutterApplication, deepLink: Server? = null, consumed: () -> 
         val p = LocalPalette.current
         val motion = LocalCatalog.current
         val keyboardVisible = WindowInsets.isImeVisible
-        val compactChat =
-            page == "chat" && keyboardVisible && LocalConfiguration.current.screenHeightDp < 500
+        val density = LocalDensity.current
+        val availableHeight =
+            LocalConfiguration.current.screenHeightDp -
+                with(density) { WindowInsets.ime.getBottom(this).toDp().value }
+        val compactKeyboard = keyboardVisible && availableHeight < 440 * density.fontScale
+        val compactContent = keyboardVisible && LocalConfiguration.current.screenHeightDp < 500
         Scaffold(
             modifier = Modifier.imePadding(),
             containerColor = p.background,
             bottomBar = {
-                if (session.connected && !keyboardVisible)
-                    Column(Modifier.navigationBarsPadding().background(p.surface)) {
-                        VoiceControls(app, session) { sheet = "whisper" }
-                        if (page != "servers")
-                            NavigationBar(
-                                containerColor = p.surface,
-                                tonalElevation = 0.dp,
-                                windowInsets = WindowInsets(0),
-                            ) {
-                                listOf(
-                                        Triple("voice", "Voice", Icons.Rounded.GraphicEq),
-                                        Triple(
-                                            "channels",
-                                            "Channels",
-                                            Icons.AutoMirrored.Rounded.List,
-                                        ),
-                                        Triple("chat", "Chat", Icons.AutoMirrored.Rounded.Chat),
-                                    )
-                                    .forEach { (id, label, icon) ->
-                                        NavigationBarItem(
-                                            selected = page == id,
-                                            onClick = {
-                                                page = id
-                                                if (id == "chat") direct = null
-                                            },
-                                            icon = {
-                                                BadgedBox(
-                                                    badge = {
-                                                        if (id == "chat" && session.unread > 0)
-                                                            Badge(
-                                                                containerColor = p.accent,
-                                                                contentColor = p["onAccent"],
-                                                            ) {
-                                                                Text(
-                                                                    session.unread
-                                                                        .coerceAtMost(99)
-                                                                        .toString()
-                                                                )
-                                                            }
-                                                    }
-                                                ) {
-                                                    Icon(icon, label)
-                                                }
-                                            },
-                                            label = {
-                                                Text(
-                                                    label,
-                                                    style = MaterialTheme.typography.labelMedium,
-                                                )
-                                            },
-                                            colors =
-                                                NavigationBarItemDefaults.colors(
-                                                    selectedIconColor = p.accent,
-                                                    selectedTextColor = p.ink,
-                                                    indicatorColor = p.accent.copy(alpha = .12f),
-                                                    unselectedIconColor = p.muted,
-                                                    unselectedTextColor = p.muted,
-                                                ),
-                                        )
-                                    }
-                            }
+                if (session.connected && page != "servers" && !compactKeyboard)
+                    Column(
+                        Modifier.navigationBarsPadding()
+                            .background(
+                                Brush.linearGradient(listOf(p["surfaceHighlight"], p.surface))
+                            )
+                    ) {
+                        SectionDivider()
+                        VoiceControls(
+                            app,
+                            session,
+                            whisper = { sheet = "whisper" },
+                            settings = { sheet = "settings" },
+                        )
+                        SessionNavigation(page, session.unread) {
+                            page = it
+                        }
                     }
             },
         ) { padding ->
@@ -234,39 +189,24 @@ fun MutterApp(app: MutterApplication, deepLink: Server? = null, consumed: () -> 
                     .padding(padding)
                     .consumeWindowInsets(padding)
                     .background(
-                        Brush.verticalGradient(
-                            listOf(p.accent.copy(alpha = .06f), Color.Transparent)
-                        )
+                        if (page in listOf("servers", "info")) ambientBrush()
+                        else SolidColor(p.background)
                     )
             ) {
-                if (!compactChat)
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (page != "servers")
-                            ActionIcon(Icons.AutoMirrored.Rounded.ArrowBack, "Servers") {
-                                page = "servers"
-                            }
-                        else
-                            Icon(
-                                painterResource(R.drawable.notification_mark),
-                                "Mutter",
-                                tint = p.ink,
-                                modifier = Modifier.padding(12.dp).size(28.dp),
-                            )
-                        Text(
-                            if (page == "servers") "Mutter"
-                            else session.server?.let { it.name.ifBlank { it.host } } ?: "Mutter",
-                            style = MaterialTheme.typography.titleLarge,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                if (!compactContent) {
+                    if (page == "servers")
+                        HomeToolbar(
+                            settings = { sheet = "settings" },
+                            browse = { sheet = "directory" },
+                            add = {
+                                draft = Server(username = settings.defaultUsername)
+                                sheet = "server"
+                            },
                         )
-                        if (session.connected)
-                            ActionIcon(Icons.Rounded.Info, "Server information") { sheet = "info" }
-                        ActionIcon(Icons.Rounded.Settings, "Settings") { sheet = "settings" }
-                    }
+                    else SessionHeader(session) { page = "servers" }
+                }
+                if (page != "servers") ShareBanner(app)
+
                 AnimatedContent(
                     page,
                     Modifier.weight(1f),
@@ -282,6 +222,7 @@ fun MutterApp(app: MutterApplication, deepLink: Server? = null, consumed: () -> 
                 ) { current ->
                     savedPages.SaveableStateProvider(current) {
                         when (current) {
+                            "info" -> ServerInfo(app, session)
                             "servers" ->
                                 HomeScreen(
                                     servers,
@@ -292,11 +233,11 @@ fun MutterApp(app: MutterApplication, deepLink: Server? = null, consumed: () -> 
                                         sheet = "server"
                                     },
                                     onAdd = {
-                                        draft = Server()
+                                        draft = Server(username = settings.defaultUsername)
                                         sheet = "server"
                                     },
                                     onBrowse = { sheet = "directory" },
-                                    onSession = { page = "voice" },
+                                    onSession = { page = "channels" },
                                     onFavorite = {
                                         app.store.saveServer(it.copy(favorite = !it.favorite))
                                     },
@@ -306,6 +247,11 @@ fun MutterApp(app: MutterApplication, deepLink: Server? = null, consumed: () -> 
                                     session,
                                     settings.hideEmpty,
                                     transmitting,
+                                    onHideEmpty = {
+                                        app.store.saveSettings(
+                                            settings.copy(hideEmpty = !settings.hideEmpty)
+                                        )
+                                    },
                                     onJoin = app.client::join,
                                     onUser = ::showUser,
                                     onChannel = {
@@ -322,13 +268,6 @@ fun MutterApp(app: MutterApplication, deepLink: Server? = null, consumed: () -> 
                                     onDirectClose = { direct = null },
                                     onDirect = { direct = it },
                                     onUser = ::showUser,
-                                )
-                            else ->
-                                VoiceScreen(
-                                    app,
-                                    session,
-                                    onUser = ::showUser,
-                                    onChannels = { page = "channels" },
                                 )
                         }
                     }
@@ -352,7 +291,10 @@ fun MutterApp(app: MutterApplication, deepLink: Server? = null, consumed: () -> 
         if (sheet != null)
             ModalBottomSheet(
                 onDismissRequest = { sheet = null },
-                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                sheetState =
+                    rememberModalBottomSheetState(
+                        skipPartiallyExpanded = sheet !in listOf("user", "channel", "whisper")
+                    ),
                 containerColor = p.background,
                 tonalElevation = 0.dp,
                 shape =
@@ -360,55 +302,81 @@ fun MutterApp(app: MutterApplication, deepLink: Server? = null, consumed: () -> 
                         bottomStart = CornerSize(0.dp),
                         bottomEnd = CornerSize(0.dp),
                     ),
-                dragHandle = { BottomSheetDefaults.DragHandle(color = p.muted.copy(alpha = .45f)) },
+                dragHandle = {
+                    if (
+                        !(WindowInsets.isImeVisible &&
+                            LocalConfiguration.current.screenHeightDp < 500)
+                    )
+                        BottomSheetDefaults.DragHandle(
+                            modifier = Modifier.testTag("sheetHandle"),
+                            color = p.muted.copy(alpha = .45f),
+                        )
+                },
             ) {
                 SheetSystemBars()
-                when (sheet) {
-                    "server" ->
-                        ServerEditor(
-                            draft,
-                            app,
-                            onSave = {
-                                app.store.saveServer(it)
-                                sheet = null
-                            },
-                            onConnect = {
-                                sheet = null
-                                connect(it)
-                            },
-                            onDelete = {
-                                app.store.deleteServer(draft.id)
-                                sheet = null
-                            },
-                        )
-                    "settings" -> SettingsScreen(app, settings)
-                    "directory" ->
-                        DirectoryScreen {
-                            draft = it
-                            sheet = "server"
+                Column(Modifier.fillMaxWidth().background(ambientBrush())) {
+                    if (sheet !in listOf("settings", "server"))
+                        SheetHeader(
+                            when (sheet) {
+                                "directory" -> "Public servers"
+                                "channel" -> "Channel"
+                                "whisper" -> "Whisper or shout"
+                                else -> ""
+                            }
+                        ) {
+                            sheet = null
                         }
-                    "user" ->
-                        session.users[user]?.let { selected ->
-                            UserSheet(
+                    when (sheet) {
+                        "server" ->
+                            ServerEditor(
+                                draft,
                                 app,
-                                session,
-                                selected,
-                                message = {
-                                    direct = selected.session
-                                    page = "chat"
+                                onSave = {
+                                    app.store.saveServer(it)
                                     sheet = null
                                 },
-                                dismiss = { sheet = null },
+                                onConnect = {
+                                    sheet = null
+                                    connect(it)
+                                },
+                                onDelete = {
+                                    app.store.deleteServer(draft.id)
+                                    sheet = null
+                                },
+                                onDismiss = { sheet = null },
                             )
-                        }
-                    "channel" ->
-                        session.channels[channel]?.let { selected ->
-                            ChannelSheet(app, session, selected) { sheet = null }
-                        }
-                    "whisper" -> WhisperSheet(app, session) { sheet = null }
-                    "info" -> ServerInfo(app, session)
+                        "settings" -> SettingsScreen(app, settings) { sheet = null }
+                        "directory" ->
+                            DirectoryScreen {
+                                draft =
+                                    it.copy(
+                                        username = it.username.ifBlank { settings.defaultUsername }
+                                    )
+                                sheet = "server"
+                            }
+                        "user" ->
+                            session.users[user]?.let { selected ->
+                                UserSheet(
+                                    app,
+                                    session,
+                                    selected,
+                                    message = {
+                                        direct = selected.session
+                                        page = "chat"
+                                        sheet = null
+                                    },
+                                    dismiss = { sheet = null },
+                                )
+                            }
+                        "channel" ->
+                            session.channels[channel]?.let { selected ->
+                                ChannelSheet(app, session, selected) { sheet = null }
+                            }
+                        "whisper" -> WhisperSheet(app, session) { sheet = null }
+                    }
                 }
             }
+        ShareDialog(app)
         session.certificate?.let { CertificateDialog(it, app.client::answerTrust) }
         session.error?.let { error ->
             AlertDialog(

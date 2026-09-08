@@ -7,6 +7,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
@@ -276,4 +277,12 @@ fun SheetSystemBars() {
             }
         }
     }
+}
+
+@Composable
+fun ambientBrush(): Brush {
+    val p = LocalPalette.current
+    return Brush.linearGradient(
+        listOf(p.accent.copy(alpha = .08f), Color.Transparent, p["secondary"].copy(alpha = .04f))
+    )
 }

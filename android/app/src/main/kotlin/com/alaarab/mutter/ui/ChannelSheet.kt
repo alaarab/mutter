@@ -3,7 +3,6 @@ package com.alaarab.mutter.ui
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -27,12 +26,10 @@ fun ChannelSheet(
     var deleting by remember { mutableStateOf(false) }
     LazyColumn(
         Modifier.fillMaxWidth().imePadding(),
-        contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 32.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            IconWell(Icons.Rounded.Tag, size = 48)
-            Spacer(Modifier.height(12.dp))
             Heading(channel.name, "${state.users.values.count { it.channel == channel.id }} people")
         }
         if (channel.description.isNotBlank())
