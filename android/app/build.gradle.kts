@@ -79,7 +79,7 @@ android.sourceSets["main"].res.srcDir(layout.buildDirectory.dir("generated/brand
 tasks.named("preBuild").configure { dependsOn(generateBrand) }
 
 dependencies {
-    implementation(platform("androidx.compose:compose-bom:2025.09.01"))
+    implementation(platform("androidx.compose:compose-bom:2026.08.00"))
     implementation("androidx.activity:activity-compose:1.11.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     implementation("androidx.compose.material3:material3")
@@ -90,7 +90,7 @@ dependencies {
     implementation("org.bouncycastle:bcpkix-jdk18on:1.85")
     implementation("io.github.webrtc-sdk:android:150.7871.01")
     testImplementation("junit:junit:4.13.2")
-    androidTestImplementation(platform("androidx.compose:compose-bom:2025.09.01"))
+    androidTestImplementation(platform("androidx.compose:compose-bom:2026.08.00"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.test:runner:1.7.0")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
