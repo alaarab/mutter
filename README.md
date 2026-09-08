@@ -1,75 +1,77 @@
 # Mutter
 
-A Mumble client for browser, iOS, Android, and Electron desktop. Voice, channels, chat, and screen
-viewing share the same visual style and 11 light/dark themes across platforms.
+Join a server, see who’s around, and talk. Mutter is a Mumble client for your browser,
+iPhone, Android phone, or desktop, with voice, chat, and screen viewing in one place.
 
-Mutter uses the standard Mumble protocol: TLS control, encrypted UDP voice, Opus, and TCP fallback.
-The native mobile apps connect directly. Browser and Electron share a web client and a local Node
-bridge. Screen sharing uses Mutter's WebRTC extension alongside the Mumble connection.
+The phone apps keep channels, messages, and call controls in the same places. All four
+clients share the same fonts and 11 themes, each with light and dark appearances.
 
-## Choose a platform
+<table>
+  <tr><th>iPhone</th><th>Android</th></tr>
+  <tr>
+    <td><img src="docs/images/phone-layout/iphone-channels-dark.png" width="300" alt="Mutter on iPhone, showing people in a channel tree above the call controls"></td>
+    <td><img src="docs/images/phone-layout/android-channels-dark.png" width="300" alt="Mutter on Android, with the same channel tree and call-control layout"></td>
+  </tr>
+</table>
 
-| Platform | Run or build | Guide |
-| --- | --- | --- |
-| Browser | `node web/bridge/server.mjs` | [Browser](web/README.md) |
-| iOS | `xcodegen generate`, then open `Mutter.xcodeproj` | [iOS](docs/ios.md) |
-| Android | `python3 scripts/deploy-android.py --build-only` | [Android](android/README.md) |
-| Electron | `cd desktop && npm ci && npm start` | [Desktop](desktop/README.md) |
+Actual simulator captures in Plum dark, using a test server and fictional participants.
+The iPhone’s microphone warning comes from the simulator.
+[See the phone layout comparison →](docs/phone-layout.md)
 
-Mobile deployment helpers install and launch development builds:
+## What you can do
+
+- Hold to talk, use voice activation, or leave the mic open. Mute yourself, deafen, or adjust
+  someone’s volume without changing it for everyone else.
+- Save your favourite servers, browse channels, and find people by name.
+- Send messages and images to your channel or directly to someone.
+- Share a screen or camera from the browser or Electron app, and watch from any Mutter client.
+- Pick a theme you like and follow your device’s light or dark appearance.
+
+Mutter connects to regular Mumble servers. Screen sharing is a Mutter extension, so viewers
+need Mutter too. The [feature guide](docs/features.md) covers the differences between platforms.
+
+## Try it
+
+The browser client is a quick way to run from source. With Node 18+ and Chrome or Edge installed:
 
 ```sh
-python3 scripts/deploy-phone.py
-python3 scripts/deploy-android.py --device YOUR_ADB_SERIAL
+git clone https://github.com/alaarab/mutter.git
+cd mutter
+node web/bridge/server.mjs
 ```
 
-The iOS helper reads ignored local signing configuration. Android installation requires an
-authorized device or emulator. See each platform guide for its toolchain and signing setup.
+The bridge serves Mutter at `http://localhost:8788` and opens an app window when it finds a
+supported browser. Add your Mumble server’s address and username to connect.
 
-## Repository
+For the other apps, start with the guide for your platform:
 
-| Path | Responsibility |
-| --- | --- |
-| `design/` | Shared theme catalog and licensed fonts |
-| `docs/brand/icon.svg` | Master mark used to generate platform icons |
-| `web/` | Browser interface, JavaScript protocol, local bridge, and shared test server |
-| `desktop/` | Electron shell, desktop capture picker, packaging, and global push to talk |
-| `android/` | Kotlin/Compose app, direct transport, audio, storage, and device tests |
-| `Mutter/` | SwiftUI app, audio, and iOS integration |
-| `MutterWidgets/`, `MutterUITests/` | iOS extensions and UI checks |
-| `Packages/MumbleCore/` | Swift protocol, transport, identities, and protocol tests |
-| `scripts/` | Shared asset generation and device deployment |
-| `.github/workflows/` | Build, palette, and release checks |
+| App | What you need | Guide |
+| --- | --- | --- |
+| Browser | Node 18+ and Chrome or Edge for voice | [Run in a browser](web/README.md) |
+| iPhone | Xcode, XcodeGen, and an iOS 17+ device or simulator | [Build and install on iOS](docs/ios.md) |
+| Android | JDK 21, Android SDK 36, and an Android 10+ device or emulator | [Build and install on Android](android/README.md) |
+| Electron | Node 22+ to run from source on Windows, macOS, or Linux | [Run the desktop app](desktop/README.md) |
 
-Shared assets belong in `design/`; individual platforms consume or generate their resources from
-there. Protocol implementations stay platform-native and are checked against common wire formats
-and interoperability scenarios. Platform capabilities and testing limits are in
-[feature coverage](docs/features.md).
+The mobile apps connect directly to your server. The browser needs the local Node bridge
+running; Electron includes it. Mobile builds currently use development signing—follow the
+platform guide to install on your own device.
 
-## Shared assets
+## Working on Mutter
+
+The browser and Electron use the same web client. The phone apps use SwiftUI and Jetpack Compose,
+with their own Mumble protocol implementations. Themes and fonts live together in `design/`.
+
+If you’re changing the interface, start with the [design guide](docs/design.md) and
+[shared phone layout](design/layout.md). Update the shared palette, then regenerate its outputs:
 
 ```sh
 node scripts/generate-themes.mjs
 node scripts/generate-themes.mjs --check
-swift scripts/make-appicon.swift
 ```
 
-Edit `design/themes.json` for colors and `docs/brand/icon.svg` for the mark. The palette generator
-writes the Swift, Kotlin asset, browser, and launch-color outputs; the icon script requires
-`resvg`. Android generates its vector launcher resources during the Gradle build. Generated
-outputs should be refreshed through these tools. See [the design guide](docs/design.md).
+The latest Android layout pass, on September 7, 2026, passed 36 JVM and emulator tests and
+reviewed all 22 theme variants. It also covered large text, landscape, permission recovery,
+and live video from the desktop client. Microphone quality, Bluetooth accessories, and battery
+behaviour still need physical Android testing. [Full validation notes](android/VALIDATION.md).
 
-## Development checks
-
-```sh
-node scripts/generate-themes.mjs --check
-swift test --package-path Packages/MumbleCore
-node --test web/test/bridge.test.mjs web/test/peer-certificate.test.mjs
-node --test desktop/test/persistence.test.mjs
-cd android && ./gradlew testDebugUnitTest lintDebug assembleDebug
-```
-
-Browser integration checks require Chromium. Electron checks require a GUI session. Android
-device checks use an emulator and the local protocol test server. Each platform guide lists
-the full commands; [Android validation](android/VALIDATION.md) records tested configurations and
-remaining hardware checks.
+[Browse the docs](docs/README.md) for the source map, build guides, protocol notes, and test commands.
