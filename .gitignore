@@ -12,3 +12,12 @@ MutterWidgets/Info.plist
 
 Local.xcconfig
 Local.deploy.json
+.DS_Store
+.env
+.env.*
+!.env.example
+*.p12
+*.pfx
+*.pem
+*.key
+*.mobileprovision

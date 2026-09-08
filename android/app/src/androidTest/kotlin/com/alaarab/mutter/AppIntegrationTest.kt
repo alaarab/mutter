@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import com.alaarab.mutter.data.Server
 import com.alaarab.mutter.protocol.VoicePacket
+import com.alaarab.mutter.sharing.SignalCodec
 import com.alaarab.mutter.ui.ThemeCatalog
 import java.util.concurrent.CopyOnWriteArrayList
 import org.junit.After
@@ -62,6 +63,36 @@ class AppIntegrationTest {
         }
         if (consent)
             assertTrue(app.client.state.value.log.toString(), app.client.state.value.connected)
+    }
+
+    @Test
+    fun malformedShareMessagesCannotCrashOrReplaceAnotherSession() {
+        connect(64742, "ShareSecurity")
+        val sender = app.client.state.value.me!!
+        val codec = SignalCodec()
+        fun deliver(from: Int, json: String) {
+            for (packet in codec.encode(json.toByteArray())) {
+                ui.runOnIdle { app.shares.receive(from, "mutter/rtc", packet) }
+            }
+        }
+        deliver(sender + 1000, """{"t":"announce","id":"forged"}""")
+        ui.runOnIdle { assertTrue(app.shares.shares.value.isEmpty()) }
+        repeat(300) { index ->
+            deliver(sender, """{"t":"announce","id":"share-$index"}""")
+        }
+        ui.runOnIdle {
+            assertEquals(256, app.shares.shares.value.size)
+            app.shares.watch(app.shares.shares.value.last())
+        }
+        deliver(sender, """{"t":"ice","id":"share-255","c":[null,1,"bad",{}, {"candidate":"candidate:1"}]}""")
+        deliver(sender + 1000, """{"t":"stop","id":"share-255"}""")
+        deliver(sender, """{"t":"stop","id":"previous-share"}""")
+        ui.runOnIdle {
+            assertEquals("share-255", app.shares.watching.value?.id)
+            assertTrue(app.client.state.value.connected)
+        }
+        deliver(sender, """{"t":"stop","id":"share-255"}""")
+        ui.runOnIdle { assertNull(app.shares.watching.value) }
     }
 
     @Test

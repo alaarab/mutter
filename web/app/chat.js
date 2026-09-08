@@ -74,7 +74,7 @@ function copyElement(node, into, insideLink) {
   if (DROPPED_TAGS.has(tag)) {
     return;
   }
-  const allowedAttributes = ALLOWED_TAGS[tag];
+  const allowedAttributes = Object.hasOwn(ALLOWED_TAGS, tag) ? ALLOWED_TAGS[tag] : undefined;
   if (!allowedAttributes) {
     copyChildren(node, into, insideLink);
     return;
@@ -82,7 +82,7 @@ function copyElement(node, into, insideLink) {
   const element = document.createElement(tag);
   for (const attribute of allowedAttributes) {
     const value = node.getAttribute(attribute);
-    if (value && isSafeUrl(attribute, value)) {
+    if (value && (attribute === 'alt' || isSafeUrl(attribute, value))) {
       element.setAttribute(attribute, value);
     }
   }

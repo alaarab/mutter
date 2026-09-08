@@ -25,6 +25,20 @@ const FONTS = path.join(ROOT, '..', 'design', 'fonts');
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 const BRIDGE_TOKEN = crypto.randomBytes(32).toString('hex');
 const MAX_WS_MESSAGE = 8 * 1024 * 1024 + 6;
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https: http:",
+  "media-src 'self' blob:",
+  "connect-src 'self'",
+  "worker-src 'self' blob:",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "frame-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+].join('; ');
 
 function allowedHost(host) {
   const port = server.address()?.port;
@@ -81,6 +95,8 @@ function requestPath(request) {
 const server = http.createServer((request, response) => {
   response.setHeader('X-Content-Type-Options', 'nosniff');
   response.setHeader('X-Frame-Options', 'DENY');
+  response.setHeader('Content-Security-Policy', CONTENT_SECURITY_POLICY);
+  response.setHeader('Referrer-Policy', 'no-referrer');
   if (!allowedRequest(request)) {
     response.writeHead(403).end();
     return;

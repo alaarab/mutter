@@ -84,11 +84,14 @@ final class ScreenShareModel: NSObject {
     func handle(_ plugin: PluginDataTransmissionMessage) {
         guard plugin.dataId == RTCSignal.dataId,
               let from = plugin.senderSession,
-              let message = reassembler.receive(from: from, data: plugin.data) else { return }
+              client.session.users[from] != nil,
+              let message = reassembler.receive(from: from, data: plugin.data),
+              !message.id.isEmpty, message.id.utf8.count <= 256 else { return }
         switch message.kind {
         case .announce:
             handleAnnounce(message, from: from)
         case .stop:
+            guard shares[message.id]?.sender == from else { return }
             shares[message.id] = nil
             if watching?.id == message.id {
                 stopWatching(sendLeave: false)
@@ -98,12 +101,12 @@ final class ScreenShareModel: NSObject {
             guard let current = watching, current.id == message.id, current.sender == from, let sdp = message.sdp else { return }
             Task { await accept(offer: sdp, from: from, id: message.id) }
         case .ice:
-            guard watching?.id == message.id else { return }
-            let candidates = message.candidates ?? []
+            guard watching?.id == message.id, watching?.sender == from else { return }
+            let candidates = (message.candidates ?? []).prefix(256).filter { $0.candidate.utf8.count <= 4096 }
             if let peerConnection, remoteDescriptionSet {
                 addCandidates(candidates, to: peerConnection)
             } else {
-                pendingCandidates.append(contentsOf: candidates)
+                pendingCandidates.append(contentsOf: candidates.prefix(256 - pendingCandidates.count))
             }
         case .watch, .answer, .leave:
             break
@@ -111,10 +114,12 @@ final class ScreenShareModel: NSObject {
     }
 
     private func handleAnnounce(_ message: SignalMessage, from sender: UInt32) {
+        guard shares[message.id] == nil || shares[message.id]?.sender == sender else { return }
+        guard shares.count < 256 || shares[message.id] != nil else { return }
         let share = ActiveShare(
             id: message.id,
             sender: sender,
-            title: message.title ?? client.session.users[sender]?.name ?? "Screen",
+            title: String((message.title ?? client.session.users[sender]?.name ?? "Screen").prefix(512)),
             width: message.width ?? 0,
             height: message.height ?? 0,
             hasAudio: message.audio ?? false,

@@ -2,7 +2,7 @@
 
 `web/app/rnnoise.wasm` is [RNNoise](https://gitlab.xiph.org/xiph/rnnoise) — Jean-Marc Valin's
 recurrent-network noise suppressor, the one Mumble desktop ships — compiled to WebAssembly from
-the classic model (xiph/rnnoise commit `1cbdbcf`, BSD-3-Clause, see `LICENSE`). 125 KB, no
+the classic model (xiph/rnnoise commit `1cbdbcf`, BSD-3-Clause, see [COPYING](COPYING)). 125 KB, no
 imports, ~0.1 ms per 10 ms frame.
 
 It runs inside the capture AudioWorklet (`web/app/worklets.js`): 480-sample blocks in 16-bit

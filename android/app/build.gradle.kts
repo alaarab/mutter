@@ -29,7 +29,10 @@ android {
         include("arm64-v8a", "armeabi-v7a", "x86_64")
         isUniversalApk = true
     }
-    packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+    packaging {
+        resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        resources.merges += "META-INF/LICENSE.md"
+    }
     sourceSets["main"].assets.srcDir("../../design/fonts")
 }
 
@@ -84,8 +87,8 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
-    implementation("org.bouncycastle:bcpkix-jdk18on:1.81")
-    implementation("io.github.webrtc-sdk:android:144.7559.09")
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.85")
+    implementation("io.github.webrtc-sdk:android:150.7871.01")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation(platform("androidx.compose:compose-bom:2025.09.01"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")

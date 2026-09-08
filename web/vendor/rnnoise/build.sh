@@ -10,6 +10,11 @@ if [ ! -d "$SRC/src" ]; then
   git -C "$SRC" checkout -q "$COMMIT"
 fi
 
+if [ "$(git -C "$SRC" rev-parse HEAD)" != "$COMMIT" ] || [ -n "$(git -C "$SRC" status --porcelain --untracked-files=all)" ]; then
+  echo "RNNoise source must be a clean checkout of $COMMIT" >&2
+  exit 1
+fi
+
 FILES="$SRC/src/denoise.c $SRC/src/rnn.c $SRC/src/rnn_data.c $SRC/src/pitch.c $SRC/src/celt_lpc.c $SRC/src/kiss_fft.c"
 FLAGS="-O2 -fno-math-errno -DTRAINING=0 -I$SRC/include -I$SRC/src"
 EXPORTS="-Wl,--strip-all -Wl,--export=rnnoise_get_size -Wl,--export=rnnoise_init -Wl,--export=rnnoise_process_frame -Wl,--export=malloc -Wl,--export=free -Wl,--no-entry"
