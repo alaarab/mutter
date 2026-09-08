@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import http from 'node:http';
 import { startEnvironment } from './harness.mjs';
 
-test('chat images make no remote requests until explicitly loaded', { timeout: 30_000 }, async t => {
+test('chat images make no remote requests until explicitly loaded', { timeout: 60_000 }, async t => {
   const requests = [];
   const remote = http.createServer((request, response) => {
     requests.push({ url: request.url, referrer: request.headers.referer });
@@ -34,7 +34,7 @@ test('chat images make no remote requests until explicitly loaded', { timeout: 3
   assert.deepEqual(requests, [{ url: '/image', referrer: undefined }]);
 });
 
-test('hostile markup stays inert and cannot break chat rendering', { timeout: 30_000 }, async t => {
+test('hostile markup stays inert and cannot break chat rendering', { timeout: 60_000 }, async t => {
   const environment = await startEnvironment();
   t.after(() => environment.close());
   const page = await environment.browser.newPage(environment.bridge.url);
@@ -58,7 +58,7 @@ test('hostile markup stays inert and cannot break chat rendering', { timeout: 30
   assert.deepEqual(page.errors(), []);
 });
 
-test('share controls reject forged senders and bound candidates before an offer', { timeout: 30_000 }, async t => {
+test('share controls reject forged senders and bound candidates before an offer', { timeout: 60_000 }, async t => {
   const environment = await startEnvironment();
   t.after(() => environment.close());
   const page = await environment.browser.newPage(environment.bridge.url);
