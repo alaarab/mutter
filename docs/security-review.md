@@ -77,8 +77,8 @@ or a matching saved pin before authentication. Tests cover rejection and pin reu
 - Electron: connected to a local fixture, sent chat, and acquired a microphone stream through
   the restricted permission handler. Navigation, persistence, vault-failure, and credential IPC
   isolation checks passed. The real OS-encryption round-trip test was skipped locally because
-  this session’s OS store was unavailable; the test verified no plaintext fallback and also runs
-  in macOS CI. The encryption adapter was exercised separately with authenticated-encryption
+  this session’s OS store was unavailable; the test verified no plaintext fallback. The same
+  test passed against the real OS store in macOS CI, including an encrypted save and reopen. The encryption adapter was exercised separately with authenticated-encryption
   fixtures, including tampered ciphertext and failed writes.
 - Browser and desktop regression suite: 41 passed, zero failed, and the one OS-storage skip
   described above. Coverage includes certificate approval, credentials, remote-image consent,

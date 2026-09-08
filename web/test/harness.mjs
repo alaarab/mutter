@@ -7,8 +7,16 @@ export { sleep };
 
 export async function startEnvironment({ chromeArgs = [] } = {}) {
   const server = await startFakeServer({ port: 0, quiet: !process.env.VERBOSE });
-  const bridge = await startBridge();
-  const browser = await launch({ args: chromeArgs });
+  let bridge;
+  let browser;
+  try {
+    bridge = await startBridge();
+    browser = await launch({ args: chromeArgs });
+  } catch (error) {
+    await bridge?.close();
+    await server.close();
+    throw error;
+  }
   const shots = process.env.SHOTS;
   if (shots) {
     fs.mkdirSync(shots, { recursive: true });

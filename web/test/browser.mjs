@@ -56,18 +56,31 @@ export async function launch({ fakeMedia = true, args: extraArgs = [], verbose =
     ...extraArgs,
     'about:blank',
   ];
-  const child = spawn(binary, args, { stdio: ['ignore', 'ignore', verbose ? 'inherit' : 'ignore'] });
+  const child = spawn(binary, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+  let diagnostics = '';
+  let spawnError;
+  child.once('error', error => { spawnError = error; });
+  child.stderr.on('data', bytes => {
+    diagnostics = (diagnostics + bytes.toString()).slice(-4096);
+    if (verbose) process.stderr.write(bytes);
+  });
   let version = null;
   for (let attempt = 0; attempt < STARTUP_ATTEMPTS && !version; attempt++) {
+    if (spawnError || child.exitCode !== null || child.signalCode !== null) break;
     try {
-      version = await (await fetch(`http://127.0.0.1:${debugPort}/json/version`)).json();
+      version = await (await fetch(`http://127.0.0.1:${debugPort}/json/version`, { signal: AbortSignal.timeout(1000) })).json();
     } catch {
       await sleep(STARTUP_POLL_MS);
     }
   }
   if (!version) {
-    child.kill();
-    throw new Error('Chromium did not start');
+    if (child.pid && child.exitCode === null && child.signalCode === null) {
+      const exited = once(child, 'exit');
+      child.kill('SIGKILL');
+      await exited;
+    }
+    if (!profileDirectory) fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    throw new Error(`Chromium did not start: ${spawnError?.message || diagnostics.trim() || `exit ${child.exitCode}`}`);
   }
   const devtools = new DevToolsConnection(version.webSocketDebuggerUrl);
   await devtools.ready;

@@ -11,7 +11,10 @@ test('chat images make no remote requests until explicitly loaded', { timeout: 3
     response.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=', 'base64'));
   });
   await new Promise(resolve => remote.listen(0, '127.0.0.1', resolve));
-  t.after(() => new Promise(resolve => remote.close(resolve)));
+  t.after(() => new Promise(resolve => {
+    remote.close(resolve);
+    remote.closeAllConnections();
+  }));
   const environment = await startEnvironment();
   t.after(() => environment.close());
   const page = await environment.browser.newPage(environment.bridge.url);
