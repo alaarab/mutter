@@ -56,6 +56,7 @@ class AppIntegrationTest {
         ui.runOnIdle { app.connect(server) }
         ui.waitUntil(15000) { app.client.state.value.certificate != null }
         assertFalse(app.client.state.value.connected)
+        ui.waitUntil(5000) { ui.onNodeWithText("Trust this server?").isDisplayed() }
         ui.onNodeWithText("Trust this server?").assertIsDisplayed()
         ui.runOnIdle { app.client.answerTrust(consent) }
         ui.waitUntil(15000) {

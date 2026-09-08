@@ -46,9 +46,10 @@ function isSafeUrl(attribute, value) {
 }
 
 export function sanitize(html) {
-  const document = new DOMParser().parseFromString(html, 'text/html');
-  const fragment = window.document.createDocumentFragment();
-  copyChildren(document.body, fragment, false);
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  const fragment = document.createDocumentFragment();
+  copyChildren(template.content, fragment, false);
   return fragment;
 }
 
@@ -77,6 +78,28 @@ function copyElement(node, into, insideLink) {
   const allowedAttributes = Object.hasOwn(ALLOWED_TAGS, tag) ? ALLOWED_TAGS[tag] : undefined;
   if (!allowedAttributes) {
     copyChildren(node, into, insideLink);
+    return;
+  }
+  if (tag === 'img' && /^https?:/i.test(node.getAttribute('src')?.trim() ?? '')) {
+    const source = node.getAttribute('src').trim();
+    let url;
+    try { url = new URL(source); } catch { return; }
+    if (url.username || url.password) return;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'image-load';
+    button.textContent = `Load image · ${url.hostname}`;
+    button.title = 'Loading shares your network address with this image host';
+    button.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      const image = document.createElement('img');
+      image.alt = node.getAttribute('alt') || 'image';
+      image.referrerPolicy = 'no-referrer';
+      image.src = source;
+      button.replaceWith(image);
+    }, { once: true });
+    into.append(button);
     return;
   }
   const element = document.createElement(tag);
@@ -137,7 +160,9 @@ function appendLinkified(text, into) {
 }
 
 export function plainText(html) {
-  const text = new DOMParser().parseFromString(html, 'text/html').body.textContent ?? '';
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  const text = template.content.textContent ?? '';
   return text.replace(/\s+/g, ' ').trim();
 }
 

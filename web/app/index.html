@@ -172,10 +172,11 @@
           <label class="narrow">Password<input id="password" type="password" placeholder="optional" autocomplete="off"></label>
         </div>
         <div class="row between">
-          <label class="check"><input id="remember" type="checkbox"> Remember password</label>
+          <label class="check"><input id="remember" type="checkbox"> <span id="rememberLabel">Keep password for this session</span></label>
           <button id="connectBtn" type="submit">Connect</button>
         </div>
         <p id="error" class="error" hidden></p>
+        <p id="credentialStatus" class="hint" hidden></p>
       </form>
     </div>
   </section>
@@ -270,6 +271,7 @@
       <input id="turnUser" placeholder="username" spellcheck="false">
       <input id="turnPass" placeholder="credential" type="password">
     </div>
+    <p id="turnCredentialHint" class="hint">Credentials stay in memory for this session.</p>
     <div class="row" style="margin-top:10px">
       <button id="iceTest" class="ghost" type="button">Test my connection</button>
     </div>

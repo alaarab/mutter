@@ -32,6 +32,8 @@
     "files": [
       "main.js",
       "security.js",
+      "credentials.js",
+      "preload.cjs",
       "picker-preload.cjs",
       "package.json",
       "node_modules/uiohook-napi/**"

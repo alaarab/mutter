@@ -54,7 +54,13 @@ jobs:
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with: { path: artifacts, merge-multiple: true }
-      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
-        with:
-          files: artifacts/*
-          generate_release_notes: true
+      - run: |
+          if gh release view "$RELEASE_TAG" --repo "$RELEASE_REPO" > /dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" artifacts/* --repo "$RELEASE_REPO" --clobber
+          else
+            gh release create "$RELEASE_TAG" artifacts/* --repo "$RELEASE_REPO" --verify-tag --generate-notes
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_REPO: ${{ github.repository }}

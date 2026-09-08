@@ -29,6 +29,11 @@ if (process.platform !== 'darwin') {
   const audio = compile('AudioProbe', [path.join(root, 'Mutter/Audio/UserStream.swift')]);
   const client = compile('ClientProbe', objects('MumbleClient'));
   const signal = compile('SignalProbe', [path.join(root, 'Mutter/ScreenShare/RTCSignaling.swift'), ...objects('MumbleClient')]);
+  const credentials = compile('CredentialProbe', [path.join(root, 'Mutter/App/ServerStore.swift'), ...objects('MumbleClient')]);
+
+  test('native credentials migrate without plaintext persistence or loss on storage failure', () => {
+    assert.match(execFileSync(credentials, { encoding: 'utf8' }), /PASS/);
+  });
 
   test('native screen-sharing messages reject malformed packets and resource exhaustion', () => {
     assert.match(execFileSync(signal, { encoding: 'utf8' }), /PASS/);

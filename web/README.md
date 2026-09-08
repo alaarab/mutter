@@ -64,6 +64,10 @@ self-signed certificate needs explicit approval; its SHA-256 fingerprint is reme
 that server. A changed certificate prompts again, even if its new certificate is publicly
 trusted. Check unfamiliar fingerprints with the server owner before accepting them.
 
+The browser remembers server details and certificate pins. Passwords and TURN secrets stay
+in memory for the current session and clear on reload. External chat images load only after
+you click their load button. The desktop app can save passwords with OS credential protection.
+
 ### Make it feel installed — without installing anything
 
 On a managed laptop that runs Node in WSL but treats new Windows executables with suspicion, this
