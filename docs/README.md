@@ -1,5 +1,7 @@
 # Mutter docs
 
+[Read the published docs](https://alaarab.github.io/mutter/).
+
 Start with the guide for the app you want to run. If you’re here for the Android and iPhone
 layout work, the [phone comparison](phone-layout.md) has screenshots and the validation results.
 
@@ -21,6 +23,7 @@ layout work, the [phone comparison](phone-layout.md) has screenshots and the val
 - [Mumble protocol](protocol.md): connections, messages, and voice transport.
 - [Screen sharing](screen-share.md): Mutter’s WebRTC extension.
 - [TURN setup](turn.md): helping video connect when a direct connection is blocked.
+- [Publishing the docs](publishing.md): preview the site and keep GitHub Pages up to date.
 
 ## Find the code
 

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Mutter documentation. Voice, chat, and screen viewing on browser, iPhone, Android, and Electron.">
+  <title>$title · Mutter docs</title>
+  <link rel="canonical" href="$canonical">
+  <link rel="icon" href="${base}assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="${base}assets/palette.css">
+  <link rel="stylesheet" href="${base}assets/site.css">
+  <script src="${base}assets/site.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header">
+    <a class="brand" href="$base"><img src="${base}assets/icon.svg" width="32" height="32" alt="">Mutter <span>Docs</span></a>
+    <div class="header-actions"><button id="site-appearance" type="button" hidden>Theme: system</button><a href="$repository">GitHub ↗</a></div>
+  </header>
+  <details class="mobile-navigation"><summary>Browse the docs</summary><nav aria-label="Mobile documentation">$navigation</nav></details>
+  <div class="site-layout">
+    <aside class="sidebar"><nav aria-label="Documentation">$navigation</nav></aside>
+    <main id="content" tabindex="-1">
+      <p class="eyebrow">Mutter documentation</p>
+      <article>$content</article>
+      <footer><a href="$repository/blob/main/$source">Read this page on GitHub ↗</a><span>Browser · iPhone · Android · Electron</span></footer>
+    </main>
+    <aside class="page-contents"><p class="nav-group">On this page</p><nav aria-label="On this page">$contents</nav></aside>
+  </div>
+</body>
+</html>
