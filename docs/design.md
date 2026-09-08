@@ -102,6 +102,6 @@ the Xcode test results. Native list sections use `.themedRows()` and their conta
 cycle through every theme in both appearances and recreate the activity to check persistence.
 See [Android validation](../android/VALIDATION.md).
 
-The [phone layout comparison](phone-layout.md) shows the running iPhone and Android apps in
-the same theme. Follow [the shared phone layout reference](../design/layout.md) when changing
-their screen structure. `docs/mockups` contains historical explorations.
+The [phone layout guide](phone-layout.md) explains channels, chat, call controls, and settings.
+Follow [the shared phone layout reference](../design/layout.md) when changing their screen
+structure. `docs/mockups` contains historical explorations.

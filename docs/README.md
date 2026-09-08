@@ -2,8 +2,7 @@
 
 [Read the published docs](https://alaarab.github.io/mutter/).
 
-Start with the guide for the app you want to run. If you’re here for the Android and iPhone
-layout work, the [phone comparison](phone-layout.md) has screenshots and the validation results.
+Start with the guide for the app you want to run: desktop, Mac, iOS, Android, or web.
 
 ## Run an app
 
@@ -17,7 +16,7 @@ layout work, the [phone comparison](phone-layout.md) has screenshots and the val
 ## Understand the app
 
 - [Feature coverage](features.md): what each client supports and where they differ.
-- [The phone layout](phone-layout.md): iPhone and Android, side by side.
+- [Phone layout](phone-layout.md): channels, chat, call controls, and settings.
 - [Design system](design.md): themes, fonts, color roles, and motion.
 - [Android validation](../android/VALIDATION.md): tested configurations and remaining device checks.
 - [Mumble protocol](protocol.md): connections, messages, and voice transport.
@@ -40,5 +39,4 @@ layout work, the [phone comparison](phone-layout.md) has screenshots and the val
 | `.github/workflows/` | Build checks and desktop release packaging |
 
 The platform guides include their test commands. For an interface change, also check the
-generated palettes and compare running apps in the same theme. Screenshots in the
-[phone comparison](phone-layout.md) come from the apps; `mockups/` contains older design explorations.
+generated palettes and check the running apps. `mockups/` contains older design explorations.

@@ -34,5 +34,5 @@ The workflow in `.github/workflows/pages.yml` builds the site, uploads the Pages
 and deploys it to the `github-pages` environment. Pull requests build the docs without deploying.
 The workflow can also be run manually from GitHub Actions.
 
-After publishing, check the home page, the phone comparison, and at least one platform guide.
+After publishing, check the home page, the phone layout guide, and at least one platform guide.
 Check that screenshots load and the navigation works on a narrow screen.

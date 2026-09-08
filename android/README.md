@@ -46,7 +46,7 @@ Keep that key across releases so future builds can update existing installs.
   shared typography and motion, and an adaptive/monochrome launcher icon from `docs/brand/icon.svg`.
 - The shared phone layout: Channels, Chat, and Server tabs; an indented channel tree; circular
   avatars; the same call dock, grouped settings, and profiles as iPhone. Keyboard Send, large text,
-  and short-window adaptations keep controls usable. See [the phone comparison](../docs/phone-layout.md)
+  and short-window adaptations keep controls usable. See [the phone layout guide](../docs/phone-layout.md)
   and [layout reference](../design/layout.md).
 
 Server passwords, access tokens, pins and certificate files are encrypted with a device-bound

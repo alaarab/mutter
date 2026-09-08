@@ -1,23 +1,13 @@
 # Mutter
 
-[Documentation](https://alaarab.github.io/mutter/) · [Phone comparison](https://alaarab.github.io/mutter/phone-layout.html)
+[Documentation](https://alaarab.github.io/mutter/)
 
-Join a server, see who’s around, and talk. Mutter is a Mumble client for your browser,
-iPhone, Android phone, or desktop, with voice, chat, and screen viewing in one place.
+Mutter is a Mumble client for desktop, Mac, iOS, Android, and the web.
+Join a server, see who’s around, and talk.
 
-The phone apps keep channels, messages, and call controls in the same places. All four
-clients share the same fonts and 11 themes, each with light and dark appearances.
+<img src="docs/images/phone-layout/android-channels-carbon-dark.png" width="320" height="711" alt="Mutter on Android in Carbon dark, connected to a server with channels, people, and push-to-talk controls">
 
-<table>
-  <tr><th>iPhone</th><th>Android</th></tr>
-  <tr>
-    <td><img src="docs/images/phone-layout/iphone-home-dark.png" width="300" alt="Mutter on iPhone, showing the home screen with Settings, Add server, and Browse"></td>
-    <td><img src="docs/images/phone-layout/android-home-dark.png" width="300" alt="Mutter on Android, with the same home screen controls"></td>
-  </tr>
-</table>
-
-Actual home screens in Plum dark, captured from the running iPhone and Android apps.
-[See the phone layout comparison →](docs/phone-layout.md)
+Mutter on Android, connected to a server in Carbon dark.
 
 ## What you can do
 
