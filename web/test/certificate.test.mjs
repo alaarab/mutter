@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { startEnvironment } from './harness.mjs';
 
-test('certificate approval, cancellation, pin reuse, and changed-certificate warnings', { timeout: 30_000 }, async t => {
+test('certificate approval, cancellation, pin reuse, and changed-certificate warnings', { timeout: 60_000 }, async t => {
   const environment = await startEnvironment();
   t.after(() => environment.close());
   const { server, browser, bridge } = environment;

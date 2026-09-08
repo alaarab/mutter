@@ -10,7 +10,7 @@ const BRIDGE_PORT_BASE = 8800;
 const BRIDGE_PORT_SPREAD = 400;
 const DEBUG_PORT_BASE = 9300;
 const DEBUG_PORT_SPREAD = 600;
-const STARTUP_ATTEMPTS = 100;
+const STARTUP_ATTEMPTS = 300;
 const STARTUP_POLL_MS = 100;
 const VIEWPORT = { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false };
 

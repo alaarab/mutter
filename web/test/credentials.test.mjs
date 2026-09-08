@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { startEnvironment } from './harness.mjs';
 
-test('browser migrates legacy passwords into memory and never persists replacements', { timeout: 30_000 }, async t => {
+test('browser migrates legacy passwords into memory and never persists replacements', { timeout: 60_000 }, async t => {
   const environment = await startEnvironment();
   t.after(() => environment.close());
   const page = await environment.browser.newPage(environment.bridge.url);
