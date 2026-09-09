@@ -66,4 +66,3 @@ and live video from the desktop client. Microphone quality, Bluetooth accessorie
 behaviour still need physical Android testing. [Full validation notes](android/VALIDATION.md).
 
 [Browse the docs](docs/README.md) for the source map, build guides, protocol notes, and test commands.
-The [security review](docs/security-review.md) records the latest scan, fixes, and remaining risks.
