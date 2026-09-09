@@ -4,6 +4,7 @@ import android.content.ContextWrapper
 import androidx.test.platform.app.InstrumentationRegistry
 import com.alaarab.mutter.data.AppStore
 import com.alaarab.mutter.data.Identities
+import com.alaarab.mutter.data.IdentityInfo
 import com.alaarab.mutter.data.Server
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -56,6 +57,36 @@ class StorageTest {
             runCatching { AppStore(context) }.isFailure,
         )
         assertArrayEquals(encrypted, file.readBytes())
+    }
+
+    @Test
+    fun failedWritesPreservePublishedStateAndSavedIdentity() {
+        val store = AppStore(context)
+        val server = Server(host = "example.invalid", username = "Test")
+        val identity = IdentityInfo("saved", "Saved", "fingerprint")
+        val identityBytes = byteArrayOf(1, 2, 3)
+        store.saveServer(server)
+        store.addIdentity(identity, identityBytes)
+        val settings = store.settings.value
+        val file = File(directory, "settings.enc")
+        val original = file.readBytes()
+        val obstruction = File(directory, "settings.enc.new")
+        assertTrue(obstruction.mkdir())
+        assertTrue(runCatching { store.saveSettings(settings.copy(theme = "plum")) }.isFailure)
+        assertTrue(runCatching { store.saveServer(server.copy(name = "Unsaved")) }.isFailure)
+        assertTrue(runCatching { store.deleteServer(server.id) }.isFailure)
+        assertTrue(runCatching { store.deleteIdentity(identity.id) }.isFailure)
+        assertEquals(settings, store.settings.value)
+        assertEquals(listOf(server), store.servers.value)
+        assertEquals(listOf(identity), store.identities.value)
+        assertArrayEquals(identityBytes, store.identity(identity.id))
+        assertArrayEquals(original, file.readBytes())
+        assertTrue(obstruction.delete())
+        val reopened = AppStore(context)
+        assertEquals(settings, reopened.settings.value)
+        assertEquals(listOf(server), reopened.servers.value)
+        assertEquals(listOf(identity), reopened.identities.value)
+        assertArrayEquals(identityBytes, reopened.identity(identity.id))
     }
 
     @Test

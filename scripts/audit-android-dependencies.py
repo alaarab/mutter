@@ -1,8 +1,8 @@
-from http.client import HTTPSConnection
 import json
-from pathlib import Path
 import ssl
 import sys
+from http.client import HTTPSConnection
+from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
 directory = root / "android/build/reports/security"

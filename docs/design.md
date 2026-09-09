@@ -100,8 +100,7 @@ rendered preview to catch a sheet retaining the wrong appearance. Its screenshot
 the Xcode test results. Native list sections use `.themedRows()` and their containers use
 `.themedList()` so they share the same surface treatment. Android's Compose integration tests
 cycle through every theme in both appearances and recreate the activity to check persistence.
-See [Android validation](../android/VALIDATION.md).
+See the [Android testing instructions](../android/README.md#validation).
 
 The [phone layout guide](phone-layout.md) explains channels, chat, call controls, and settings.
-Follow [the shared phone layout reference](../design/layout.md) when changing their screen
-structure. `docs/mockups` contains historical explorations.
+Keep that screen hierarchy consistent when changing either phone app.

@@ -1,4 +1,4 @@
-import { DEFAULT_THEME, appearanceForSettings } from './themes.js';
+import { normalizeSettings } from './preferences.js';
 
 const SETTINGS_KEY = 'mutter.settings';
 const SERVERS_KEY = 'mutter.servers';
@@ -23,33 +23,18 @@ let credentialWrites = Promise.resolve();
 function loadJson(key, fallback) {
   try {
     const stored = JSON.parse(localStorage.getItem(key) ?? 'null');
-    return stored ?? fallback;
+    if (Array.isArray(fallback)) return Array.isArray(stored) ? stored : fallback;
+    return stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : fallback;
   } catch {
     return fallback;
   }
-}
-
-function loadObject(key, defaults) {
-  return { ...defaults, ...loadJson(key, {}) };
 }
 
 function saveJson(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
-export const settings = loadObject(SETTINGS_KEY, {
-  theme: DEFAULT_THEME,
-  transmitMode: 'vad',
-  vadThresholdDb: -38,
-  autoSensitivity: true,
-  bitrate: 40_000,
-  inputDeviceId: '',
-  shareAudio: true,
-  stun: 'stun:stun.l.google.com:19302',
-  turn: { url: '', username: '', credential: '' },
-});
-settings.appearance = appearanceForSettings(loadJson(SETTINGS_KEY, {}));
-settings.turn = { url: '', username: '', credential: '', ...settings.turn };
+export const settings = normalizeSettings(loadJson(SETTINGS_KEY, {}));
 settings.turn.credential = restored.turn || settings.turn.credential;
 
 export function saveSettings() {
@@ -58,13 +43,24 @@ export function saveSettings() {
 }
 
 const savedServers = loadJson(SERVERS_KEY, []);
-export const servers = (Array.isArray(savedServers) ? savedServers : []).slice(0, MAX_SAVED_SERVERS);
+export const servers = [];
+for (const server of savedServers) {
+  if (!server || typeof server.host !== 'string' || !server.host.trim() ||
+      !Number.isInteger(server.port) || server.port < 1 || server.port > 65535 ||
+      typeof server.username !== 'string' || servers.some(saved => sameServer(saved, server))) continue;
+  servers.push({
+    host: server.host.trim(), port: server.port, username: server.username,
+    password: typeof server.password === 'string' ? server.password : undefined,
+    lastUsed: Number.isFinite(server.lastUsed) ? server.lastUsed : 0,
+  });
+  if (servers.length === MAX_SAVED_SERVERS) break;
+}
 for (const server of servers) {
   server.password = restored.servers[secretKey(server)] ?? server.password;
 }
 
 function secretKey(server) {
-  return JSON.stringify([server.host?.toLowerCase(), Number(server.port), server.username]);
+  return JSON.stringify([server.host.toLowerCase(), server.port, server.username]);
 }
 
 function saveServers() {
@@ -113,11 +109,15 @@ export function rememberCertificate({ host, port, fingerprint }) {
 }
 
 function serverKey(server) {
-  return `${server.host}:${server.port}`;
+  return JSON.stringify([server.host.trim().toLowerCase(), Number(server.port)]);
+}
+
+export function sameServer(first, second) {
+  return !!first && !!second && serverKey(first) === serverKey(second);
 }
 
 export function rememberServer(target) {
-  const existing = servers.findIndex((server) => serverKey(server) === serverKey(target));
+  const existing = servers.findIndex((server) => sameServer(server, target));
   if (existing >= 0) {
     servers.splice(existing, 1);
   }
@@ -135,7 +135,7 @@ export function rememberServer(target) {
 }
 
 export function forgetServer(host, port) {
-  const index = servers.findIndex((server) => server.host === host && server.port === port);
+  const index = servers.findIndex((server) => sameServer(server, { host, port }));
   if (index >= 0) {
     servers.splice(index, 1);
     return saveServers();
@@ -144,7 +144,7 @@ export function forgetServer(host, port) {
 
 export function collapsedFor(host) {
   const all = loadJson(COLLAPSED_KEY, {});
-  const set = new Set(all[host] ?? []);
+  const set = new Set(Array.isArray(all[host]) ? all[host] : []);
   return {
     set,
     save() {

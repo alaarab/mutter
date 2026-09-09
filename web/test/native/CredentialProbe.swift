@@ -5,6 +5,7 @@ final class MemoryCredentials: CredentialStore {
     var values: [String: Data] = [:]
     var failReads = false
     var failWrites = false
+    var writes = 0
     struct Unavailable: Error {}
     func data(for key: String) throws -> Data? {
         if failReads { throw Unavailable() }
@@ -13,6 +14,7 @@ final class MemoryCredentials: CredentialStore {
     func set(_ data: Data?, for key: String) throws {
         if failWrites { throw Unavailable() }
         values[key] = data
+        writes += 1
     }
 }
 
@@ -38,15 +40,45 @@ struct CredentialProbe {
         try check(!String(data: try Data(contentsOf: file), encoding: .utf8)!.contains("legacy-private-token"))
         let reopened = ServerStore(directory: directory, credentials: secrets, passwords: passwords)
         try check(reopened.servers.first?.tokens == legacy.tokens)
+        try check(secrets.writes == 1)
+        reopened.markConnected(legacy.id)
+        reopened.setFingerprint(Data([1, 2, 3]), for: legacy.endpoint)
+        legacy.name = "Renamed"
+        try check(reopened.upsert(legacy))
+        try check(secrets.writes == 1)
         legacy.tokens = ["updated-private-token"]
         try check(reopened.upsert(legacy))
         try check(ServerStore(directory: directory, credentials: secrets, passwords: passwords).servers.first?.tokens == legacy.tokens)
-        try check(reopened.setPassword("original-password", for: legacy))
+        try check(reopened.save(legacy, password: "original-password"))
         passwords.failWrites = true
-        try check(!reopened.setPassword("replacement", for: legacy))
+        try check(!reopened.save(legacy, password: "replacement"))
         passwords.failWrites = false
         try check(reopened.password(for: legacy) == "original-password")
         let secureMetadata = try Data(contentsOf: file)
+        let originalServers = reopened.servers
+        let originalTokens = secrets.values
+        let originalPasswords = passwords.values
+        try FileManager.default.removeItem(at: file)
+        try FileManager.default.createDirectory(at: file, withIntermediateDirectories: false)
+        var changed = legacy
+        changed.name = "Unsaved"
+        changed.tokens = ["unsaved-token"]
+        try check(!reopened.save(changed, password: "unsaved-password"))
+        try check(reopened.servers == originalServers)
+        try check(secrets.values == originalTokens)
+        try check(passwords.values == originalPasswords)
+        try check(!reopened.remove(legacy))
+        try check(reopened.servers == originalServers)
+        try check(secrets.values == originalTokens)
+        try check(passwords.values == originalPasswords)
+        try FileManager.default.removeItem(at: file)
+        let corrupted = Data("broken metadata".utf8)
+        try corrupted.write(to: file)
+        let damaged = ServerStore(directory: directory, credentials: secrets, passwords: passwords)
+        try check(damaged.storageError != nil)
+        try check(!damaged.upsert(legacy))
+        try check(try Data(contentsOf: file) == corrupted)
+        try secureMetadata.write(to: file)
         secrets.failReads = true
         let locked = ServerStore(directory: directory, credentials: secrets, passwords: passwords)
         try check(locked.storageError != nil)

@@ -3,10 +3,10 @@ import { AudioEngine } from './audio.js';
 import { ScreenShare, probeIce } from './share.js';
 import { mountStage } from './stage.js';
 import { mountRoom } from './room.js';
-import { THEMES, DEFAULT_THEME, applyTheme } from './themes.js';
+import { applyTheme } from './themes.js';
 import { isVisible, setVisible } from './motion.js';
 import { mountAppearance } from './appearance.js';
-import { settings, saveSettings, servers, rememberServer, forgetServer, collapsedFor, certificateFor, rememberCertificate, credentialStorage } from './store.js';
+import { settings, saveSettings, servers, rememberServer, forgetServer, collapsedFor, certificateFor, rememberCertificate, credentialStorage, sameServer } from './store.js';
 import { confirmCertificate } from './certificate.js';
 import { DEFAULT_IMAGE_LIMIT, sanitize, imageToHtml, escapeHtml, plainText, openViewer } from './chat.js';
 import { DEFAULT_PORT } from '../src/mumble.js';
@@ -54,22 +54,6 @@ const ui = {
 const wide = matchMedia('(min-width: 880px)');
 window.mutter = { client, audio, share, settings, showTab };
 
-function migrateSettings() {
-  settings.pttKey ??= 'Space';
-  if (!settings.noiseV2) {
-    settings.noiseSuppression = 'neural';
-    settings.noiseV2 = true;
-    saveSettings();
-  }
-  settings.showMembers ??= false;
-  settings.processing ??= { echo: true, noise: false, gain: true };
-  settings.textSize ??= 14;
-  if (!Object.hasOwn(THEMES, settings.theme)) {
-    settings.theme = DEFAULT_THEME;
-    saveSettings();
-  }
-}
-
 function applyTextSize(px) {
   document.documentElement.style.setProperty('--text-size', `${px}px`);
 }
@@ -108,7 +92,6 @@ function mountIcons() {
   }
 }
 
-migrateSettings();
 applyTheme(settings.theme, settings.appearance);
 applyTextSize(settings.textSize);
 mountIcons();
@@ -249,7 +232,6 @@ document.addEventListener('visibilitychange', () => {
 
 const serverLabel = (server) => (server.port === DEFAULT_PORT ? server.host : `${server.host}:${server.port}`);
 const serverInitials = (server) => initials(server.host.replace(/\..*/, ''));
-const sameServer = (a, b) => a && b && a.host === b.host && a.port === b.port;
 
 function renderSavedServers() {
   const list = $('savedServers');
@@ -1068,14 +1050,12 @@ function setPttKey(code) {
   settings.pttKey = code;
   saveSettings();
   endKeyRecording();
-  renderPanels();
-  renderSettings();
 }
 
 function endKeyRecording() {
   ui.recordingKey = false;
-  $('pttKeyBtn')?.classList.remove('recording');
-  renderSettings();
+  $('pttKeyBtn').classList.remove('recording');
+  if (isVisible($('settings'))) renderSettings();
 }
 
 window.addEventListener('keydown', (event) => {
@@ -1175,7 +1155,6 @@ function bindSegmented(id, value, onChange) {
       onChange(button.dataset.value);
       saveSettings();
       renderSettings();
-      renderPanels();
     };
   }
 }
@@ -1196,30 +1175,17 @@ const NOISE_HINT = {
     }`,
 };
 
-function ensurePttKeyRow() {
-  if ($('pttKeyRow')) {
-    return;
-  }
-  const row = el(
-    'div',
-    { id: 'pttKeyRow', className: 'row between', style: 'margin-top:8px' },
-    el('span', { className: 'hint', textContent: 'Push-to-talk key' }),
-    el('button', { id: 'pttKeyBtn', type: 'button', className: 'keycap' })
-  );
-  $('transmitHint').after(row);
-  $('pttKeyBtn').onclick = () => {
-    ui.recordingKey = !ui.recordingKey;
-    $('pttKeyBtn').classList.toggle('recording', ui.recordingKey);
-    $('pttKeyBtn').textContent = ui.recordingKey ? 'Press a key…' : keyLabel(settings.pttKey);
-  };
-}
+$('pttKeyBtn').onclick = () => {
+  ui.recordingKey = !ui.recordingKey;
+  $('pttKeyBtn').classList.toggle('recording', ui.recordingKey);
+  $('pttKeyBtn').textContent = ui.recordingKey ? 'Press a key…' : keyLabel(settings.pttKey);
+};
 
 function renderSettings() {
   bindSegmented('transmitMode', settings.transmitMode, (value) => {
     settings.transmitMode = value;
   });
   $('transmitHint').textContent = TRANSMIT_HINT[settings.transmitMode]();
-  ensurePttKeyRow();
   if (!ui.recordingKey) {
     $('pttKeyBtn').textContent = keyLabel(settings.pttKey);
   }
@@ -1266,11 +1232,15 @@ function outputStatus(outputs) {
   return 'Allow the microphone once and the device names appear here.';
 }
 
+let deviceRender = 0;
+
 async function renderDevices() {
-  fillDeviceSelect($('micSelect'), [], 'Default microphone', '');
-  fillDeviceSelect($('outSelect'), [], 'System default', '');
+  const request = ++deviceRender;
   $('outSelect').disabled = !AudioEngine.canPickOutput;
-  const [inputs, outputs] = await Promise.all([audio.inputDevices(), audio.outputDevices()]);
+  const devices = await audio.devices();
+  if (request !== deviceRender) return;
+  const inputs = devices.filter(device => device.kind === 'audioinput');
+  const outputs = devices.filter(device => device.kind === 'audiooutput');
   fillDeviceSelect($('micSelect'), inputs, 'Default microphone', settings.inputDeviceId);
   fillDeviceSelect($('outSelect'), outputs, 'System default', settings.outputDeviceId);
   $('outStatus').textContent = outputStatus(outputs);

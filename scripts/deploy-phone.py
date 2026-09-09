@@ -2,10 +2,10 @@
 
 import argparse
 import json
-from pathlib import Path
 import shlex
 import subprocess
 import sys
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -41,6 +41,7 @@ def build(config, derived_data):
             unlocked = subprocess.run(
                 ["security", "unlock-keychain", "-p", password, keychain],
                 capture_output=True,
+                check=False,
             )
             if unlocked.returncode:
                 raise RuntimeError("Cannot unlock the configured signing keychain; check its password file.")
@@ -56,7 +57,7 @@ def build(config, derived_data):
         derived_data.mkdir(parents=True, exist_ok=True)
         print(f"Building and signing Mutter. Build log: {log_path}", flush=True)
         with log_path.open("w") as log:
-            result = subprocess.run(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
+            result = subprocess.run(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, check=False)
         if result.returncode:
             raise RuntimeError(f"Xcode build failed. See {log_path}")
     finally:

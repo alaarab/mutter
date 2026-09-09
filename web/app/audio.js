@@ -1,4 +1,5 @@
 import { missingPackets, SAMPLES_PER_SEQUENCE_UNIT } from '../src/voice.js';
+import { AUDIO_DEFAULTS } from './preferences.js';
 
 const SAMPLE_RATE = 48_000;
 const FRAME_MS = 20;
@@ -26,18 +27,6 @@ const REORDER_WAIT_MS = 30;
 const MAX_REORDER_DEPTH = 1;
 const OPUS_COMPLEXITY = 10;
 const EXPECTED_PACKET_LOSS_PERCENT = 10;
-
-const DEFAULTS = {
-  transmitMode: 'vad',
-  vadThresholdDb: -38,
-  autoSensitivity: true,
-  bitrate: 40_000,
-  inputGain: 1,
-  inputDeviceId: '',
-  outputDeviceId: '',
-  noiseSuppression: 'neural',
-  processing: { echo: true, noise: false, gain: true },
-};
 
 function rmsDb(samples, gain) {
   let sum = 0;
@@ -123,8 +112,8 @@ export class AudioEngine extends EventTarget {
   constructor(client, settings = {}) {
     super();
     this.client = client;
-    for (const [key, value] of Object.entries(DEFAULTS)) {
-      settings[key] ??= value;
+    for (const [key, value] of Object.entries(AUDIO_DEFAULTS)) {
+      settings[key] ??= typeof value === 'object' ? { ...value } : value;
     }
     this.settings = settings;
     client.addEventListener('voice', (event) => this.#onVoice(event.detail));
@@ -199,7 +188,7 @@ export class AudioEngine extends EventTarget {
   }
 
   async setProcessing(patch) {
-    this.settings.processing = { ...(this.settings.processing ?? DEFAULTS.processing), ...patch };
+    this.settings.processing = { ...(this.settings.processing ?? AUDIO_DEFAULTS.processing), ...patch };
     if (this.running) {
       await this.#openMicrophone();
     }
@@ -212,26 +201,21 @@ export class AudioEngine extends EventTarget {
     }
   }
 
-  async devices(kind) {
+  async devices() {
+    let timer;
     try {
-      const timeout = new Promise((resolve) => setTimeout(() => resolve(null), DEVICE_LIST_TIMEOUT_MS));
+      const timeout = new Promise((resolve) => { timer = setTimeout(() => resolve(null), DEVICE_LIST_TIMEOUT_MS); });
       const all = await Promise.race([navigator.mediaDevices.enumerateDevices(), timeout]);
       if (!all) {
         this.#diag('the browser did not answer enumerateDevices()');
         return [];
       }
-      return all.filter((device) => device.kind === kind);
+      return all;
     } catch {
       return [];
+    } finally {
+      clearTimeout(timer);
     }
-  }
-
-  inputDevices() {
-    return this.devices('audioinput');
-  }
-
-  outputDevices() {
-    return this.devices('audiooutput');
   }
 
   async setOutputDevice(deviceId) {
@@ -428,7 +412,7 @@ export class AudioEngine extends EventTarget {
   }
 
   #microphoneConstraints() {
-    const processing = this.settings.processing ?? DEFAULTS.processing;
+    const processing = this.settings.processing ?? AUDIO_DEFAULTS.processing;
     const id = this.settings.inputDeviceId;
     return {
       echoCancellation: processing.echo !== false,

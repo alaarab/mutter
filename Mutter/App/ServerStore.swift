@@ -30,23 +30,29 @@ final class ServerStore {
     @ObservationIgnored private let fileURL: URL
     @ObservationIgnored private let credentials: any CredentialStore
     @ObservationIgnored private let passwords: any CredentialStore
-    @ObservationIgnored private var credentialsLoaded = true
+    @ObservationIgnored private var credentialsLoaded = false
+
+    private struct CredentialChange {
+        let store: any CredentialStore
+        let key: String
+        let data: Data?
+    }
 
     init(directory: URL? = nil, credentials: any CredentialStore = KeychainCredentials(),
          passwords: any CredentialStore = KeychainCredentials(service: "com.alaarab.mutter.server-password")) {
         self.credentials = credentials
         self.passwords = passwords
         let dir = directory ?? AppDirectories.support
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         fileURL = dir.appendingPathComponent("servers.json")
-        if let data = try? Data(contentsOf: fileURL),
-           let list = try? JSONDecoder().decode([SavedServer].self, from: data) {
-            servers = list
-            credentialsLoaded = false
-            do {
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                let data = try Data(contentsOf: fileURL)
+                servers = try JSONDecoder().decode([SavedServer].self, from: data)
+                let hasLegacyTokens = servers.contains { !$0.tokens.isEmpty }
                 for index in servers.indices {
                     let server = servers[index]
-                    let key = "tokens-\(server.id.uuidString)"
+                    let key = tokenKey(server.id)
                     let saved = try credentials.data(for: key)
                     if let saved {
                         servers[index].tokens = try JSONDecoder().decode([String].self, from: saved)
@@ -55,9 +61,11 @@ final class ServerStore {
                     }
                 }
                 credentialsLoaded = true
-                persist()
-            } catch { storageError = error.localizedDescription }
-        }
+                if hasLegacyTokens { persist(servers) }
+            } else {
+                credentialsLoaded = true
+            }
+        } catch { storageError = error.localizedDescription }
     }
 
     var favorites: [SavedServer] {
@@ -70,44 +78,73 @@ final class ServerStore {
     }
 
     @discardableResult
-    private func persist() -> Bool {
+    private func persist(_ updated: [SavedServer], changing changes: [CredentialChange] = []) -> Bool {
         guard canSaveCredentials else { return false }
+        var applied: [(CredentialChange, Data?)] = []
         do {
-            for server in servers {
-                try credentials.set(JSONEncoder().encode(server.tokens), for: "tokens-\(server.id.uuidString)")
+            let previous = try changes.map { try $0.store.data(for: $0.key) }
+            for (change, oldValue) in zip(changes, previous) {
+                try change.store.set(change.data, for: change.key)
+                applied.append((change, oldValue))
             }
-            let metadata = servers.map { server in
+            let metadata = updated.map { server in
                 var copy = server
                 copy.tokens = []
                 return copy
             }
             try JSONEncoder().encode(metadata).write(to: fileURL, options: .atomic)
+            servers = updated
             return true
-        } catch { storageError = error.localizedDescription; return false }
+        } catch {
+            for (change, oldValue) in applied.reversed() {
+                do { try change.store.set(oldValue, for: change.key) }
+                catch { credentialsLoaded = false }
+            }
+            storageError = credentialsLoaded ? error.localizedDescription
+                : "Saved credentials could not be restored. Unlock your device and reopen Mutter before editing them."
+            return false
+        }
     }
 
     @discardableResult
     func upsert(_ server: SavedServer) -> Bool {
+        update(server)
+    }
+
+    @discardableResult
+    func save(_ server: SavedServer, password: String) -> Bool {
+        update(server, password: passwordChange(password, for: server))
+    }
+
+    private func update(_ server: SavedServer, password: CredentialChange? = nil) -> Bool {
         guard canSaveCredentials else { return false }
-        do { try credentials.set(JSONEncoder().encode(server.tokens), for: "tokens-\(server.id.uuidString)") }
-        catch { storageError = error.localizedDescription; return false }
-        if let i = servers.firstIndex(where: { $0.id == server.id }) {
-            servers[i] = server
-        } else {
-            servers.append(server)
+        var updated = servers
+        var changes = password.map { [$0] } ?? []
+        if (self.server(withID: server.id)?.tokens ?? []) != server.tokens {
+            do {
+                changes.append(CredentialChange(store: credentials, key: tokenKey(server.id),
+                                                data: try JSONEncoder().encode(server.tokens)))
+            }
+            catch { storageError = error.localizedDescription; return false }
         }
-        return persist()
+        if let i = updated.firstIndex(where: { $0.id == server.id }) {
+            updated[i] = server
+        } else {
+            updated.append(server)
+        }
+        return persist(updated, changing: changes)
     }
 
     @discardableResult
     func remove(_ server: SavedServer) -> Bool {
         guard canSaveCredentials else { return false }
-        guard setPassword(nil, for: server) else { return false }
-        do { try credentials.set(nil, for: "tokens-\(server.id.uuidString)") }
-        catch { storageError = error.localizedDescription; return false }
-        servers.removeAll { $0.id == server.id }
+        guard persist(servers.filter { $0.id != server.id }, changing: [
+            passwordChange(nil, for: server),
+            CredentialChange(store: credentials, key: tokenKey(server.id), data: nil),
+        ]) else { return false }
         status[server.id] = nil
-        return persist()
+        unreachable.remove(server.id)
+        return true
     }
 
     func server(withID id: UUID) -> SavedServer? {
@@ -120,29 +157,29 @@ final class ServerStore {
 
     func markConnected(_ id: UUID) {
         guard let i = servers.firstIndex(where: { $0.id == id }) else { return }
-        servers[i].lastConnectedAt = Date()
-        persist()
+        var updated = servers
+        updated[i].lastConnectedAt = Date()
+        persist(updated)
     }
 
     func setFingerprint(_ fingerprint: Data, for endpoint: ServerEndpoint) {
-        for i in servers.indices where servers[i].host.lowercased() == endpoint.host.lowercased() && servers[i].port == endpoint.port {
-            servers[i].certificateFingerprint = fingerprint
+        var updated = servers
+        for i in updated.indices where updated[i].host.lowercased() == endpoint.host.lowercased() && updated[i].port == endpoint.port {
+            updated[i].certificateFingerprint = fingerprint
         }
-        persist()
+        if updated != servers { persist(updated) }
+    }
+
+    private func tokenKey(_ id: UUID) -> String { "tokens-\(id.uuidString)" }
+
+    private func passwordChange(_ password: String?, for server: SavedServer) -> CredentialChange {
+        CredentialChange(store: passwords, key: server.id.uuidString,
+                         data: password.flatMap { $0.isEmpty ? nil : Data($0.utf8) })
     }
 
     func password(for server: SavedServer) -> String? {
         do { return try passwords.data(for: server.id.uuidString).flatMap { String(data: $0, encoding: .utf8) } }
         catch { credentialsLoaded = false; storageError = error.localizedDescription; return nil }
-    }
-
-    @discardableResult
-    func setPassword(_ password: String?, for server: SavedServer) -> Bool {
-        guard canSaveCredentials else { return false }
-        do {
-            try passwords.set(password.flatMap { $0.isEmpty ? nil : Data($0.utf8) }, for: server.id.uuidString)
-            return true
-        } catch { storageError = error.localizedDescription; return false }
     }
 
     private var canSaveCredentials: Bool {

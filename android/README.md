@@ -46,8 +46,7 @@ Keep that key across releases so future builds can update existing installs.
   shared typography and motion, and an adaptive/monochrome launcher icon from `docs/brand/icon.svg`.
 - The shared phone layout: Channels, Chat, and Server tabs; an indented channel tree; circular
   avatars; the same call dock, grouped settings, and profiles as iPhone. Keyboard Send, large text,
-  and short-window adaptations keep controls usable. See [the phone layout guide](../docs/phone-layout.md)
-  and [layout reference](../design/layout.md).
+  and short-window adaptations keep controls usable. See [the phone layout guide](../docs/phone-layout.md).
 
 Server passwords, access tokens, pins and certificate files are encrypted with a device-bound
 Android Keystore key. Backup and device transfer exclude this data. Signing keys and local
@@ -57,8 +56,7 @@ quality still need testing on real Android hardware.
 
 ## Validation
 
-[Validation results and device scenarios](VALIDATION.md) record tested Android versions, layout
-checks, permission recovery, and the remaining physical-device work.
+Run unit tests, lint, and a debug build with JDK 21 and the Android SDK:
 
 ```bash
 cd android
@@ -79,6 +77,7 @@ cd android
 ./gradlew connectedDebugAndroidTest
 ```
 
+Run the integration suite on one emulator at a time; its fault-injection server is shared.
 Tests use the emulator's `10.0.2.2` host address and ports 64740–64746. They cover actual TLS
 consent, both voice formats, encrypted UDP and TCP voice, chat, channel changes, background
 connections, automatic reconnect, notification controls, UDP interruption and recovery, changed

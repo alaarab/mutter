@@ -97,8 +97,7 @@ Voice needs Chrome or Edge (WebCodecs + AudioWorklet). Other browsers get chat o
 
 ## What works
 
-The shell is the Revolt/Discord shape (`docs/revolt-notes.md` has the measurements it follows):
-a server rail on the left with your saved servers, the channel sidebar with the voice panel
+The desktop layout has a server rail on the left with your saved servers, a channel sidebar with the voice panel
 and your user panel at the bottom, the chat with a channel header, and a member list on the
 right. Under 880px it becomes the phone layout — one pane at a time behind a tab strip.
 

@@ -2438,6 +2438,10 @@ body[data-members="off"] #members {
 .preview-chat i:first-child { width: 45%; background: var(--preview-accent); }
 .preview-chat i:last-child { width: 60%; }
 
+#pttKeyRow {
+  margin-top: 8px;
+}
+
 .keycap {
   display: inline-flex;
   align-items: center;

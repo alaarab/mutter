@@ -8,8 +8,6 @@
   ["Apps", "Electron", "desktop/README.md", "desktop.html"],
   ["Reference", "Design system", "docs/design.md", "design.html"],
   ["Reference", "Phone layout", "docs/phone-layout.md", "phone-layout.html"],
-  ["Reference", "Phone layout reference", "design/layout.md", "layout-reference.html"],
-  ["Reference", "Android validation", "android/VALIDATION.md", "android-validation.html"],
   ["Reference", "Mumble protocol", "docs/protocol.md", "protocol.html"],
   ["Reference", "Screen sharing", "docs/screen-share.md", "screen-share.html"],
   ["Reference", "TURN setup", "docs/turn.md", "turn.html"],
