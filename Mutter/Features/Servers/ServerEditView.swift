@@ -139,7 +139,7 @@ struct ServerEditView: View {
         if let original, original.host != server.host || original.port != server.port {
             server.certificateFingerprint = nil
         }
-        guard model.servers.upsert(server), model.servers.setPassword(password, for: server) else { showSaveError(); return }
+        guard model.servers.save(server, password: password) else { showSaveError(); return }
         dismiss()
         if connect { model.connect(server) }
     }

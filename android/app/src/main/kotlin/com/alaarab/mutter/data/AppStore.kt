@@ -33,7 +33,7 @@ class AppStore(private val context: Context) {
                 }
                 .generateKey()
     }
-    private val data =
+    private var data =
         read("settings")?.let { JSONObject(it.toString(Charsets.UTF_8)) } ?: JSONObject()
     private val mutableSettings =
         MutableStateFlow(readSettings(data.optJSONObject("settings") ?: JSONObject()))
@@ -41,37 +41,34 @@ class AppStore(private val context: Context) {
     private val mutableServers =
         MutableStateFlow(data.optJSONArray("servers").objects().map(::readServer))
     val servers = mutableServers.asStateFlow()
-    val identities =
+    private val mutableIdentities =
         MutableStateFlow(
             data.optJSONArray("identities").objects().map {
                 IdentityInfo(it.getString("id"), it.getString("name"), it.getString("fingerprint"))
             }
         )
+    val identities = mutableIdentities.asStateFlow()
 
     @Synchronized
     fun saveSettings(value: Settings) {
-        mutableSettings.value = value
-        persist()
+        persist(nextSettings = value)
     }
 
     @Synchronized
     fun saveServer(value: Server) {
         require(value.host.isNotBlank() && value.port in 1..65535 && value.username.isNotBlank())
-        mutableServers.value = servers.value.filterNot { it.id == value.id } + value
-        persist()
+        persist(nextServers = servers.value.filterNot { it.id == value.id } + value)
     }
 
     @Synchronized
     fun deleteServer(id: String) {
-        mutableServers.value = servers.value.filterNot { it.id == id }
-        persist()
+        persist(nextServers = servers.value.filterNot { it.id == id })
     }
 
     @Synchronized
     fun addIdentity(info: IdentityInfo, bytes: ByteArray) {
         write("identity-${info.id}", bytes)
-        identities.value = identities.value.filterNot { it.id == info.id } + info
-        persist()
+        persist(nextIdentities = identities.value.filterNot { it.id == info.id } + info)
     }
 
     fun identity(id: String) = read("identity-$id")
@@ -81,18 +78,22 @@ class AppStore(private val context: Context) {
         require(servers.value.none { it.identity == id }) {
             "This identity is used by a saved server."
         }
-        identities.value = identities.value.filterNot { it.id == id }
+        persist(nextIdentities = identities.value.filterNot { it.id == id })
         AtomicFile(File(context.filesDir, "identity-$id.enc")).delete()
-        persist()
     }
 
-    private fun persist() {
-        data.put("servers", JSONArray(servers.value.map { serverJson(it) }))
-        data.put("settings", settingsJson(settings.value))
-        data.put(
+    private fun persist(
+        nextSettings: Settings = settings.value,
+        nextServers: List<Server> = servers.value,
+        nextIdentities: List<IdentityInfo> = identities.value,
+    ) {
+        val updated = JSONObject(data.toString())
+        updated.put("servers", JSONArray(nextServers.map { serverJson(it) }))
+        updated.put("settings", settingsJson(nextSettings))
+        updated.put(
             "identities",
             JSONArray(
-                identities.value.map {
+                nextIdentities.map {
                     JSONObject()
                         .put("id", it.id)
                         .put("name", it.name)
@@ -100,7 +101,11 @@ class AppStore(private val context: Context) {
                 }
             ),
         )
-        write("settings", data.toString().toByteArray())
+        write("settings", updated.toString().toByteArray(Charsets.UTF_8))
+        data = updated
+        mutableSettings.value = nextSettings
+        mutableServers.value = nextServers
+        mutableIdentities.value = nextIdentities
     }
 
     private fun read(name: String): ByteArray? {

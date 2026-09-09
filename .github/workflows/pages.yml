@@ -3,9 +3,9 @@ name: docs
 on:
   push:
     branches: [main]
-    paths: ['README.md', 'docs/**', 'design/**', 'android/README.md', 'android/VALIDATION.md', 'android/app/src/main/assets/themes.json', 'web/README.md', 'desktop/README.md', 'scripts/build-docs.py', '.github/workflows/pages.yml']
+    paths: ['README.md', 'docs/**', 'design/**', 'android/README.md', 'android/app/src/main/assets/themes.json', 'web/README.md', 'desktop/README.md', 'scripts/build-docs.py', '.github/workflows/pages.yml']
   pull_request:
-    paths: ['README.md', 'docs/**', 'design/**', 'android/README.md', 'android/VALIDATION.md', 'android/app/src/main/assets/themes.json', 'web/README.md', 'desktop/README.md', 'scripts/build-docs.py', '.github/workflows/pages.yml']
+    paths: ['README.md', 'docs/**', 'design/**', 'android/README.md', 'android/app/src/main/assets/themes.json', 'web/README.md', 'desktop/README.md', 'scripts/build-docs.py', '.github/workflows/pages.yml']
   workflow_dispatch:
 
 permissions:

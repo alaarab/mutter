@@ -24,13 +24,13 @@ native interfaces and independent protocol implementations that speak the same w
 | Screen/camera broadcasting | Supported browser capture | Viewer | Viewer | Desktop picker and camera capture |
 | Screen-share audio | Browser capture capabilities | Not implemented | Not implemented | Windows loopback capture; OS-dependent elsewhere |
 | LAN discovery | Not implemented | Bonjour | Android NSD | Not implemented |
-| Password and identity storage | Browser profile and bridge identity | Apple Keychain | Android Keystore encryption | Electron profile and bridge identity |
+| Password and identity storage | Session-only passwords; bridge identity | Apple Keychain | Android Keystore encryption | OS-encrypted passwords; bridge identity |
 | Installation | Local bridge, optional browser app shortcut | Signed iOS app | Signed Android APK | Windows, macOS, Linux packages |
 
 Voice in the browser requires Chromium features used by the client; see the
 [browser guide](../web/README.md). Native audio processing and Bluetooth routing depend on the
-device. The Android development build supports Android 10+, with tested configurations recorded
-in [Android validation](../android/VALIDATION.md).
+device. The Android development build supports Android 10+; its [build guide](../android/README.md#validation)
+includes device and protocol test commands.
 
 ## Platform guides
 

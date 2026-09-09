@@ -35,34 +35,9 @@ The [design guide](design.md) explains the color roles, typography, and transiti
 generator checks contrast, but screenshots still matter: opacity and surrounding surfaces can
 change how a color reads in the app.
 
-## What was checked
-
-The September 7 pass compared an iPhone 17 Pro simulator running iOS 26.5 with an Android 16
-ARM64 emulator. Channels were captured in all 22 Android theme variants. Chat, profiles, and
-settings were also checked in light and dark appearances.
-
-| Check | Result |
-| --- | --- |
-| JVM tests | 13 passed |
-| Android instrumentation regression suite | 21 passed |
-| Denied microphone permission and recovery | 1 passed |
-| Live browser/Electron-client video received on Android | 1 passed |
-| Small portrait and landscape at 150% text | 5 layout/editor tests passed in each configuration |
-| Reduced motion | 3 layout tests passed |
-| Debug build and lint | Passed, with zero lint errors |
-
-That’s **36 distinct Android tests**; the size and motion runs repeat the layout tests. They
-cover connections, voice transport, chat, navigation, saved settings, forms, and recovery.
-The video check decoded real frames from the shared desktop client. The audited text colors
-over the new backgrounds and message/avatar fills reached a minimum contrast of 4.62:1.
-
-Physical Android testing is still needed for microphone quality, acoustic echo, Bluetooth
-accessories, long background calls, and battery use. The [validation notes](../android/VALIDATION.md)
-have the full results, test commands, and screenshot-capture instructions.
-
 ## Keeping the apps familiar
 
-Use [the shared phone layout reference](../design/layout.md) when changing a phone screen.
+Keep the screen hierarchy, content order, and control placement consistent when changing a phone screen.
 Compare the running apps with the same theme, people, and voice mode, then check large text,
 the keyboard, and a short landscape window. Keep colors in the shared catalog and reuse the
 existing controls so a fix carries through the app.

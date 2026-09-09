@@ -53,16 +53,11 @@ The browser and Electron use the same web client. The phone apps use SwiftUI and
 with their own Mumble protocol implementations. Themes and fonts live together in `design/`.
 
 If you’re changing the interface, start with the [design guide](docs/design.md) and
-[shared phone layout](design/layout.md). Update the shared palette, then regenerate its outputs:
+[shared phone layout](docs/phone-layout.md). Update the shared palette, then regenerate its outputs:
 
 ```sh
 node scripts/generate-themes.mjs
 node scripts/generate-themes.mjs --check
 ```
-
-The latest Android layout pass, on September 7, 2026, passed 36 JVM and emulator tests and
-reviewed all 22 theme variants. It also covered large text, landscape, permission recovery,
-and live video from the desktop client. Microphone quality, Bluetooth accessories, and battery
-behaviour still need physical Android testing. [Full validation notes](android/VALIDATION.md).
 
 [Browse the docs](docs/README.md) for the source map, build guides, protocol notes, and test commands.

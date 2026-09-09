@@ -1,24 +1,19 @@
 import { THEMES, DEFAULT_THEME } from './theme-data.js';
+import { appearanceForSettings, themeName } from './preferences.js';
 
-export { THEMES, DEFAULT_THEME };
+export { THEMES, DEFAULT_THEME, appearanceForSettings };
 
 const systemAppearance = matchMedia('(prefers-color-scheme: light)');
 let currentTheme = DEFAULT_THEME;
 let currentAppearance = 'system';
 
-export function appearanceForSettings(settings) {
-  if (['system', 'light', 'dark'].includes(settings.appearance)) return settings.appearance;
-
-  return settings.theme ? (settings.theme === 'paper' ? 'light' : 'dark') : 'system';
-}
-
 export function resolveTheme(name, appearance = currentAppearance) {
   const mode = appearance === 'system' ? (systemAppearance.matches ? 'light' : 'dark') : appearance;
-  return THEMES[Object.hasOwn(THEMES, name) ? name : DEFAULT_THEME][mode === 'light' ? 'light' : 'dark'];
+  return THEMES[themeName(name)][mode === 'light' ? 'light' : 'dark'];
 }
 
 export function applyTheme(name, appearance = currentAppearance) {
-  currentTheme = Object.hasOwn(THEMES, name) ? name : DEFAULT_THEME;
+  currentTheme = themeName(name);
   currentAppearance = ['system', 'light', 'dark'].includes(appearance) ? appearance : 'system';
   const colors = resolveTheme(currentTheme, currentAppearance);
   const mode = colors === THEMES[currentTheme].light ? 'light' : 'dark';
