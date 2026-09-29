@@ -26,7 +26,7 @@ in WSL at the same address. The server operator does nothing.
 over the WebSocket (localhost never drops a packet); the bridge takes the server's `CryptSetup`
 key, encrypts each frame with Mumble's OCB2-AES128 and sends it as a UDP datagram, decrypts the
 server's datagrams back into tunnel frames, keeps the UDP pings going, asks for a nonce resync
-when decrypts stall, and falls back to the TCP tunnel by itself if UDP is blocked (`--tcp` forces
+when a datagram fails to decrypt five seconds after the last good one, and falls back to the TCP tunnel by itself if UDP is blocked (`--tcp` forces
 that). This matters on Wi-Fi: voice over TCP freezes for a second or two on every lost packet
 while TCP retransmits, then dumps the backlog; over UDP a lost packet is just a lost 20 ms.
 The Server tab says which lane is in use and counts delivery stalls, playback underruns and
@@ -55,9 +55,12 @@ install it from Chrome's address bar ("Install Mutter") for a permanent icon.
 Set `PORT` to use a different port. Open it as `localhost`, not a LAN address: the microphone
 and the Opus codec are only available to secure origins, and `localhost` counts as one.
 
-The bridge binds only to `127.0.0.1`, checks the HTTP host and WebSocket origin, and requires
-a per-process token obtained from its same-origin `/bridge-token` endpoint. It is intended
-for a browser on the same machine (including WSL localhost forwarding).
+The bridge binds only to loopback: `127.0.0.1` and, where the machine has IPv6, `[::1]` on the
+same port, so no other local process can answer for `localhost` there. It checks the HTTP host
+and WebSocket origin, and requires a per-process token obtained from its same-origin
+`/bridge-token` endpoint. It is intended for a browser on the same machine (including WSL
+localhost forwarding). Malformed server messages are dropped at the bridge, and its UDP socket
+only hears datagrams from the server's own address and port.
 
 Server certificates are checked before any Mumble credentials or voice are sent. A
 self-signed certificate needs explicit approval; its SHA-256 fingerprint is remembered for
@@ -181,6 +184,7 @@ node web/test/signal.test.mjs                       # the plugin-message fragmen
 node web/test/dsp.test.mjs                          # the spectral suppressor: FFT, SNR gain, click ducking, block-size independence
 node web/test/rnnoise.test.mjs                      # the RNNoise wasm: loads without imports, −22 dB on noise, voice kept, speed
 node web/test/voice.test.mjs                        # voice packet codec round-trips and missing-packet arithmetic, in Node
+node web/test/protobuf.test.mjs                     # protobuf reader bounds, hostile varints and frame reassembly, in Node
 node web/test/jitter.test.mjs                       # the playout buffer's grow/trim policy: quiet calls, near misses, damping
 node web/test/quality.test.mjs                      # a tone through two tabs: SNR, clicks, dropouts, underruns; FAKE_LOSS=0.05 FAKE_JITTER=40 to impair
 node web/test/fake-server.mjs                       # keep one running to click around against
