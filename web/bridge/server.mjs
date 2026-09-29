@@ -8,9 +8,9 @@ import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_PORT, FrameParser, MessageType, frame, decode } from '../src/mumble.js';
-import { Writer } from '../src/protobuf.js';
+import { ByteQueue, Writer, isWellFormedMessage } from '../src/protobuf.js';
 import { CryptState } from '../src/ocb2.js';
-import { decodeVoice, encodePing, wireFormatFor } from '../src/voice.js';
+import { decodeVoice, encodePing, isPingPacket, wireFormatFor } from '../src/voice.js';
 import { inspectPeer, isFingerprint } from './peer-certificate.mjs';
 
 const PORT = Number(process.env.PORT ?? 8788);
@@ -20,6 +20,14 @@ const PING_MS = 5000;
 const UDP_TIMEOUT_MS = 10_000;
 const RESYNC_MS = 5000;
 const MAX_PING_AGE_MS = 60_000;
+const CONNECT_TIMEOUT_MS = 15_000;
+const CERTIFICATE_APPROVAL_TIMEOUT_MS = 120_000;
+const SERVER_SYNC_TIMEOUT_MS = 30_000;
+const MIN_DATAGRAM_BYTES = 5;
+const MAX_DATAGRAM_BYTES = 2048;
+const MAX_WS_HEADER_BYTES = 14;
+const EPHEMERAL_PORT_ATTEMPTS = 20;
+const IPV6_UNAVAILABLE_CODES = new Set(['EADDRNOTAVAIL', 'EAFNOSUPPORT']);
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FONTS = path.join(ROOT, '..', 'design', 'fonts');
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
@@ -86,13 +94,14 @@ function resolveStaticFile(pathname) {
 
 function requestPath(request) {
   try {
-    return decodeURIComponent(new URL(request.url, 'http://x').pathname);
+    const pathname = decodeURIComponent(new URL(request.url, 'http://x').pathname);
+    return pathname.includes('\0') ? null : pathname;
   } catch {
     return null;
   }
 }
 
-const server = http.createServer((request, response) => {
+function handleRequest(request, response) {
   response.setHeader('X-Content-Type-Options', 'nosniff');
   response.setHeader('X-Frame-Options', 'DENY');
   response.setHeader('Content-Security-Policy', CONTENT_SECURITY_POLICY);
@@ -124,9 +133,10 @@ const server = http.createServer((request, response) => {
     response.writeHead(200, { 'content-type': MIME[path.extname(file)] ?? 'application/octet-stream' });
     response.end(data);
   });
-});
+}
 
-server.on('upgrade', (request, socket, head) => {
+function handleUpgrade(request, socket, head) {
+  socket.on('error', () => socket.destroy());
   let url;
   try {
     url = new URL(request.url, 'http://localhost');
@@ -150,7 +160,14 @@ server.on('upgrade', (request, socket, head) => {
   const connection = new WebSocketConnection(socket);
   new BridgeSession(connection);
   if (head.length) connection.read(head);
-});
+}
+
+const server = http.createServer(handleRequest);
+const loopbackIPv6Server = http.createServer(handleRequest);
+const listeners = [server, loopbackIPv6Server];
+for (const listener of listeners) {
+  listener.on('upgrade', handleUpgrade);
+}
 
 class BridgeSession {
   constructor(connection) {
@@ -164,14 +181,16 @@ class BridgeSession {
     this.toBrowser = new FrameParser();
     this.wireFormat = 'protobuf';
     this.udpUp = false;
+    this.udpConnected = false;
     this.lastUdpReply = 0;
     this.lastResyncAsk = 0;
+    this.cryptKeyedAt = 0;
     this.roundTripMs = 0;
     this.pingTimer = null;
     this.trusted = false;
     this.certificate = null;
     this.closed = false;
-    this.connectionTimer = setTimeout(() => this.fail('Connection timed out.'), 15_000);
+    this.connectionTimer = setTimeout(() => this.fail('Connection timed out.'), CONNECT_TIMEOUT_MS);
     connection.onMessage = (data, isText) => {
       try { this.onBrowserMessage(data, isText); }
       catch { this.fail('Invalid client message.'); }
@@ -211,10 +230,10 @@ class BridgeSession {
       return;
     }
     for (const { type, payload } of frames) {
-      if (type === MessageType.udpTunnel && this.udpUp && this.udp) {
+      if (type === MessageType.udpTunnel && this.udpUp && this.udpConnected) {
         const encrypted = this.crypt.encrypt(payload);
         if (encrypted) {
-          this.udp.send(encrypted, this.port, this.upstream.remoteAddress);
+          this.udp.send(encrypted);
           continue;
         }
       }
@@ -239,7 +258,7 @@ class BridgeSession {
         if (this.certificate.trusted) {
           this.acceptCertificate();
         } else {
-          this.connectionTimer = setTimeout(() => this.fail('Certificate approval timed out.'), 120_000);
+          this.connectionTimer = setTimeout(() => this.fail('Certificate approval timed out.'), CERTIFICATE_APPROVAL_TIMEOUT_MS);
           this.connection.send(JSON.stringify({ event: 'certificate', host, port: this.port, ...this.certificate }), true);
         }
       } catch (error) {
@@ -256,6 +275,7 @@ class BridgeSession {
 
   acceptCertificate() {
     clearTimeout(this.connectionTimer);
+    this.connectionTimer = setTimeout(() => this.fail('The server did not finish connecting.'), SERVER_SYNC_TIMEOUT_MS);
     this.trusted = true;
     console.log(`  connected ${this.label}`);
     this.connection.send(JSON.stringify({ event: 'open', fingerprint: this.certificate.fingerprint }), true);
@@ -280,10 +300,15 @@ class BridgeSession {
     }
     try {
       for (const { type, payload } of frames) {
+        if (type !== MessageType.udpTunnel && !isWellFormedMessage(payload)) {
+          continue;
+        }
         if (type === MessageType.version) {
           this.wireFormat = wireFormatFor(decode(type, payload));
         } else if (type === MessageType.cryptSetup && USE_UDP) {
           this.onCryptSetup(decode(type, payload));
+        } else if (type === MessageType.serverSync) {
+          clearTimeout(this.connectionTimer);
         }
         this.connection.send(frame(type, payload), false);
       }
@@ -295,6 +320,7 @@ class BridgeSession {
   onCryptSetup(message) {
     if (message.key && message.clientNonce && message.serverNonce) {
       if (this.crypt.setKey(message.key, message.clientNonce, message.serverNonce)) {
+        this.cryptKeyedAt = Date.now();
         this.openUdp();
       }
     } else if (message.serverNonce) {
@@ -310,27 +336,55 @@ class BridgeSession {
       this.ping();
       return;
     }
-    this.udp = dgram.createSocket(this.upstream.remoteFamily === 'IPv6' ? 'udp6' : 'udp4');
-    this.udp.on('message', (datagram) => this.onDatagram(datagram));
-    this.udp.on('error', (error) => {
+    const udp = dgram.createSocket(this.upstream.remoteFamily === 'IPv6' ? 'udp6' : 'udp4');
+    this.udp = udp;
+    udp.on('message', (datagram) => {
+      try {
+        this.onDatagram(datagram);
+      } catch (error) {
+        console.log(`  ${this.label}: dropped a voice datagram (${error.message})`);
+      }
+    });
+    udp.on('error', (error) => {
       console.log(`  udp error ${error.message}`);
       this.setUdp(false);
     });
-    this.ping();
-    this.pingTimer = setInterval(() => this.tick(), PING_MS);
+    udp.connect(this.port, this.upstream.remoteAddress, () => {
+      if (this.udp !== udp) {
+        return;
+      }
+      this.udpConnected = true;
+      this.ping();
+      this.pingTimer = setInterval(() => this.tick(), PING_MS);
+    });
   }
 
   onDatagram(datagram) {
-    const plain = this.crypt.decrypt(new Uint8Array(datagram));
-    if (!plain) {
+    if (this.closed || datagram.length < MIN_DATAGRAM_BYTES || datagram.length > MAX_DATAGRAM_BYTES) {
       return;
     }
-    const packet = decodeVoice(plain, this.wireFormat);
-    if (packet?.kind === 'ping') {
-      this.onUdpPong(packet);
+    const plain = this.crypt.decrypt(new Uint8Array(datagram));
+    if (!plain) {
+      this.requestResyncIfStalled();
+      return;
+    }
+    if (isPingPacket(plain, this.wireFormat)) {
+      const packet = decodeVoice(plain, this.wireFormat);
+      if (packet?.kind === 'ping') {
+        this.onUdpPong(packet);
+      }
       return;
     }
     this.connection.send(frame(MessageType.udpTunnel, plain), false);
+  }
+
+  requestResyncIfStalled() {
+    const now = Date.now();
+    const lastGood = this.crypt.lastGood || this.cryptKeyedAt;
+    if (now - lastGood > RESYNC_MS && now - this.lastResyncAsk > RESYNC_MS) {
+      this.lastResyncAsk = now;
+      this.upstream.write(frame(MessageType.cryptSetup, new Uint8Array(0)));
+    }
   }
 
   onUdpPong(packet) {
@@ -345,25 +399,19 @@ class BridgeSession {
   }
 
   ping() {
-    if (!this.udp || !this.crypt.isValid || !this.upstream?.remoteAddress) {
+    if (!this.udpConnected || !this.crypt.isValid) {
       return;
     }
     const encrypted = this.crypt.encrypt(encodePing(BigInt(Date.now()) * 1000n, this.wireFormat));
     if (encrypted) {
-      this.udp.send(encrypted, this.port, this.upstream.remoteAddress);
+      this.udp.send(encrypted);
     }
   }
 
   tick() {
     this.ping();
-    const now = Date.now();
-    if (this.udpUp && now - this.lastUdpReply > UDP_TIMEOUT_MS) {
+    if (this.udpUp && Date.now() - this.lastUdpReply > UDP_TIMEOUT_MS) {
       this.setUdp(false);
-    }
-    const decryptsStalled = this.crypt.lastGood && now - this.crypt.lastGood > RESYNC_MS;
-    if (this.udpUp && decryptsStalled && now - this.lastResyncAsk > RESYNC_MS) {
-      this.lastResyncAsk = now;
-      this.upstream.write(frame(MessageType.cryptSetup, new Uint8Array(0)));
     }
   }
 
@@ -383,6 +431,7 @@ class BridgeSession {
     clearInterval(this.pingTimer);
     this.udp?.close();
     this.udp = null;
+    this.udpConnected = false;
     this.upstream?.destroy();
     this.upstream = null;
   }
@@ -392,7 +441,7 @@ class WebSocketConnection {
   constructor(socket) {
     this.socket = socket;
     this.closed = false;
-    this.buffer = Buffer.alloc(0);
+    this.pending = new ByteQueue();
     this.fragments = null;
     this.onMessage = () => {};
     this.onClose = () => {};
@@ -407,26 +456,27 @@ class WebSocketConnection {
 
   read(chunk) {
     if (this.closed) return;
-    this.buffer = Buffer.concat([this.buffer, chunk]);
-    while (this.buffer.length >= 2) {
-      const first = this.buffer[0];
-      const second = this.buffer[1];
+    this.pending.push(chunk);
+    while (this.pending.length >= 2) {
+      const header = Buffer.from(this.pending.peek(Math.min(this.pending.length, MAX_WS_HEADER_BYTES)));
+      const first = header[0];
+      const second = header[1];
       const fin = (first & 0x80) !== 0;
       const opcode = first & 0x0f;
       const masked = (second & 0x80) !== 0;
       let length = second & 0x7f;
       let offset = 2;
       if (length === 126) {
-        if (this.buffer.length < 4) {
+        if (header.length < 4) {
           return;
         }
-        length = this.buffer.readUInt16BE(2);
+        length = header.readUInt16BE(2);
         offset = 4;
       } else if (length === 127) {
-        if (this.buffer.length < 10) {
+        if (header.length < 10) {
           return;
         }
-        length = Number(this.buffer.readBigUInt64BE(2));
+        length = Number(header.readBigUInt64BE(2));
         offset = 10;
       }
       if (!masked || length > MAX_WS_MESSAGE || (first & 0x70) ||
@@ -434,19 +484,15 @@ class WebSocketConnection {
         this.close();
         return;
       }
-      const maskKey = masked ? this.buffer.subarray(offset, offset + 4) : null;
-      if (masked) {
-        offset += 4;
-      }
-      if (this.buffer.length < offset + length) {
+      if (this.pending.length < offset + 4 + length) {
         return;
       }
-      const payload = Buffer.from(this.buffer.subarray(offset, offset + length));
-      this.buffer = this.buffer.subarray(offset + length);
-      if (maskKey) {
-        for (let i = 0; i < payload.length; i++) {
-          payload[i] ^= maskKey[i & 3];
-        }
+      const maskKey = header.subarray(offset, offset + 4);
+      this.pending.skip(offset + 4);
+      const maskedPayload = this.pending.take(length);
+      const payload = Buffer.allocUnsafe(length);
+      for (let i = 0; i < length; i++) {
+        payload[i] = maskedPayload[i] ^ maskKey[i & 3];
       }
       this.handleFrame(opcode, fin, payload);
       if (this.closed) return;
@@ -519,7 +565,7 @@ class WebSocketConnection {
       return;
     }
     this.closed = true;
-    this.buffer = Buffer.alloc(0);
+    this.pending = new ByteQueue();
     this.fragments = null;
     this.onClose();
     this.writeFrame(Buffer.alloc(0), Opcode.close);
@@ -528,21 +574,57 @@ class WebSocketConnection {
   }
 }
 
-export const ready = new Promise((resolve, reject) => {
-  server.once('error', reject);
-  server.listen(PORT, '127.0.0.1', () => {
-    const url = `http://localhost:${server.address().port}`;
-    console.log(`Mutter  →  ${url}`);
-    if (OPEN_WINDOW) {
-      openAppWindow(url);
-    } else if (!process.versions.electron) {
-      console.log('(running in WSL? Windows reaches this at the same localhost address)');
-    }
-    resolve(url);
+function listenOn(listener, port, host) {
+  return new Promise((resolve, reject) => {
+    const onError = (error) => {
+      listener.off('listening', onListening);
+      reject(error);
+    };
+    const onListening = () => {
+      listener.off('error', onError);
+      resolve(listener.address().port);
+    };
+    listener.once('error', onError);
+    listener.once('listening', onListening);
+    listener.listen(port, host);
   });
+}
+
+function stopListening(listener) {
+  return new Promise((resolve) => listener.close(() => resolve()));
+}
+
+async function listenOnBothLoopbacks() {
+  const attempts = PORT === 0 ? EPHEMERAL_PORT_ATTEMPTS : 1;
+  for (let attempt = 1; ; attempt++) {
+    const port = await listenOn(server, PORT, '127.0.0.1');
+    try {
+      await listenOn(loopbackIPv6Server, port, '::1');
+      return port;
+    } catch (error) {
+      if (IPV6_UNAVAILABLE_CODES.has(error.code)) {
+        return port;
+      }
+      await stopListening(server);
+      if (error.code !== 'EADDRINUSE' || attempt >= attempts) {
+        throw error;
+      }
+    }
+  }
+}
+
+export const ready = listenOnBothLoopbacks().then((port) => {
+  const url = `http://localhost:${port}`;
+  console.log(`Mutter  →  ${url}`);
+  if (OPEN_WINDOW) {
+    openAppWindow(url);
+  } else if (!process.versions.electron) {
+    console.log('(running in WSL? Windows reaches this at the same localhost address)');
+  }
+  return url;
 });
 
-export { server };
+export { server, listeners };
 
 function readFileOrEmpty(file) {
   try {
