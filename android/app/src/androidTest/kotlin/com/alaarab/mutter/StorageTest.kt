@@ -30,7 +30,7 @@ class StorageTest {
     }
 
     @Test
-    fun encryptedCredentialsRoundTripAndTamperingIsRejected() {
+    fun encryptedCredentialsRoundTripAndTamperedDataIsSetAside() {
         val store = AppStore(context)
         val server =
             Server(
@@ -52,11 +52,17 @@ class StorageTest {
             )) assertFalse(encrypted.toString(Charsets.ISO_8859_1).contains(secret))
         encrypted[encrypted.lastIndex] = (encrypted.last().toInt() xor 1).toByte()
         file.writeBytes(encrypted)
-        assertTrue(
-            "Corruption silently reset the saved data",
-            runCatching { AppStore(context) }.isFailure,
-        )
-        assertArrayEquals(encrypted, file.readBytes())
+        val recovered = AppStore(context)
+        assertTrue(recovered.servers.value.isEmpty())
+        assertNotNull("Recovery must be reported to the user", recovered.recoveryNotice.value)
+        assertFalse(file.exists())
+        val setAside =
+            directory.listFiles().orEmpty().single { it.name.startsWith("settings.enc.unreadable-") }
+        assertArrayEquals(encrypted, setAside.readBytes())
+        recovered.saveServer(server)
+        val reopened = AppStore(context)
+        assertEquals(server, reopened.servers.value.single())
+        assertNull(reopened.recoveryNotice.value)
     }
 
     @Test

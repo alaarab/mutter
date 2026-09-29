@@ -46,6 +46,7 @@ fun MutterApp(app: MutterApplication, deepLink: Server? = null, consumed: () -> 
     val session by app.client.state.collectAsStateWithLifecycle()
     val servers by app.store.servers.collectAsStateWithLifecycle()
     val transmitting by app.audio.transmitting.collectAsStateWithLifecycle()
+    val recoveryNotice by app.store.recoveryNotice.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var page by rememberSaveable { mutableStateOf("servers") }
     var previousStatus by rememberSaveable { mutableStateOf("disconnected") }
@@ -384,6 +385,16 @@ fun MutterApp(app: MutterApplication, deepLink: Server? = null, consumed: () -> 
                 title = { Text("Mutter") },
                 text = { Text(error) },
                 confirmButton = { TextButton(onClick = app.client::dismissError) { Text("OK") } },
+            )
+        }
+        recoveryNotice?.let { notice ->
+            AlertDialog(
+                onDismissRequest = app.store::dismissRecoveryNotice,
+                title = { Text("Saved data reset") },
+                text = { Text(notice) },
+                confirmButton = {
+                    TextButton(onClick = app.store::dismissRecoveryNotice) { Text("OK") }
+                },
             )
         }
         session.userStats?.let { stats ->
