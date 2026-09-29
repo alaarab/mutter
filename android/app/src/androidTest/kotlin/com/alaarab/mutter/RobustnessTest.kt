@@ -160,6 +160,47 @@ class RobustnessTest {
     }
 
     @Test
+    fun rejectedUdpNeverDropsTheControlConnection() {
+        begin(server.copy(port = 64742))
+        ui.runOnIdle { app.client.answerTrust(true) }
+        ui.waitUntil(15000) { app.client.state.value.connected }
+        val watchUntil = System.currentTimeMillis() + 25000
+        while (System.currentTimeMillis() < watchUntil) {
+            assertEquals("connected", app.client.state.value.status)
+            assertFalse(app.client.state.value.udp)
+            Thread.sleep(250)
+        }
+        assertEquals(1, control("stats").getInt("authentications"))
+        assertTrue(loopback().isNotEmpty())
+        assertEquals("tcp", control("stats").getString("voiceTransport"))
+    }
+
+    @Test
+    fun switchingServersWhileConnectedLandsOnTheNewServer() {
+        connect()
+        val other = server.copy(id = "$name-other", port = 64742)
+        try {
+            ui.runOnIdle { app.connect(other) }
+            ui.waitUntil(15000) {
+                app.client.state.value.certificate != null || app.client.state.value.connected
+            }
+            ui.runOnIdle { app.client.answerTrust(true) }
+            ui.waitUntil(15000) {
+                app.client.state.value.connected && app.client.state.value.server?.id == other.id
+            }
+            Thread.sleep(3000)
+            assertTrue(app.client.state.value.connected)
+            assertEquals(other.id, app.client.state.value.server?.id)
+            assertTrue(loopback().isNotEmpty())
+        } finally {
+            ui.runOnIdle {
+                app.disconnect()
+                app.store.deleteServer(other.id)
+            }
+        }
+    }
+
+    @Test
     fun changedCertificateStopsBeforeAuthentication() {
         val previous = List(32) { "00" }.joinToString(":")
         begin(server.copy(fingerprint = previous, password = "must-not-be-sent"))
