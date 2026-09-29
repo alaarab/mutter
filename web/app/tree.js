@@ -1,77 +1,89 @@
 import { ICON } from './icons.js';
-import { el, avatar, activate, clickWithoutBubbling } from './ui.js';
+import { el, avatar, activate, clickWithoutBubbling, keyedRows } from './ui.js';
 import { compareByName } from './client.js';
 
 const STATUS_CLASSES = ['speaking', 'deaf', 'muted', 'live', 'online'];
 
 export function renderTree(container, ctx) {
-  const fragment = document.createDocumentFragment();
+  const rows = keyedRows(container);
   const root = ctx.client.rootChannel;
+  const treeContext = { ...ctx, roster: ctx.client.roster(), rendered: new Set(), rows };
   if (root && ctx.filter) {
-    renderFiltered(fragment, ctx);
+    renderFiltered(treeContext);
   } else if (root) {
-    renderChannel(root, 0, fragment, ctx);
+    renderChannel(root, 0, treeContext);
   }
-  container.replaceChildren(fragment);
+  rows.commit();
 }
 
-function renderFiltered(into, ctx) {
-  const { client, filter } = ctx;
+function renderFiltered(ctx) {
+  const { client, filter, rows } = ctx;
   const matches = (item) => (item.name ?? '').toLowerCase().includes(filter);
   for (const channel of [...client.channels.values()].sort(compareByName)) {
     if (matches(channel)) {
-      into.append(channelRow(channel, 0, ctx, { flat: true }));
+      addChannelRow(channel, 0, ctx, { flat: true });
     }
   }
   for (const user of [...client.users.values()].sort(compareByName)) {
     if (matches(user)) {
-      into.append(userRow(user, 0, ctx, client.channels.get(user.channelId)?.name));
+      addUserRow(user, 0, ctx, client.channels.get(user.channelId)?.name);
     }
   }
-  if (!into.childNodes.length) {
-    into.append(el('p', { className: 'empty', textContent: 'Nothing matches.' }));
+  if (!rows.size) {
+    rows.add('empty', 'empty', () => el('p', { className: 'empty', textContent: 'Nothing matches.' }));
   }
 }
 
-function subtreeCount(client, channel) {
-  let count = client.usersIn(channel.channelId).length;
-  for (const child of client.children(channel.channelId)) {
-    count += subtreeCount(client, child);
+function renderChannel(channel, depth, ctx) {
+  if (ctx.rendered.has(channel.channelId)) {
+    return;
   }
-  return count;
-}
-
-function renderChannel(channel, depth, into, ctx) {
-  const { client } = ctx;
-  const users = client.usersIn(channel.channelId);
-  const children = client.children(channel.channelId);
+  ctx.rendered.add(channel.channelId);
+  const users = ctx.roster.users(channel.channelId);
+  const children = ctx.roster.children(channel.channelId);
   const collapsed = ctx.collapsed.has(channel.channelId) && !ctx.isCurrent(channel);
-  into.append(channelRow(channel, depth, ctx, { collapsed, hasChildren: users.length + children.length > 0 }));
+  addChannelRow(channel, depth, ctx, { collapsed, hasChildren: users.length + children.length > 0 });
   if (collapsed) {
     return;
   }
   for (const user of users) {
-    into.append(userRow(user, depth + 1, ctx));
+    addUserRow(user, depth + 1, ctx);
   }
   for (const child of children) {
-    renderChannel(child, depth + 1, into, ctx);
+    renderChannel(child, depth + 1, ctx);
   }
 }
 
 function channelCount(channel, count, ctx) {
   if (ctx.isCurrent(channel) && ctx.unread) {
-    return el('span', { className: 'count unread', textContent: ctx.unread > 99 ? '99+' : String(ctx.unread) });
+    return { className: 'count unread', text: ctx.unread > 99 ? '99+' : String(ctx.unread) };
   }
   if (count) {
-    return el('span', { className: 'count', textContent: channel.maxUsers ? `${count}/${channel.maxUsers}` : String(count) });
+    return { className: 'count', text: channel.maxUsers ? `${count}/${channel.maxUsers}` : String(count) };
   }
   return null;
 }
 
-function channelRow(channel, depth, ctx, { flat = false, collapsed = false, hasChildren = true } = {}) {
-  const current = ctx.isCurrent(channel);
+function addChannelRow(channel, depth, ctx, { flat = false, collapsed = false, hasChildren = true } = {}) {
+  const state = {
+    channelId: channel.channelId,
+    name: channel.name ?? '…',
+    depth,
+    flat,
+    collapsed,
+    hasChildren,
+    current: ctx.isCurrent(channel),
+    temporary: !!channel.temporary,
+    count: channelCount(channel, ctx.roster.subtreeCount(channel.channelId), ctx),
+  };
+  ctx.rows.add(`channel:${channel.channelId}`, JSON.stringify(state), () => channelRow(state, ctx));
+}
+
+function channelRow(state, ctx) {
+  const { current, collapsed, flat, hasChildren } = state;
+  const freshChannel = () => ctx.client.channels.get(state.channelId) ?? { channelId: state.channelId, name: state.name };
   const row = el('div', { className: `ch${current ? ' current' : ''}${collapsed ? ' collapsed' : ''}`, role: 'treeitem' });
-  row.style.setProperty('--depth', depth);
+  row.style.setProperty('--depth', state.depth);
 
   const disclosure = el('button', {
     type: 'button',
@@ -79,23 +91,22 @@ function channelRow(channel, depth, ctx, { flat = false, collapsed = false, hasC
     innerHTML: ICON.chevron,
     tabIndex: -1,
   });
-  clickWithoutBubbling(disclosure, () => ctx.onToggle(channel));
-  row.append(disclosure, el('span', { className: 'hash', textContent: '#' }), el('span', { className: 'name', textContent: channel.name ?? '…' }));
+  clickWithoutBubbling(disclosure, () => ctx.onToggle(freshChannel()));
+  row.append(disclosure, el('span', { className: 'hash', textContent: '#' }), el('span', { className: 'name', textContent: state.name }));
 
-  if (channel.temporary) {
+  if (state.temporary) {
     row.append(el('span', { className: 'flag', textContent: 'temp', title: 'Temporary channel' }));
   }
-  const count = channelCount(channel, subtreeCount(ctx.client, channel), ctx);
-  if (count) {
-    row.append(count);
+  if (state.count) {
+    row.append(el('span', { className: state.count.className, textContent: state.count.text }));
   }
   if (!current) {
     const join = el('button', { type: 'button', className: 'join', innerHTML: ICON.join });
     join.dataset.tip = 'Join';
-    clickWithoutBubbling(join, () => ctx.onJoin(channel));
+    clickWithoutBubbling(join, () => ctx.onJoin(freshChannel()));
     row.append(join);
   }
-  activate(row, () => ctx.onChannel(row, channel));
+  activate(row, () => ctx.onChannel(row, freshChannel()));
   return row;
 }
 
@@ -133,26 +144,41 @@ function statusGlyph(statusClass) {
   }
 }
 
-export function statusAvatar(user, ctx, size = 's') {
-  const [, statusClass] = presence(user, ctx);
-  const element = avatar(user.name, size);
+export function presenceAvatar(name, statusClass, size = 's') {
+  const element = avatar(name, size);
   element.classList.add('presence', statusClass);
   element.append(el('span', { className: 'sdot', innerHTML: statusGlyph(statusClass) }));
   return element;
 }
 
-function userRow(user, depth, ctx, channelName) {
-  const isMe = user.session === ctx.client.me;
+function addUserRow(user, depth, ctx, channelName) {
   const [statusText, statusClass] = presence(user, ctx);
-  const row = el('div', { className: `user${isMe ? ' me' : ''}${statusClass === 'speaking' ? ' talking' : ''}`, role: 'treeitem' });
-  row.dataset.session = user.session;
-  row.style.setProperty('--depth', depth);
+  const state = {
+    session: user.session,
+    name: user.name ?? '…',
+    depth,
+    isMe: user.session === ctx.client.me,
+    prioritySpeaker: !!user.prioritySpeaker,
+    statusText,
+    statusClass,
+    channelName: channelName ?? null,
+    live: ctx.share.available.has(user.session),
+  };
+  ctx.rows.add(`user:${user.session}`, JSON.stringify(state), () => userRow(state, ctx));
+}
 
-  const name = el('span', { className: 'name' }, el('span', { textContent: user.name ?? '…' }));
+function userRow(state, ctx) {
+  const { isMe, statusText, statusClass, channelName } = state;
+  const freshUser = () => ctx.client.users.get(state.session) ?? { session: state.session, name: state.name };
+  const row = el('div', { className: `user${isMe ? ' me' : ''}${statusClass === 'speaking' ? ' talking' : ''}`, role: 'treeitem' });
+  row.dataset.session = state.session;
+  row.style.setProperty('--depth', state.depth);
+
+  const name = el('span', { className: 'name' }, el('span', { textContent: state.name }));
   if (isMe) {
     name.append(el('span', { className: 'you', textContent: 'you' }));
   }
-  if (user.prioritySpeaker) {
+  if (state.prioritySpeaker) {
     name.append(el('span', { className: 'star', title: 'Priority speaker', innerHTML: ICON.star }));
   }
   const column = el('span', { className: 'col' }, name);
@@ -160,15 +186,15 @@ function userRow(user, depth, ctx, channelName) {
     const where = `#${channelName}${statusText ? ` · ${statusText}` : ''}`;
     column.append(el('span', { className: `status ${statusClass}`, textContent: where }));
   }
-  row.append(statusAvatar(user, ctx, 's'), column);
+  row.append(presenceAvatar(state.name, statusClass, 's'), column);
 
-  if (ctx.share.available.has(user.session)) {
+  if (state.live) {
     const watch = el('button', { type: 'button', className: 'live-badge', innerHTML: ICON.screen });
     watch.dataset.tip = 'Watch their screen';
-    clickWithoutBubbling(watch, () => ctx.onWatch(user));
+    clickWithoutBubbling(watch, () => ctx.onWatch(freshUser()));
     row.append(watch);
   }
-  activate(row, () => ctx.onUser(row, user));
+  activate(row, () => ctx.onUser(row, freshUser()));
   return row;
 }
 
@@ -176,6 +202,7 @@ export function refreshUser(user, ctx) {
   const [statusText, statusClass] = presence(user, ctx);
   const rows = document.querySelectorAll(`.user[data-session="${user.session}"], .member[data-session="${user.session}"]`);
   for (const row of rows) {
+    row.rowSignature = null;
     row.classList.toggle('talking', statusClass === 'speaking');
     const avatarElement = row.querySelector('.avatar.presence');
     if (avatarElement) {

@@ -9,6 +9,9 @@ const CAMERA_MAX_BITRATE = 900_000;
 const CAMERA_VIDEO = { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 24, max: 30 } };
 const CODEC_ORDER = ['video/H264', 'video/VP9', 'video/AV1', 'video/VP8'];
 const BUCKET = { burst: 12, rate: 3 };
+const WATCH_BUCKET = { burst: 4, rate: 0.5 };
+const MAX_QUEUED_FRAGMENTS = 60;
+const ENDED_CONNECTION_STATES = new Set(['failed', 'disconnected', 'closed']);
 const OPAQUE_LABEL = /^[\w+/=-]{16,}$/;
 
 const splitList = (text) => (text ?? '').split(/[\s,]+/).filter(Boolean);
@@ -149,6 +152,10 @@ export class ScreenShare extends EventTarget {
   #pump = null;
   #ownSample = { bytes: 0, at: 0, lastLimit: null };
   #viewerSample = { bytes: 0, at: 0 };
+  #cameraGeneration = 0;
+  #cameraStart = null;
+  #flipping = null;
+  #watchTokens = new Map();
 
   constructor(client, settings) {
     super();
@@ -220,14 +227,31 @@ export class ScreenShare extends EventTarget {
     this.#emit('state');
   }
 
-  async startCamera() {
+  startCamera() {
     if (this.camera) {
-      return;
+      return Promise.resolve();
     }
+    if (!this.#cameraStart) {
+      const starting = this.#openCamera().finally(() => {
+        if (this.#cameraStart === starting) {
+          this.#cameraStart = null;
+        }
+      });
+      this.#cameraStart = starting;
+    }
+    return this.#cameraStart;
+  }
+
+  async #openCamera() {
+    const generation = this.#cameraGeneration;
     const stream = await navigator.mediaDevices.getUserMedia({ video: { ...CAMERA_VIDEO, facingMode: 'user' }, audio: false });
     const track = stream.getVideoTracks()[0];
-    if (!track) {
-      throw new Error('No camera track');
+    if (generation !== this.#cameraGeneration || !track) {
+      stream.getTracks().forEach((unused) => unused.stop());
+      if (!track) {
+        throw new Error('No camera track');
+      }
+      return;
     }
     track.contentHint = 'motion';
     const camera = {
@@ -246,13 +270,19 @@ export class ScreenShare extends EventTarget {
     };
     this.camera = camera;
     this.#watchTrackEnd(camera, track);
-    this.canFlip = (await this.#videoInputs()).length > 1;
+    const canFlip = (await this.#videoInputs()).length > 1;
+    if (this.camera !== camera) {
+      return;
+    }
+    this.canFlip = canFlip;
     this.#diag('camera on');
     this.#announceSource(camera);
     this.#emit('state');
   }
 
   stopCamera() {
+    this.#cameraGeneration++;
+    this.#cameraStart = null;
     const camera = this.camera;
     if (!camera) {
       return;
@@ -264,24 +294,38 @@ export class ScreenShare extends EventTarget {
     this.#emit('state');
   }
 
-  async flipCamera() {
+  flipCamera() {
+    if (!this.#flipping) {
+      this.#flipping = this.#flipToNextCamera().finally(() => {
+        this.#flipping = null;
+      });
+    }
+    return this.#flipping;
+  }
+
+  async #flipToNextCamera() {
     const camera = this.camera;
     if (!camera) {
       return;
     }
     const inputs = await this.#videoInputs();
+    if (this.camera !== camera || inputs.length < 2) {
+      return;
+    }
     const current = camera.stream.getVideoTracks()[0];
     const index = inputs.findIndex((device) => device.deviceId === current?.getSettings().deviceId);
     const next = inputs[(index + 1) % inputs.length];
-    if (!next || inputs.length < 2) {
-      return;
-    }
     const stream = await navigator.mediaDevices.getUserMedia({ video: { ...CAMERA_VIDEO, deviceId: { exact: next.deviceId } }, audio: false });
     const track = stream.getVideoTracks()[0];
+    if (this.camera !== camera || !track) {
+      stream.getTracks().forEach((unused) => unused.stop());
+      return;
+    }
     track.contentHint = 'motion';
-    if (current) {
-      camera.stream.removeTrack(current);
-      current.stop();
+    const replaced = camera.stream.getVideoTracks()[0];
+    if (replaced) {
+      camera.stream.removeTrack(replaced);
+      replaced.stop();
     }
     camera.stream.addTrack(track);
     this.#watchTrackEnd(camera, track);
@@ -290,7 +334,9 @@ export class ScreenShare extends EventTarget {
         await sender.replaceTrack(track).catch(() => {});
       }
     }
-    this.#emit('state');
+    if (this.camera === camera) {
+      this.#emit('state');
+    }
   }
 
   watchCamera(sender) {
@@ -401,6 +447,10 @@ export class ScreenShare extends EventTarget {
   async watch(sender) {
     const offer = this.available.get(sender);
     if (!offer) {
+      return;
+    }
+    const current = this.watching;
+    if (current?.sender === sender && current.id === offer.id && !ENDED_CONNECTION_STATES.has(current.state)) {
       return;
     }
     this.unwatch(false);
@@ -566,10 +616,18 @@ export class ScreenShare extends EventTarget {
     if (!source) {
       return;
     }
+    if (!this.#isChannelMember(viewer)) {
+      this.#diag(`ignored a watch request from ${viewer}: not in this channel`);
+      return;
+    }
+    if (!this.#takeWatchToken(viewer)) {
+      return;
+    }
     source.announced.add(viewer);
     this.#closePeer(source, viewer);
     const connection = this.#newPeer();
     source.peers.set(viewer, connection);
+    const isCurrent = () => this.#sourceFor(source.id) === source && source.peers.get(viewer) === connection;
     for (const track of [...source.stream.getVideoTracks(), ...source.stream.getAudioTracks()]) {
       const transceiver = connection.addTransceiver(track, { direction: 'sendonly', streams: [source.stream] });
       if (track.kind === 'video') {
@@ -592,11 +650,24 @@ export class ScreenShare extends EventTarget {
     };
     try {
       this.#trickleCandidates(connection, viewer, source.id);
-      await connection.setLocalDescription(await connection.createOffer());
+      const offer = await connection.createOffer();
+      if (!isCurrent()) {
+        return;
+      }
+      await connection.setLocalDescription(offer);
+      if (!isCurrent()) {
+        return;
+      }
       await waitForGathering(connection);
+      if (!isCurrent()) {
+        return;
+      }
       this.#stateOf(connection).sdpSent = true;
-      this.#send([viewer], { t: 'offer', id: source.id, sdp: connection.localDescription.sdp });
+      this.#send([viewer], { t: 'offer', id: source.id, sdp: connection.localDescription.sdp }, `offer:${viewer}:${source.id}`);
     } catch (error) {
+      if (!isCurrent()) {
+        return;
+      }
       this.#diag(`offer failed: ${error.message}`);
       this.#closePeer(source, viewer);
     }
@@ -608,9 +679,13 @@ export class ScreenShare extends EventTarget {
       return;
     }
     const connection = viewer.pc;
+    const isCurrent = () => this.#viewerFor(sender, message.id) === viewer && viewer.pc === connection;
     try {
       this.#trickleCandidates(connection, sender, message.id);
       await connection.setRemoteDescription({ type: 'offer', sdp: message.sdp });
+      if (!isCurrent()) {
+        return;
+      }
       this.#flushCandidates(connection);
       if (this.settings.shareAudio === false) {
         for (const transceiver of connection.getTransceivers()) {
@@ -619,15 +694,52 @@ export class ScreenShare extends EventTarget {
           }
         }
       }
-      await connection.setLocalDescription(await connection.createAnswer());
+      const answer = await connection.createAnswer();
+      if (!isCurrent()) {
+        return;
+      }
+      await connection.setLocalDescription(answer);
+      if (!isCurrent()) {
+        return;
+      }
       await waitForGathering(connection);
+      if (!isCurrent()) {
+        return;
+      }
       this.#stateOf(connection).sdpSent = true;
-      this.#send([sender], { t: 'answer', id: message.id, sdp: connection.localDescription.sdp });
+      this.#send([sender], { t: 'answer', id: message.id, sdp: connection.localDescription.sdp }, `answer:${sender}:${message.id}`);
     } catch (error) {
+      if (!isCurrent()) {
+        return;
+      }
       this.#diag(`answer failed: ${error.message}`);
       viewer.state = 'failed';
       this.#emit(viewer === this.watching ? 'state' : 'feed', { sender });
     }
+  }
+
+  #isChannelMember(session) {
+    const me = this.client.myUser;
+    const user = this.client.users.get(session);
+    return !!me && !!user && session !== this.client.me && (user.channelId ?? 0) === (me.channelId ?? 0);
+  }
+
+  #takeWatchToken(viewer) {
+    const now = Date.now();
+    const bucket = this.#watchTokens.get(viewer) ?? { tokens: WATCH_BUCKET.burst, at: now, warned: false };
+    bucket.tokens = Math.min(WATCH_BUCKET.burst, bucket.tokens + ((now - bucket.at) / 1000) * WATCH_BUCKET.rate);
+    bucket.at = now;
+    this.#watchTokens.set(viewer, bucket);
+    if (bucket.tokens < 1) {
+      if (!bucket.warned) {
+        bucket.warned = true;
+        this.#diag(`ignoring watch requests from ${viewer} for a while: too many in a row`);
+      }
+      return false;
+    }
+    bucket.tokens -= 1;
+    bucket.warned = false;
+    return true;
   }
 
   #tuneVideo(transceiver, hint, maxBitrate) {
@@ -693,6 +805,9 @@ export class ScreenShare extends EventTarget {
   }
 
   #onAnnounce(sender, message) {
+    if (!this.#isChannelMember(sender)) {
+      return;
+    }
     if (message.kind === 'camera') {
       const fresh = this.cameras.get(sender)?.id !== message.id;
       this.cameras.set(sender, { id: message.id });
@@ -788,29 +903,45 @@ export class ScreenShare extends EventTarget {
   }
 
   #onUsersChanged() {
+    for (const session of [...this.#watchTokens.keys()]) {
+      if (!this.client.users.has(session)) {
+        this.#watchTokens.delete(session);
+      }
+    }
+    if (!this.client.myUser) {
+      return;
+    }
+    const members = new Set(this.#channelMembers());
     for (const source of this.#sources()) {
-      const newcomers = this.#channelMembers().filter((session) => !source.announced.has(session));
-      if (newcomers.length) {
-        this.#announceSource(source, newcomers);
+      const departed = [...source.announced].filter((session) => !members.has(session));
+      for (const session of departed) {
+        source.announced.delete(session);
+      }
+      if (departed.length) {
+        this.#send(departed, { t: 'stop', id: source.id });
       }
       for (const viewer of [...source.peers.keys()]) {
-        if (!this.client.users.has(viewer)) {
+        if (!members.has(viewer)) {
           this.#closePeer(source, viewer);
           this.#emit('state');
         }
       }
+      const newcomers = [...members].filter((session) => !source.announced.has(session));
+      if (newcomers.length) {
+        this.#announceSource(source, newcomers);
+      }
     }
-    if (this.watching && !this.client.users.has(this.watching.sender)) {
+    if (this.watching && !this.#isChannelMember(this.watching.sender)) {
       this.#dropViewer();
     }
     for (const sender of [...this.available.keys()]) {
-      if (!this.client.users.has(sender)) {
+      if (!this.#isChannelMember(sender)) {
         this.available.delete(sender);
         this.#emit('available', { sender, ended: true });
       }
     }
     for (const sender of [...this.cameras.keys()]) {
-      if (!this.client.users.has(sender)) {
+      if (!this.#isChannelMember(sender)) {
         this.cameras.delete(sender);
         this.unwatchCamera(sender, false);
         this.#emit('cameras', { sender, ended: true });
@@ -876,16 +1007,29 @@ export class ScreenShare extends EventTarget {
     } catch {}
   }
 
-  async #send(receivers, message) {
+  async #send(receivers, message, replaces = null) {
     const online = receivers.filter((session) => this.client.users.has(session));
     if (!online.length || !this.client.isConnected) {
       return;
     }
-    const fragments = await encodeSignal(message, this.#nextMessageId++);
-    for (const data of fragments) {
-      this.#queue.push({ receivers: online, data });
+    const messageId = this.#nextMessageId++;
+    const fragments = await encodeSignal(message, messageId);
+    if (replaces) {
+      this.#queue = this.#queue.filter((item) => item.replaces !== replaces);
     }
+    for (const data of fragments) {
+      this.#queue.push({ receivers: online, data, messageId, replaces });
+    }
+    this.#trimQueue();
     this.#drain();
+  }
+
+  #trimQueue() {
+    while (this.#queue.length > MAX_QUEUED_FRAGMENTS) {
+      const oldest = this.#queue[0].messageId;
+      this.#queue = this.#queue.filter((item) => item.messageId !== oldest);
+      this.#diag('signalling backlog full: dropped the oldest queued message');
+    }
   }
 
   #drain() {
@@ -909,6 +1053,9 @@ export class ScreenShare extends EventTarget {
     for (const source of this.#sources()) {
       this.#endShare(source);
     }
+    this.#cameraGeneration++;
+    this.#cameraStart = null;
+    this.#watchTokens.clear();
     this.sharing = null;
     this.camera = null;
     this.#closeViewer();

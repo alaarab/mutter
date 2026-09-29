@@ -1,10 +1,11 @@
-import { el, activate } from './ui.js';
-import { presence, statusAvatar } from './tree.js';
+import { el, activate, keyedRows } from './ui.js';
+import { presence, presenceAvatar } from './tree.js';
 import { compareChannels } from './client.js';
 
 export function renderMembers(container, countElement, ctx) {
   const { client } = ctx;
-  const fragment = document.createDocumentFragment();
+  const roster = client.roster();
+  const rows = keyedRows(container);
   const myChannelId = client.myChannel?.channelId ?? 0;
   const channels = [...client.channels.values()].sort((a, b) => {
     if (a.channelId === myChannelId) {
@@ -16,39 +17,46 @@ export function renderMembers(container, countElement, ctx) {
     return compareChannels(a, b);
   });
   for (const channel of channels) {
-    const users = client.usersIn(channel.channelId);
+    const users = roster.users(channel.channelId);
     if (!users.length) {
       continue;
     }
     const heading = channel.channelId === myChannelId ? `In #${channel.name}` : `#${channel.name}`;
-    fragment.append(
-      el(
-        'div',
-        { className: 'mcat' },
-        el('span', { textContent: heading }),
-        el('span', { className: 'n', textContent: String(users.length) })
-      )
+    const count = String(users.length);
+    rows.add(`heading:${channel.channelId}`, JSON.stringify([heading, count]), () =>
+      el('div', { className: 'mcat' }, el('span', { textContent: heading }), el('span', { className: 'n', textContent: count }))
     );
     for (const user of users) {
-      fragment.append(memberRow(user, ctx));
+      addMemberRow(user, ctx, rows);
     }
   }
-  container.replaceChildren(fragment);
+  rows.commit();
   if (countElement) {
     countElement.textContent = String(client.users.size);
   }
 }
 
-function memberRow(user, ctx) {
-  const isMe = user.session === ctx.client.me;
+function addMemberRow(user, ctx, rows) {
   const [statusText, statusClass] = presence(user, ctx);
+  const state = {
+    session: user.session,
+    name: user.name ?? '…',
+    isMe: user.session === ctx.client.me,
+    statusText,
+    statusClass,
+  };
+  rows.add(`member:${user.session}`, JSON.stringify(state), () => memberRow(state, ctx));
+}
+
+function memberRow(state, ctx) {
+  const { isMe, statusText, statusClass } = state;
   const row = el('div', { className: `member${isMe ? ' me' : ''}${statusClass === 'speaking' ? ' talking' : ''}` });
-  row.dataset.session = user.session;
-  const column = el('span', { className: 'col' }, el('span', { className: 'name', textContent: user.name ?? '…' }));
+  row.dataset.session = state.session;
+  const column = el('span', { className: 'col' }, el('span', { className: 'name', textContent: state.name }));
   if (statusText) {
     column.append(el('span', { className: `status ${statusClass}`, textContent: statusText }));
   }
-  row.append(statusAvatar(user, ctx, 'm'), column);
-  activate(row, () => ctx.onUser(row, user));
+  row.append(presenceAvatar(state.name, statusClass, 'm'), column);
+  activate(row, () => ctx.onUser(row, ctx.client.users.get(state.session) ?? { session: state.session, name: state.name }));
   return row;
 }

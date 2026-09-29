@@ -111,6 +111,7 @@ const FIELDS = {
     5: string('description'),
     8: bool('temporary'),
     9: uint('position'),
+    10: bytes('descriptionHash'),
     11: uint('maxUsers'),
   },
   [MessageType.userRemove]: {
@@ -134,6 +135,7 @@ const FIELDS = {
     13: string('pluginIdentity'),
     14: string('comment'),
     15: string('hash'),
+    16: bytes('commentHash'),
     18: bool('prioritySpeaker'),
     19: bool('recording'),
   },
@@ -179,6 +181,11 @@ const FIELDS = {
     16: uint('onlineSecs'),
     17: uint('idleSecs'),
     19: bool('opus'),
+  },
+  [MessageType.requestBlob]: {
+    1: repeated(uint('sessionTextures')),
+    2: repeated(uint('sessionComments')),
+    3: repeated(uint('channelDescriptions')),
   },
   [MessageType.serverConfig]: {
     2: string('welcomeText'),
@@ -359,6 +366,17 @@ export function permissionQueryMessage(channelId, permissions) {
 
 export function channelRemoveMessage(channelId) {
   return frame(MessageType.channelRemove, new Writer().uint(1, channelId).finish());
+}
+
+export function requestBlobMessage({ sessionComments = [], channelDescriptions = [] }) {
+  const writer = new Writer();
+  for (const session of sessionComments) {
+    writer.uint(2, session);
+  }
+  for (const channelId of channelDescriptions) {
+    writer.uint(3, channelId);
+  }
+  return frame(MessageType.requestBlob, writer.finish());
 }
 
 export function userStatsRequest(session) {
