@@ -110,6 +110,16 @@ export class NoiseSuppressor {
     this.lowEnvelopeDb = -60;
     this.clickRun = 0;
     this.clicks = 0;
+    this.hopOutput = this.overlap.subarray(0, HOP);
+    this.chunkSink = null;
+    this.finishHop = () => {
+      this.processFrame();
+      this.chunkSink(this.hopOutput);
+      this.overlap.copyWithin(0, HOP);
+      this.overlap.fill(0, FRAME - HOP);
+      this.inputBuffer.copyWithin(0, HOP);
+      return FRAME - HOP;
+    };
   }
 
   process(input) {
@@ -120,15 +130,21 @@ export class NoiseSuppressor {
       return input;
     }
     const chunks = [];
-    this.inputFill = feedBlocks(input, this.inputBuffer, this.inputFill, () => {
-      this.processFrame();
-      chunks.push(this.overlap.slice(0, HOP));
-      this.overlap.copyWithin(0, HOP);
-      this.overlap.fill(0, FRAME - HOP);
-      this.inputBuffer.copyWithin(0, HOP);
-      return FRAME - HOP;
-    });
+    this.processInto(input, (chunk) => chunks.push(chunk.slice()));
     return chunks.length === 1 ? chunks[0] : concatFloat(chunks);
+  }
+
+  processInto(input, onChunk) {
+    if (this.level === 'off') {
+      if (this.inputFill) {
+        this.reset();
+      }
+      onChunk(input);
+      return;
+    }
+    this.chunkSink = onChunk;
+    this.inputFill = feedBlocks(input, this.inputBuffer, this.inputFill, this.finishHop);
+    this.chunkSink = null;
   }
 
   reset() {

@@ -96,10 +96,15 @@ try {
   });
 
   await step('sharer can switch content hint while live', async () => {
+    await alpha.eval(`window.previewBefore = document.querySelector('#stage video.preview')`);
     await alpha.eval(`mutter.share.setContentHint('detail')`);
     await sleep(300);
     if ((await bravo.eval(`mutter.share.watching?.state`)) !== 'connected') {
       throw new Error('connection dropped');
+    }
+    const samePreview = await alpha.eval(`!!window.previewBefore && document.querySelector('#stage video.preview') === window.previewBefore && !window.previewBefore.paused`);
+    if (!samePreview) {
+      throw new Error('the sharing preview was recreated or paused by a re-render');
     }
   });
 

@@ -33,7 +33,16 @@ class Framer extends AudioWorkletProcessor {
     this.suppressor = new NoiseSuppressor('strong');
     this.rnnoise = null;
     this.rnnoiseInput = new Float32Array(RNNOISE_BLOCK);
+    this.rnnoiseOutput = new Float32Array(RNNOISE_BLOCK);
     this.rnnoiseFill = 0;
+    this.collectBound = (samples) => this.collect(samples);
+    this.emitFrameBound = () => {
+      this.emitFrame();
+    };
+    this.runRnnoiseBound = () => {
+      this.runRnnoiseBlock();
+      this.collect(this.rnnoiseOutput);
+    };
     this.port.onmessage = ({ data }) => {
       if (data.type === 'suppress') {
         this.setLevel(data.level);
@@ -66,6 +75,9 @@ class Framer extends AudioWorkletProcessor {
         state,
         input: exports.malloc(RNNOISE_BLOCK * 4),
         output: exports.malloc(RNNOISE_BLOCK * 4),
+        memory: null,
+        inputView: null,
+        outputView: null,
       };
       this.port.postMessage({ type: 'rnnoise', ready: true });
     } catch (error) {
@@ -78,32 +90,35 @@ class Framer extends AudioWorkletProcessor {
   }
 
   denoise(samples) {
-    const blocks = [];
-    this.rnnoiseFill = feedBlocks(samples, this.rnnoiseInput, this.rnnoiseFill, () => {
-      blocks.push(this.runRnnoiseBlock());
-    });
-    if (blocks.length === 1) {
-      return blocks[0];
+    this.rnnoiseFill = feedBlocks(samples, this.rnnoiseInput, this.rnnoiseFill, this.runRnnoiseBound);
+  }
+
+  rnnoiseViews() {
+    const rnnoise = this.rnnoise;
+    const memory = rnnoise.exports.memory.buffer;
+    if (rnnoise.memory !== memory) {
+      rnnoise.memory = memory;
+      rnnoise.inputView = new Float32Array(memory, rnnoise.input, RNNOISE_BLOCK);
+      rnnoise.outputView = new Float32Array(memory, rnnoise.output, RNNOISE_BLOCK);
     }
-    const all = new Float32Array(blocks.length * RNNOISE_BLOCK);
-    blocks.forEach((block, index) => all.set(block, index * RNNOISE_BLOCK));
-    return all;
+    return rnnoise;
   }
 
   runRnnoiseBlock() {
-    const { exports, state, input, output } = this.rnnoise;
-    const memoryIn = new Float32Array(exports.memory.buffer);
+    const { exports, state, input, output, inputView } = this.rnnoiseViews();
     for (let k = 0; k < RNNOISE_BLOCK; k++) {
-      memoryIn[input / 4 + k] = this.rnnoiseInput[k] * RNNOISE_SCALE;
+      inputView[k] = this.rnnoiseInput[k] * RNNOISE_SCALE;
     }
     const vad = exports.rnnoise_process_frame(state, output, input);
     this.vad = Math.max(this.vad, vad);
-    const memoryOut = new Float32Array(exports.memory.buffer);
-    const result = new Float32Array(RNNOISE_BLOCK);
+    const { outputView } = this.rnnoiseViews();
     for (let k = 0; k < RNNOISE_BLOCK; k++) {
-      result[k] = memoryOut[output / 4 + k] / RNNOISE_SCALE;
+      this.rnnoiseOutput[k] = outputView[k] / RNNOISE_SCALE;
     }
-    return result;
+  }
+
+  collect(samples) {
+    this.frameFill = feedBlocks(samples, this.frame, this.frameFill, this.emitFrameBound);
   }
 
   process(inputs) {
@@ -111,10 +126,11 @@ class Framer extends AudioWorkletProcessor {
     if (!channel) {
       return true;
     }
-    const cleaned = this.usingRnnoise ? this.denoise(channel) : this.suppressor.process(channel);
-    this.frameFill = feedBlocks(cleaned, this.frame, this.frameFill, () => {
-      this.emitFrame();
-    });
+    if (this.usingRnnoise) {
+      this.denoise(channel);
+    } else {
+      this.suppressor.processInto(channel, this.collectBound);
+    }
     return true;
   }
 

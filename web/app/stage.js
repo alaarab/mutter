@@ -43,6 +43,7 @@ function titleBlock(strong, sub) {
 
 export function mountStage({ share, client, stage, tabs, showTab, toast, applySink }) {
   let video = null;
+  let preview = null;
   let wasSharing = false;
 
   const nameOf = (session) => client.users.get(session)?.name ?? 'Someone';
@@ -64,6 +65,9 @@ export function mountStage({ share, client, stage, tabs, showTab, toast, applySi
     }
     wasSharing = !!own;
     stage.replaceChildren();
+    if (!own) {
+      preview = null;
+    }
     if (!showStage) {
       video = null;
       return;
@@ -117,9 +121,19 @@ export function mountStage({ share, client, stage, tabs, showTab, toast, applySi
     return note;
   }
 
+  function ownPreview(own, viewer) {
+    if (!preview) {
+      preview = el('video', { autoplay: true, playsInline: true, muted: true });
+    }
+    if (preview.srcObject !== own.stream) {
+      preview.srcObject = own.stream;
+    }
+    preview.className = viewer ? 'preview small' : 'preview';
+    return preview;
+  }
+
   function renderOwnShare(own, viewer) {
-    const preview = el('video', { autoplay: true, playsInline: true, muted: true, className: viewer ? 'preview small' : 'preview' });
-    preview.srcObject = own.stream;
+    const preview = ownPreview(own, viewer);
     const watchers = share.viewerCount;
     const bar = el(
       'div',
