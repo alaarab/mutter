@@ -49,7 +49,7 @@ struct ChatView: View {
                     .padding(.top, 8)
                 }
                 .scrollDismissesKeyboard(.interactively)
-                .onChange(of: session.messages.count, initial: true) { _, _ in
+                .onChange(of: session.totalMessagesPosted, initial: true) { _, _ in
                     withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
                 .onChange(of: composerFocused) { _, focused in

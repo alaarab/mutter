@@ -12,8 +12,24 @@ enum HTMLText {
         var unreadableImages: Int = 0
     }
 
+    private struct Prepared {
+        var markup: String
+        var looksLikeHTML: Bool
+        var images: [UIImage]
+        var unreadableImages: Int
+    }
+
+    private static let maximumScannedLength = 4 * 1024 * 1024
+    private static let maximumTextLength = 65_536
+
     private static let cache: NSCache<NSString, Box> = {
         let cache = NSCache<NSString, Box>()
+        cache.countLimit = 300
+        cache.totalCostLimit = 48 * 1024 * 1024
+        return cache
+    }()
+    private static let preparedCache: NSCache<NSString, PreparedBox> = {
+        let cache = NSCache<NSString, PreparedBox>()
         cache.countLimit = 100
         cache.totalCostLimit = 32 * 1024 * 1024
         return cache
@@ -21,6 +37,10 @@ enum HTMLText {
     private final class Box {
         let value: Rendered
         init(_ rendered: Rendered) { value = rendered }
+    }
+    private final class PreparedBox {
+        let value: Prepared
+        init(_ prepared: Prepared) { value = prepared }
     }
 
     static func trimmed(_ text: AttributedString) -> AttributedString {
@@ -35,29 +55,53 @@ enum HTMLText {
         return result
     }
 
+    static func prepareInBackground(_ html: String) {
+        let key = html as NSString
+        guard cache.object(forKey: key) == nil, preparedCache.object(forKey: key) == nil else { return }
+        let prepared = prepare(html)
+        preparedCache.setObject(PreparedBox(prepared), forKey: key, cost: cost(of: html, images: prepared.images))
+    }
+
     static func render(_ html: String) -> Rendered {
-        if let cached = cache.object(forKey: html as NSString) { return cached.value }
-        let (images, unreadable) = extractImages(from: html)
-        let stripped = String(stripImages(from: html).prefix(65_536))
+        let key = html as NSString
+        if let cached = cache.object(forKey: key) { return cached.value }
+        let prepared = preparedCache.object(forKey: key)?.value ?? prepare(html)
+        preparedCache.removeObject(forKey: key)
         var attributed: AttributedString
-        if looksLikeHTML(stripped) {
-            attributed = attributedFromHTML(stripped) ?? AttributedString(plainText(stripped))
+        if prepared.looksLikeHTML {
+            attributed = attributedFromSanitizedHTML(prepared.markup) ?? AttributedString(plainText(prepared.markup))
         } else {
-            attributed = AttributedString(stripped)
+            attributed = AttributedString(prepared.markup)
         }
         attributed = normalizeStyle(attributed)
         let links = detectLinks(in: String(attributed.characters))
-        let result = Rendered(text: attributed, images: images, links: links, unreadableImages: unreadable)
-        let cost = html.utf8.count + images.reduce(0) { $0 + ($1.cgImage?.bytesPerRow ?? 0) * ($1.cgImage?.height ?? 0) }
-        cache.setObject(Box(result), forKey: html as NSString, cost: cost)
+        let result = Rendered(text: attributed, images: prepared.images, links: links, unreadableImages: prepared.unreadableImages)
+        cache.setObject(Box(result), forKey: key, cost: cost(of: html, images: prepared.images))
         return result
     }
 
+    private static func prepare(_ html: String) -> Prepared {
+        let bounded = String(html.prefix(maximumScannedLength))
+        let (images, unreadable) = extractImages(from: bounded)
+        let stripped = String(stripImages(from: bounded).prefix(maximumTextLength))
+        let isHTML = looksLikeHTML(stripped)
+        return Prepared(
+            markup: isHTML ? HTMLSanitizer.sanitize(stripped) : stripped,
+            looksLikeHTML: isHTML,
+            images: images,
+            unreadableImages: unreadable
+        )
+    }
+
+    private static func cost(of html: String, images: [UIImage]) -> Int {
+        html.utf8.count + images.reduce(0) { $0 + ($1.cgImage?.bytesPerRow ?? 0) * ($1.cgImage?.height ?? 0) }
+    }
+
     static func plainText(_ html: String) -> String {
-        var text = stripImages(from: html)
-        text = text.replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: [.regularExpression, .caseInsensitive])
+        var text = String(stripImages(from: String(html.prefix(maximumScannedLength))).prefix(maximumTextLength))
+        text = text.replacingOccurrences(of: "<br\\s*+/?>", with: "\n", options: [.regularExpression, .caseInsensitive])
         text = text.replacingOccurrences(of: "</p>", with: "\n", options: .caseInsensitive)
-        text = text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+        text = text.replacingOccurrences(of: "<[^<>]*+>", with: "", options: .regularExpression)
         text = decodeEntities(text)
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -80,11 +124,11 @@ enum HTMLText {
     }
 
     private static func looksLikeHTML(_ text: String) -> Bool {
-        text.range(of: "<[a-zA-Z/][^>]*>", options: .regularExpression) != nil || text.contains("&")
+        text.range(of: "<[a-zA-Z/][^<>]*+>", options: .regularExpression) != nil || text.contains("&")
     }
 
-    private static func attributedFromHTML(_ html: String) -> AttributedString? {
-        let wrapped = "<span style=\"font-family: -apple-system; font-size: 16px;\">\(HTMLSanitizer.sanitize(html))</span>"
+    private static func attributedFromSanitizedHTML(_ sanitized: String) -> AttributedString? {
+        let wrapped = "<span style=\"font-family: -apple-system; font-size: 16px;\">\(sanitized)</span>"
         guard let data = wrapped.data(using: .utf8) else { return nil }
         let options: [NSAttributedString.DocumentReadingOptionKey: Any] = [
             .documentType: NSAttributedString.DocumentType.html,
@@ -128,7 +172,7 @@ enum HTMLText {
     }
 
     private static func extractImages(from html: String) -> (images: [UIImage], unreadable: Int) {
-        guard let regex = try? NSRegularExpression(pattern: "<img[^>]*src=[\"']data:image/[a-zA-Z]+;base64,([^\"']+)[\"'][^>]*>", options: .caseInsensitive) else { return ([], 0) }
+        guard let regex = try? NSRegularExpression(pattern: "<img[^<>]*?src=[\"']data:image/[a-zA-Z]++;base64,([^\"'<>]++)[\"'][^<>]*+>", options: .caseInsensitive) else { return ([], 0) }
         let nsHTML = html as NSString
         var matches: [NSTextCheckingResult] = []
         regex.enumerateMatches(in: html, range: NSRange(location: 0, length: nsHTML.length)) { match, _, stop in
@@ -153,7 +197,7 @@ enum HTMLText {
     }
 
     private static func stripImages(from html: String) -> String {
-        html.replacingOccurrences(of: "<img[^>]*>", with: "", options: [.regularExpression, .caseInsensitive])
+        html.replacingOccurrences(of: "<img[^<>]*+>", with: "", options: [.regularExpression, .caseInsensitive])
     }
 
     private static func decodeEntities(_ text: String) -> String {

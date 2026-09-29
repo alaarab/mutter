@@ -91,12 +91,16 @@ public final class IdentityStore {
         SecIdentityCopyCertificate(secIdentity, &certRef)
         guard let cert = certRef else { throw CertificateError.importFailed(status) }
         let der = SecCertificateCopyData(cert) as Data
-        let id = UUID()
+        let fingerprint = IdentityStore.sha1Hex(der)
+        let existing = identities.first { $0.sha1Fingerprint == fingerprint }
+        if let existing, self.secIdentity(for: existing) != nil {
+            return existing
+        }
         let summary = (SecCertificateCopySubjectSummary(cert) as String?) ?? name
-        let identity = ClientIdentity(
-            id: id, name: name, commonName: summary, email: nil,
+        let identity = existing ?? ClientIdentity(
+            id: UUID(), name: name, commonName: summary, email: nil,
             createdAt: Date(), notAfter: DERReader.certificateNotAfter(der),
-            sha1Fingerprint: IdentityStore.sha1Hex(der), isImported: true
+            sha1Fingerprint: fingerprint, isImported: true
         )
         let add: [CFString: Any] = [
             kSecValueRef: secIdentity,
@@ -104,9 +108,17 @@ public final class IdentityStore {
             kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
         let addStatus = SecItemAdd(add as CFDictionary, nil)
-        guard addStatus == errSecSuccess || addStatus == errSecDuplicateItem else {
+        if addStatus == errSecDuplicateItem {
+            let relabel = SecItemUpdate(
+                [kSecClass: kSecClassCertificate, kSecValueRef: cert] as CFDictionary,
+                [kSecAttrLabel: identity.keychainLabel] as CFDictionary
+            )
+            guard relabel == errSecSuccess else { throw CertificateError.keychain(relabel) }
+        } else if addStatus != errSecSuccess {
             throw CertificateError.keychain(addStatus)
         }
+        guard self.secIdentity(for: identity) != nil else { throw CertificateError.notFound }
+        guard existing == nil else { return identity }
         lock.lock()
         cache.append(identity)
         save()
@@ -137,6 +149,10 @@ public final class IdentityStore {
         cache.removeAll { $0.id == identity.id }
         save()
         lock.unlock()
+    }
+
+    public func hasKeychainItem(for identity: ClientIdentity) -> Bool {
+        secIdentity(for: identity) != nil
     }
 
     public func secIdentity(for identity: ClientIdentity) -> SecIdentity? {

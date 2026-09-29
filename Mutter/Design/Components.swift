@@ -1,5 +1,73 @@
 import SwiftUI
+import ImageIO
+import Observation
 import MumbleClient
+
+@MainActor
+@Observable
+final class AvatarImageCache {
+    static let shared = AvatarImageCache()
+
+    nonisolated private static let thumbnailPixelSize = 256
+    nonisolated private static let maximumSourceDimension = 4096
+    nonisolated private static let maximumSourcePixels = 2048 * 2048
+
+    private(set) var completedDecodes = 0
+
+    @ObservationIgnored private let thumbnails: NSCache<NSData, UIImage> = {
+        let cache = NSCache<NSData, UIImage>()
+        cache.countLimit = 300
+        return cache
+    }()
+    @ObservationIgnored private let unusableTextures: NSCache<NSData, NSNumber> = {
+        let cache = NSCache<NSData, NSNumber>()
+        cache.countLimit = 300
+        return cache
+    }()
+    @ObservationIgnored private var decodesInFlight: Set<NSData> = []
+
+    func thumbnail(for texture: Data) -> UIImage? {
+        _ = completedDecodes
+        let key = texture as NSData
+        if let cached = thumbnails.object(forKey: key) { return cached }
+        guard unusableTextures.object(forKey: key) == nil, !decodesInFlight.contains(key) else { return nil }
+        decodesInFlight.insert(key)
+        Task.detached(priority: .utility) {
+            let decoded = Self.decodeThumbnail(from: texture)
+            await self.finishDecode(key, image: decoded)
+        }
+        return nil
+    }
+
+    private func finishDecode(_ key: NSData, image: UIImage?) {
+        decodesInFlight.remove(key)
+        if let image {
+            thumbnails.setObject(image, forKey: key)
+        } else {
+            unusableTextures.setObject(NSNumber(value: true), forKey: key)
+        }
+        completedDecodes += 1
+    }
+
+    nonisolated private static func decodeThumbnail(from texture: Data) -> UIImage? {
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(texture as CFData, sourceOptions),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, sourceOptions) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int,
+              width > 0, height > 0,
+              width <= maximumSourceDimension, height <= maximumSourceDimension,
+              width * height <= maximumSourcePixels else { return nil }
+        let thumbnailOptions = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: thumbnailPixelSize,
+        ] as CFDictionary
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions) else { return nil }
+        return UIImage(cgImage: image)
+    }
+}
 
 struct Avatar: View {
     var name: String
@@ -16,7 +84,7 @@ struct Avatar: View {
 
     var body: some View {
         ZStack {
-            if let texture, let image = UIImage(data: texture) {
+            if let texture, let image = AvatarImageCache.shared.thumbnail(for: texture) {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
@@ -230,22 +298,37 @@ struct RoundIconButton: View {
 struct HoldGesture: ViewModifier {
     var onPress: () -> Void
     var onRelease: () -> Void
-    @State private var pressed = false
+    @GestureState private var isTouching = false
+    @State private var isHolding = false
 
     func body(content: Content) -> some View {
-        content.gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    if !pressed {
-                        pressed = true
-                        onPress()
+        content
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .updating($isTouching) { _, touching, _ in
+                        touching = true
                     }
+            )
+            .onChange(of: isTouching) { _, touching in
+                if touching {
+                    beginHold()
+                } else {
+                    endHold()
                 }
-                .onEnded { _ in
-                    pressed = false
-                    onRelease()
-                }
-        )
+            }
+            .onDisappear { endHold() }
+    }
+
+    private func beginHold() {
+        guard !isHolding else { return }
+        isHolding = true
+        onPress()
+    }
+
+    private func endHold() {
+        guard isHolding else { return }
+        isHolding = false
+        onRelease()
     }
 }
 

@@ -29,4 +29,24 @@ final class HTMLSanitizerTests: XCTestCase {
     func testOversizedTextIsBounded() {
         XCTAssertEqual(HTMLSanitizer.sanitize(String(repeating: "a", count: 100_000)).count, 65_536)
     }
+
+    func testUnclosedAngleBracketsStayFast() {
+        let inputs = [
+            String(repeating: "<", count: 65_536),
+            String(repeating: "<img", count: 16_384),
+            "<a" + String(repeating: " ", count: 65_000),
+            "<" + String(repeating: " ", count: 65_000) + "x",
+            "<" + String(repeating: " ", count: 65_000) + ">",
+            "<a" + String(repeating: " ", count: 65_000) + ">",
+        ]
+        for input in inputs {
+            let started = Date()
+            _ = HTMLSanitizer.sanitize(input)
+            XCTAssertLessThan(Date().timeIntervalSince(started), 1.0, String(input.prefix(8)))
+        }
+    }
+
+    func testStrayAngleBracketBeforeATagIsEscaped() {
+        XCTAssertEqual(HTMLSanitizer.sanitize("<<b>bold</b>"), "&lt;<b>bold</b>")
+    }
 }

@@ -15,6 +15,8 @@ public final class ServerSession {
     public internal(set) var mySession: UInt32?
     public internal(set) var messages: [ChatMessage] = []
     public internal(set) var notices: [SessionNotice] = []
+    public internal(set) var totalNoticesPosted = 0
+    public internal(set) var totalMessagesPosted = 0
     public internal(set) var stats = ConnectionStats()
     public internal(set) var registeredUsers: [RegisteredUser] = []
     public internal(set) var isTransmitting = false
@@ -59,20 +61,26 @@ public final class ServerSession {
     }
 
     public func userCount(inTree channelID: UInt32) -> Int {
-        var count = users.values.filter { $0.channelID == channelID }.count
-        for child in children(of: channelID) { count += userCount(inTree: child.id) }
+        var childrenByParent: [UInt32: [UInt32]] = [:]
+        for channel in channels.values {
+            guard let parentID = channel.parentID, parentID != channel.id else { continue }
+            childrenByParent[parentID, default: []].append(channel.id)
+        }
+        var usersByChannel: [UInt32: Int] = [:]
+        for user in users.values { usersByChannel[user.channelID, default: 0] += 1 }
+        var count = 0
+        var visited: Set<UInt32> = []
+        var pending = [channelID]
+        while let current = pending.popLast() {
+            guard visited.insert(current).inserted else { continue }
+            count += usersByChannel[current] ?? 0
+            pending.append(contentsOf: childrenByParent[current] ?? [])
+        }
         return count
     }
 
     public func path(to channelID: UInt32) -> [Channel] {
-        var out: [Channel] = []
-        var current = channels[channelID]
-        while let channel = current {
-            out.insert(channel, at: 0)
-            guard let parentID = channel.parentID, parentID != channel.id else { break }
-            current = channels[parentID]
-        }
-        return out
+        Channel.ancestry(of: channelID, in: channels)
     }
 
     public var talkingUsers: [User] {
@@ -96,11 +104,13 @@ public final class ServerSession {
 
     func appendNotice(_ notice: SessionNotice) {
         notices.append(notice)
+        totalNoticesPosted += 1
         if notices.count > 200 { notices.removeFirst(notices.count - 200) }
     }
 
     func appendMessage(_ message: ChatMessage) {
         messages.append(message)
+        totalMessagesPosted += 1
         if messages.count > 2000 { messages.removeFirst(messages.count - 2000) }
         if !message.isOwn && !isChatVisible { unreadCount += 1 }
     }

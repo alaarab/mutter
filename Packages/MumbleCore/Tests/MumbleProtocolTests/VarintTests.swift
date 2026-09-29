@@ -79,4 +79,19 @@ final class VarintTests: XCTestCase {
         XCTAssertEqual(MumbleVarint.decode(encoded, offset: &offset), 70000)
         XCTAssertEqual(offset, encoded.count)
     }
+
+    func testNegationPrefixIsOnlyAllowedOnce() {
+        var offset = 0
+        XCTAssertEqual(MumbleVarint.decode(Data([0xF8, 0x05]), offset: &offset), ~Int64(5))
+        XCTAssertEqual(offset, 2)
+        offset = 0
+        XCTAssertNil(MumbleVarint.decode(Data([0xF8, 0xF8, 0x05]), offset: &offset))
+    }
+
+    func testLongNegationChainIsRejectedWithoutRecursing() {
+        var chain = Data(repeating: 0xF8, count: 1_000_000)
+        chain.append(0x01)
+        var offset = 0
+        XCTAssertNil(MumbleVarint.decode(chain, offset: &offset))
+    }
 }

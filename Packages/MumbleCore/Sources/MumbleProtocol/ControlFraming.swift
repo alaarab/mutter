@@ -38,26 +38,37 @@ public enum ControlFramingError: Error {
 
 public struct ControlFrameParser {
     private var buffer = Data()
+    private var readOffset = 0
 
     public init() {}
 
     public mutating func append(_ data: Data) {
+        discardConsumedBytes()
         buffer.append(data)
     }
 
     public mutating func nextFrame() throws -> ControlFrame? {
-        guard buffer.count >= ControlFraming.headerSize else { return nil }
-        let bytes = buffer
-        let start = bytes.startIndex
-        let type = UInt16(bytes[start]) << 8 | UInt16(bytes[start + 1])
-        let length = Int(UInt32(bytes[start + 2]) << 24 | UInt32(bytes[start + 3]) << 16 | UInt32(bytes[start + 4]) << 8 | UInt32(bytes[start + 5]))
+        guard pendingBytes >= ControlFraming.headerSize else { return nil }
+        let start = buffer.startIndex + readOffset
+        let type = UInt16(buffer[start]) << 8 | UInt16(buffer[start + 1])
+        let length = Int(UInt32(buffer[start + 2]) << 24 | UInt32(buffer[start + 3]) << 16 | UInt32(buffer[start + 4]) << 8 | UInt32(buffer[start + 5]))
         if length > ControlFraming.maxPayload { throw ControlFramingError.payloadTooLarge(length) }
         let total = ControlFraming.headerSize + length
-        guard bytes.count >= total else { return nil }
-        let payload = Data(bytes[(start + ControlFraming.headerSize)..<(start + total)])
-        buffer = Data(bytes[(start + total)...])
+        guard pendingBytes >= total else { return nil }
+        let payload = buffer.subdata(in: (start + ControlFraming.headerSize)..<(start + total))
+        readOffset += total
+        if readOffset == buffer.count {
+            buffer.removeAll(keepingCapacity: true)
+            readOffset = 0
+        }
         return ControlFrame(type: type, payload: payload)
     }
 
-    public var pendingBytes: Int { buffer.count }
+    public var pendingBytes: Int { buffer.count - readOffset }
+
+    private mutating func discardConsumedBytes() {
+        guard readOffset > 0 else { return }
+        buffer.removeSubrange(buffer.startIndex..<(buffer.startIndex + readOffset))
+        readOffset = 0
+    }
 }

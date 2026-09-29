@@ -14,7 +14,11 @@ final class VoiceActivityController {
     }
 
     static func endAll() async {
-        for activity in Activity<VoiceActivityAttributes>.activities {
+        await end(Activity<VoiceActivityAttributes>.activities)
+    }
+
+    private static func end(_ activities: [Activity<VoiceActivityAttributes>]) async {
+        for activity in activities {
             await activity.end(nil, dismissalPolicy: .immediate)
         }
     }
@@ -25,7 +29,7 @@ final class VoiceActivityController {
             update(state)
             return
         }
-        Task { await Self.endAll() }
+        let leftoverActivities = Activity<VoiceActivityAttributes>.activities
         do {
             activity = try Activity.request(
                 attributes: VoiceActivityAttributes(serverName: serverName),
@@ -36,6 +40,7 @@ final class VoiceActivityController {
         } catch {
             activity = nil
         }
+        Task { await Self.end(leftoverActivities) }
     }
 
     func update(_ state: VoiceActivityAttributes.ContentState) {
