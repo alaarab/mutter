@@ -11,8 +11,8 @@ function aes128(key) {
   const decryptor = crypto.createDecipheriv('aes-128-ecb', key, null);
   decryptor.setAutoPadding(false);
   return {
-    encryptBlock: (block) => new Uint8Array(encryptor.update(block)),
-    decryptBlock: (block) => new Uint8Array(decryptor.update(block)),
+    encryptBlocks: (blocks) => encryptor.update(blocks),
+    decryptBlocks: (blocks) => decryptor.update(blocks),
   };
 }
 
@@ -22,6 +22,16 @@ function xor(a, b) {
     out[i] = a[i] ^ b[i];
   }
   return out;
+}
+
+function xorInto(target, source, sourceOffset = 0) {
+  for (let i = 0; i < BLOCK; i++) {
+    target[i] ^= source[sourceOffset + i];
+  }
+}
+
+function fullBlockCountBeforeTail(byteCount) {
+  return Math.max(0, Math.ceil(byteCount / BLOCK) - 1);
 }
 
 function double(block) {
@@ -200,76 +210,79 @@ export class CryptState {
 
   ocbEncrypt(plain, nonce) {
     const cipher = this.cipher;
-    const delta = cipher.encryptBlock(nonce);
-    let checksum = new Uint8Array(BLOCK);
-    const out = new Uint8Array(plain.length);
-    let remaining = plain.length;
-    let offset = 0;
-    while (remaining > BLOCK) {
+    const delta = Uint8Array.from(cipher.encryptBlocks(nonce));
+    const blockCount = fullBlockCountBeforeTail(plain.length);
+    const bodyLength = blockCount * BLOCK;
+    const offsets = new Uint8Array(bodyLength);
+    const cipherInput = new Uint8Array(bodyLength + BLOCK);
+    const checksum = new Uint8Array(BLOCK);
+    for (let offset = 0; offset < bodyLength; offset += BLOCK) {
       const block = plain.subarray(offset, offset + BLOCK);
-      const flipBit = remaining - BLOCK <= BLOCK && isZeroExceptLastByte(block);
+      const flipBit = offset === bodyLength - BLOCK && isZeroExceptLastByte(block);
       double(delta);
-      let masked = xor(delta, block);
-      if (flipBit) {
-        masked[0] ^= 1;
+      offsets.set(delta, offset);
+      for (let i = 0; i < BLOCK; i++) {
+        cipherInput[offset + i] = delta[i] ^ block[i];
       }
-      masked = cipher.encryptBlock(masked);
-      out.set(xor(delta, masked), offset);
-      checksum = xor(checksum, block);
+      xorInto(checksum, block);
       if (flipBit) {
+        cipherInput[offset] ^= 1;
         checksum[0] ^= 1;
       }
-      remaining -= BLOCK;
-      offset += BLOCK;
     }
+    const remaining = plain.length - bodyLength;
     double(delta);
-    const pad = cipher.encryptBlock(xor(lengthBlock(remaining), delta));
-    const tail = new Uint8Array(BLOCK);
-    for (let i = 0; i < remaining; i++) {
-      tail[i] = plain[offset + i];
+    cipherInput.set(xor(lengthBlock(remaining), delta), bodyLength);
+    const encrypted = cipher.encryptBlocks(cipherInput);
+    const out = new Uint8Array(plain.length);
+    for (let i = 0; i < bodyLength; i++) {
+      out[i] = encrypted[i] ^ offsets[i];
     }
-    for (let i = remaining; i < BLOCK; i++) {
-      tail[i] = pad[i];
-    }
-    checksum = xor(checksum, tail);
-    const encryptedTail = xor(pad, tail);
+    const pad = encrypted.subarray(bodyLength, bodyLength + BLOCK);
+    const tail = Uint8Array.from(pad);
+    tail.set(plain.subarray(bodyLength));
+    xorInto(checksum, tail);
     for (let i = 0; i < remaining; i++) {
-      out[offset + i] = encryptedTail[i];
+      out[bodyLength + i] = tail[i] ^ pad[i];
     }
     triple(delta);
-    return { ciphertext: out, tag: cipher.encryptBlock(xor(delta, checksum)) };
+    return { ciphertext: out, tag: cipher.encryptBlocks(xor(delta, checksum)) };
   }
 
   ocbDecrypt(encrypted, nonce) {
     const cipher = this.cipher;
-    const delta = cipher.encryptBlock(nonce);
-    let checksum = new Uint8Array(BLOCK);
-    const out = new Uint8Array(encrypted.length);
-    let remaining = encrypted.length;
-    let offset = 0;
-    while (remaining > BLOCK) {
+    const delta = Uint8Array.from(cipher.encryptBlocks(nonce));
+    const blockCount = fullBlockCountBeforeTail(encrypted.length);
+    const bodyLength = blockCount * BLOCK;
+    const offsets = new Uint8Array(bodyLength);
+    const decipherInput = new Uint8Array(bodyLength);
+    for (let offset = 0; offset < bodyLength; offset += BLOCK) {
       double(delta);
-      const block = encrypted.subarray(offset, offset + BLOCK);
-      const plain = xor(delta, cipher.decryptBlock(xor(delta, block)));
-      out.set(plain, offset);
-      checksum = xor(checksum, plain);
-      remaining -= BLOCK;
-      offset += BLOCK;
+      offsets.set(delta, offset);
+      for (let i = 0; i < BLOCK; i++) {
+        decipherInput[offset + i] = delta[i] ^ encrypted[offset + i];
+      }
     }
+    const remaining = encrypted.length - bodyLength;
     double(delta);
-    const pad = cipher.encryptBlock(xor(lengthBlock(remaining), delta));
-    let tail = new Uint8Array(BLOCK);
-    for (let i = 0; i < remaining; i++) {
-      tail[i] = encrypted[offset + i];
+    const pad = cipher.encryptBlocks(xor(lengthBlock(remaining), delta));
+    const decrypted = cipher.decryptBlocks(decipherInput);
+    const out = new Uint8Array(encrypted.length);
+    const checksum = new Uint8Array(BLOCK);
+    for (let offset = 0; offset < bodyLength; offset += BLOCK) {
+      for (let i = 0; i < BLOCK; i++) {
+        out[offset + i] = decrypted[offset + i] ^ offsets[offset + i];
+      }
+      xorInto(checksum, out, offset);
     }
-    tail = xor(tail, pad);
-    checksum = xor(checksum, tail);
-    for (let i = 0; i < remaining; i++) {
-      out[offset + i] = tail[i];
-    }
+    const tail = new Uint8Array(BLOCK);
+    tail.set(encrypted.subarray(bodyLength));
+    xorInto(tail, pad);
+    xorInto(checksum, tail);
+    out.set(tail.subarray(0, remaining), bodyLength);
     const ok = !prefixMatches(tail, delta);
     triple(delta);
-    return { plain: out, tag: cipher.encryptBlock(xor(delta, checksum)), ok };
+    return { plain: out, tag: cipher.encryptBlocks(xor(delta, checksum)), ok };
   }
 }
 
