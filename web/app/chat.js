@@ -36,13 +36,15 @@ export const DEFAULT_IMAGE_LIMIT = 131_072;
 const MAX_IMAGE_EDGE = 1280;
 const SHRINK_ATTEMPTS = 10;
 const SHRINK_FACTOR = 0.72;
+const RASTER_DATA_IMAGE = /^data:image\/(png|jpe?g|gif|webp)[;,]/i;
+const DATA_URI_PREFIX_CHARS = 100;
 
 function isSafeUrl(attribute, value) {
   const trimmed = value.trim();
   if (attribute === 'href') {
     return /^(https?:|mailto:)/i.test(trimmed);
   }
-  return /^(data:image\/|https?:)/i.test(trimmed);
+  return /^https?:/i.test(trimmed) || RASTER_DATA_IMAGE.test(normaliseDataUri(trimmed.slice(0, DATA_URI_PREFIX_CHARS)));
 }
 
 export function sanitize(html) {
