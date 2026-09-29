@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { FFT, NoiseSuppressor, dbfs } from '../app/dsp.js';
 
 const SAMPLE_RATE = 48000;
@@ -188,6 +189,60 @@ function levelDrop(before, after) {
   }
   assert.ok(difference < 1e-5, `block size changed the output by ${difference}`);
   console.log(' ok  output independent of block size');
+}
+
+{
+  const processors = new Map();
+  globalThis.AudioWorkletProcessor = class {
+    constructor() {
+      const sent = [];
+      this.port = { sent, onmessage: null, postMessage: (message) => sent.push(message) };
+    }
+  };
+  globalThis.registerProcessor = (name, processor) => processors.set(name, processor);
+  await import('../app/worklets.js');
+  const Framer = processors.get('mutter-framer');
+  const QUANTUM = 128;
+  const FRAME = 960;
+  const RNNOISE_BLOCK = 480;
+  const RNNOISE_SCALE = 32768;
+  const samples = Float32Array.from({ length: SAMPLE_RATE }, (_, i) => Math.sin(i / 9) * 0.2 + (((i * 7919) % 17) - 8) / 500);
+  const framesFrom = (framer) => {
+    for (let i = 0; i < samples.length; i += QUANTUM) {
+      framer.process([[samples.subarray(i, i + QUANTUM)]]);
+    }
+    const frames = framer.port.sent.filter((message) => message.samples);
+    assert.ok(frames.every((message, index) => index === 0 || message.samples !== frames[index - 1].samples));
+    return concat(frames.map((message) => message.samples));
+  };
+  const sameAs = (actual, expected, label) => {
+    assert.ok(actual.length >= FRAME * 40, `${label}: only ${actual.length} samples framed`);
+    for (let i = 0; i < actual.length; i++) {
+      assert.ok(Math.abs(actual[i] - expected[i]) < 1e-6, `${label}: sample ${i} differs`);
+    }
+  };
+
+  sameAs(framesFrom(new Framer()), runInBlocks(new NoiseSuppressor('strong'), samples, QUANTUM), 'spectral');
+
+  const bytes = fs.readFileSync(new URL('../app/rnnoise.wasm', import.meta.url));
+  const neural = new Framer();
+  neural.port.onmessage({ data: { type: 'rnnoise', bytes } });
+  neural.port.onmessage({ data: { type: 'suppress', level: 'neural' } });
+  assert.equal(neural.usingRnnoise, true);
+  const { exports } = new WebAssembly.Instance(new WebAssembly.Module(bytes), {});
+  exports._initialize?.();
+  const state = exports.malloc(exports.rnnoise_get_size());
+  exports.rnnoise_init(state, 0);
+  const input = exports.malloc(RNNOISE_BLOCK * 4);
+  const output = exports.malloc(RNNOISE_BLOCK * 4);
+  const reference = new Float32Array(samples.length);
+  for (let start = 0; start + RNNOISE_BLOCK <= samples.length; start += RNNOISE_BLOCK) {
+    new Float32Array(exports.memory.buffer, input, RNNOISE_BLOCK).set(samples.subarray(start, start + RNNOISE_BLOCK).map((sample) => sample * RNNOISE_SCALE));
+    exports.rnnoise_process_frame(state, output, input);
+    reference.set(new Float32Array(exports.memory.buffer, output, RNNOISE_BLOCK).map((sample) => sample / RNNOISE_SCALE), start);
+  }
+  sameAs(framesFrom(neural), reference, 'rnnoise');
+  console.log(' ok  the capture worklet frames exactly what the suppressors produce');
 }
 
 console.log('\nPASS');
