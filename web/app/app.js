@@ -274,8 +274,11 @@ function renderRail() {
     button.style.background = colorFor(server.host);
     button.dataset.tip = serverLabel(server);
     button.onclick = () => {
-      if (isActive && client.isConnected) {
-        showTab('chat');
+      const alreadyThere = sameServer(server, ui.target) && client.state !== 'disconnected';
+      if (alreadyThere) {
+        if (client.isConnected) {
+          showTab('chat');
+        }
         return;
       }
       fillForm(server);
@@ -316,13 +319,19 @@ function showError(text) {
   $('error').textContent = text ?? '';
 }
 
+let latestConnect = 0;
+
 async function connect(target) {
   if (!target.host || !target.username) {
     return;
   }
+  const attempt = ++latestConnect;
   if (client.state !== 'disconnected') {
     client.disconnect();
     await audio.stop();
+    if (attempt !== latestConnect) {
+      return;
+    }
   }
   showError(null);
   ui.target = target;
@@ -333,7 +342,7 @@ async function connect(target) {
   $('title').textContent = serverLabel(target);
   $('connectBtn').disabled = true;
   client.connect({ ...target, fingerprint: certificateFor(target.host, target.port) });
-  if (!AudioEngine.supported) {
+  if (!AudioEngine.supported || client.state === 'disconnected') {
     return;
   }
   const useTone = new URLSearchParams(location.search).get('source') === 'tone';
@@ -402,9 +411,9 @@ function enterSession() {
 }
 
 function exitSession() {
+  audio.stop();
   if (ui.inSession) {
     ui.inSession = false;
-    audio.stop();
     $('pingPill').hidden = true;
     closePopover();
   }
@@ -1378,5 +1387,5 @@ showTab('chat');
 showConnect(true);
 renderPanels();
 if (location.hash === '#auto' && servers[0]) {
-  connect(servers[0]);
+  connect({ ...servers[0], remember: servers[0].password !== undefined });
 }

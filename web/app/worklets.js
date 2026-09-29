@@ -20,6 +20,8 @@ const FADE_SAMPLES = 96;
 const RENDER_QUANTUM = 128;
 const TICKS_PER_SECOND = SAMPLE_RATE / RENDER_QUANTUM;
 const CALM_SECONDS_BEFORE_SHRINK = 15;
+const UNDERRUN_CONFIRM_MS = 300;
+const UNDERRUN_CONFIRM_TICKS = Math.round((UNDERRUN_CONFIRM_MS * SAMPLES_PER_MILLISECOND) / RENDER_QUANTUM);
 
 class Framer extends AudioWorkletProcessor {
   constructor() {
@@ -169,13 +171,26 @@ class Mixer extends AudioWorkletProcessor {
   }
 
   newUser(gain = 1) {
-    return { ring: new Float32Array(RING_SAMPLES), read: 0, write: 0, gain, primed: false, ending: false, fadeIn: 0, lastSample: 0 };
+    return {
+      ring: new Float32Array(RING_SAMPLES),
+      read: 0,
+      write: 0,
+      gain,
+      primed: false,
+      ending: false,
+      fadeIn: 0,
+      lastSample: 0,
+      dryTicks: null,
+      lowWater: Infinity,
+    };
   }
 
   endStream(session) {
     const user = this.users.get(session);
     if (user) {
       user.ending = true;
+      user.dryTicks = null;
+      user.lowWater = Infinity;
     }
   }
 
@@ -199,6 +214,12 @@ class Mixer extends AudioWorkletProcessor {
       this.users.set(session, user);
     }
     user.ending = false;
+    if (user.dryTicks !== null) {
+      this.underruns++;
+      user.dryTicks = null;
+    }
+    this.lowWater = Math.min(this.lowWater, user.lowWater);
+    user.lowWater = Infinity;
     if (this.available(user) + samples.length > RUN_AHEAD_CAP) {
       user.read = (user.write - this.policy.target + RING_SAMPLES) % RING_SAMPLES;
     }
@@ -238,10 +259,14 @@ class Mixer extends AudioWorkletProcessor {
       this.reportHealth();
     }
     for (const user of this.users.values()) {
+      if (user.dryTicks !== null && ++user.dryTicks > UNDERRUN_CONFIRM_TICKS) {
+        user.dryTicks = null;
+        user.lowWater = Infinity;
+      }
       const available = this.available(user);
       if (user.primed && !user.ending) {
         this.playedThisSecond = true;
-        this.lowWater = Math.min(this.lowWater, available);
+        user.lowWater = Math.min(user.lowWater, available);
       }
       if (!user.primed) {
         const ready = available >= this.policy.target || (user.ending && available > 0);
@@ -262,7 +287,7 @@ class Mixer extends AudioWorkletProcessor {
       if (user.ending) {
         user.ending = false;
       } else {
-        this.underruns++;
+        user.dryTicks = 0;
       }
     }
     for (let i = 0; i < left.length; i++) {

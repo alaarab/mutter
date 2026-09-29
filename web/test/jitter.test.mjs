@@ -92,4 +92,78 @@ assert.equal(calm(floored, 200, FRAME * 5).changed, false);
 assert.equal(floored.target, FRAME * 3);
 console.log(' ok  the buffer stays between its floor and ceiling');
 
+const processors = new Map();
+globalThis.AudioWorkletProcessor = class {
+  constructor() {
+    const sent = [];
+    this.port = { sent, onmessage: null, postMessage: (message) => sent.push(message) };
+  }
+};
+globalThis.registerProcessor = (name, processor) => processors.set(name, processor);
+await import('../app/worklets.js');
+const Mixer = processors.get('mutter-mixer');
+const RENDER_QUANTUM = 128;
+const SAMPLES_PER_MILLISECOND = 48;
+const SPEAKER = 7;
+
+function startMixer() {
+  const mixer = new Mixer();
+  mixer.renderedSamples = 0;
+  mixer.clockSamples = 0;
+  return mixer;
+}
+
+function render(mixer, milliseconds) {
+  const output = [[new Float32Array(RENDER_QUANTUM), new Float32Array(RENDER_QUANTUM)]];
+  mixer.clockSamples += milliseconds * SAMPLES_PER_MILLISECOND;
+  while (mixer.renderedSamples + RENDER_QUANTUM <= mixer.clockSamples) {
+    mixer.process([], output);
+    mixer.renderedSamples += RENDER_QUANTUM;
+  }
+}
+
+function send(mixer, data) {
+  mixer.port.onmessage({ data });
+}
+
+function speak(mixer, packets) {
+  for (let packet = 0; packet < packets; packet++) {
+    send(mixer, { type: 'push', session: SPEAKER, samples: new Float32Array(FRAME).fill(0.1) });
+    render(mixer, 20);
+  }
+}
+
+function underrunsCounted(mixer) {
+  const reported = mixer.port.sent.filter((message) => message.type === 'health').reduce((sum, message) => sum + message.underruns, 0);
+  return reported + mixer.underruns;
+}
+
+const withTerminators = startMixer();
+for (let spurt = 0; spurt < 6; spurt++) {
+  speak(withTerminators, 25);
+  send(withTerminators, { type: 'end', session: SPEAKER });
+  render(withTerminators, 700);
+}
+assert.equal(underrunsCounted(withTerminators), 0);
+assert.equal(withTerminators.policy.target, FRAME * 3);
+console.log(' ok  talk spurts that end with a terminator drain without an underrun');
+
+const lostTerminators = startMixer();
+for (let spurt = 0; spurt < 6; spurt++) {
+  speak(lostTerminators, 25);
+  render(lostTerminators, 700);
+}
+assert.equal(underrunsCounted(lostTerminators), 0);
+assert.equal(lostTerminators.policy.target, FRAME * 3);
+console.log(' ok  spurts whose terminator was lost do not count as underruns or grow the buffer');
+
+const midStreamGap = startMixer();
+speak(midStreamGap, 25);
+render(midStreamGap, 100);
+speak(midStreamGap, 25);
+render(midStreamGap, 1000);
+assert.equal(underrunsCounted(midStreamGap), 1);
+assert.equal(midStreamGap.policy.target, FRAME * 4);
+console.log(' ok  a gap in the middle of speech still counts as an underrun and grows the buffer');
+
 console.log('\nPASS');
