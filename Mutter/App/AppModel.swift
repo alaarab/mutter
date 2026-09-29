@@ -346,7 +346,7 @@ final class AppModel {
         unavailableIdentityIDs = Self.unavailableIdentities(in: identities)
     }
 
-    private static func unavailableIdentities(in identities: [ClientIdentity]) -> Set<UUID> {
+    nonisolated private static func unavailableIdentities(in identities: [ClientIdentity]) -> Set<UUID> {
         Set(identities.filter { !IdentityStore.shared.hasKeychainItem(for: $0) }.map(\.id))
     }
 
