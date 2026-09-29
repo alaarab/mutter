@@ -155,3 +155,31 @@ test('long comments and channel descriptions arrive by hash and follow changes',
   await bravo.waitFor(`${findUser('Alpha')}?.comment === ${JSON.stringify(newer)}`, { label: 'changed long comment fetched' });
   assert.deepEqual(bravo.errors(), []);
 });
+
+test('a channel tree with a parent loop renders each channel once', { timeout: 60_000 }, async (t) => {
+  const environment = await startEnvironment();
+  t.after(() => environment.close());
+  const page = await environment.browser.newPage(environment.bridge.url);
+  const rendered = await page.eval(`(async () => {
+    const { MumbleClient } = await import('/app/client.js');
+    const { renderTree } = await import('/app/tree.js');
+    const client = new MumbleClient();
+    client.channels.set(0, { channelId: 0, name: 'Root', parent: 2 });
+    client.channels.set(1, { channelId: 1, name: 'One', parent: 0 });
+    client.channels.set(2, { channelId: 2, name: 'Two', parent: 1 });
+    client.users.set(1, { session: 1, name: 'Looped', channelId: 2 });
+    const container = document.createElement('div');
+    renderTree(container, {
+      client,
+      audio: { isTransmitting: false },
+      share: { available: new Map(), sharing: null },
+      collapsed: new Set(),
+      filter: '',
+      unread: 0,
+      isCurrent: () => false,
+    });
+    return [...container.querySelectorAll('.name')].map((name) => name.textContent);
+  })()`);
+  assert.deepEqual(rendered, ['Root', 'One', 'Two', 'Looped']);
+  assert.deepEqual(page.errors(), []);
+});

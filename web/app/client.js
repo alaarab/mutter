@@ -156,6 +156,63 @@ export class MumbleClient extends EventTarget {
     return [...this.users.values()].filter((user) => (user.channelId ?? 0) === channelId).sort(compareByName);
   }
 
+  roster() {
+    const childrenOf = new Map();
+    const usersOf = new Map();
+    for (const channel of this.channels.values()) {
+      if (channel.parent === undefined || channel.parent === channel.channelId) {
+        continue;
+      }
+      if (!childrenOf.has(channel.parent)) {
+        childrenOf.set(channel.parent, []);
+      }
+      childrenOf.get(channel.parent).push(channel);
+    }
+    for (const user of this.users.values()) {
+      const channelId = user.channelId ?? 0;
+      if (!usersOf.has(channelId)) {
+        usersOf.set(channelId, []);
+      }
+      usersOf.get(channelId).push(user);
+    }
+    for (const children of childrenOf.values()) {
+      children.sort(compareChannels);
+    }
+    for (const users of usersOf.values()) {
+      users.sort(compareByName);
+    }
+    const subtreeCounts = new Map();
+    const visited = new Set();
+    for (const start of [0, ...this.channels.keys()]) {
+      const order = [];
+      const pending = [start];
+      while (pending.length) {
+        const channelId = pending.pop();
+        if (visited.has(channelId)) {
+          continue;
+        }
+        visited.add(channelId);
+        order.push(channelId);
+        for (const child of childrenOf.get(channelId) ?? []) {
+          pending.push(child.channelId);
+        }
+      }
+      for (let index = order.length - 1; index >= 0; index--) {
+        const channelId = order[index];
+        let count = usersOf.get(channelId)?.length ?? 0;
+        for (const child of childrenOf.get(channelId) ?? []) {
+          count += subtreeCounts.get(child.channelId) ?? 0;
+        }
+        subtreeCounts.set(channelId, count);
+      }
+    }
+    return {
+      children: (channelId) => childrenOf.get(channelId) ?? [],
+      users: (channelId) => usersOf.get(channelId) ?? [],
+      subtreeCount: (channelId) => subtreeCounts.get(channelId) ?? 0,
+    };
+  }
+
   sendText(html, scope = { channelId: this.myUser?.channelId ?? 0 }) {
     if (!this.isConnected) {
       this.#note('Not connected — message not sent.');
