@@ -169,13 +169,9 @@ public final class MumbleClient {
             return
         }
         pauseHandshakeTimeout()
-        let askingControl = control
         Task {
             let ok = await handler(question)
-            self.queue.async {
-                if ok, self.control != nil, self.control === askingControl { self.startHandshakeTimeout() }
-                complete(ok)
-            }
+            self.queue.async { complete(ok) }
         }
     }
 
@@ -261,6 +257,7 @@ public final class MumbleClient {
     private func handleControl(_ event: ControlConnection.Event) {
         switch event {
         case .ready:
+            startHandshakeTimeout()
             ui { $0.state = .authenticating }
             sendHandshake()
         case .frame(let frame):
