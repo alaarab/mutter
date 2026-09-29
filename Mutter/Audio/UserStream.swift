@@ -20,7 +20,7 @@ final class UserStream {
 
     private let prebufferSamples: Int
     private let capacity: Int
-    private let maximumBufferedSamples = 48 * 250
+    private let maximumBufferedSamples = 48 * 500
     private let trimmedBufferedSamples = 48 * 120
 
     private static let lateToleranceUnits: UInt64 = 100
