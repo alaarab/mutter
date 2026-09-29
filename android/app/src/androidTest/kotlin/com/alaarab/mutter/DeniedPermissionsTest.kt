@@ -28,6 +28,7 @@ class DeniedPermissionsTest {
         val host = InstrumentationRegistry.getArguments().getString("mumbleHost") ?: "10.0.2.2"
         try {
             ui.runOnIdle {
+                app.forgetTestServers(host)
                 app.connect(
                     Server(
                         id = "denied-permissions-test",

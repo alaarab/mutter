@@ -49,7 +49,6 @@ class CryptState {
     fun resync(nonce: ByteArray) {
         require(nonce.size == 16)
         decryptIV = nonce.copyOf()
-        history.fill(-1)
     }
 
     @Synchronized

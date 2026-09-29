@@ -10,10 +10,16 @@ import java.net.InetSocketAddress
 import java.net.URL
 import java.nio.ByteBuffer
 import java.security.SecureRandom
+import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.xmlpull.v1.XmlPullParser
 
 data class Probe(val users: Int, val capacity: Int, val ping: Long)
@@ -73,9 +79,53 @@ object Discovery {
         }
 
     @Suppress("DEPRECATION")
+    private suspend fun resolve(manager: NsdManager, info: NsdServiceInfo): NsdServiceInfo? {
+        repeat(3) { attempt ->
+            var failure = 0
+            val resolved =
+                withTimeoutOrNull(5000) {
+                    suspendCancellableCoroutine<NsdServiceInfo?> { continuation ->
+                        manager.resolveService(
+                            info,
+                            object : NsdManager.ResolveListener {
+                                override fun onResolveFailed(service: NsdServiceInfo, error: Int) {
+                                    failure = error
+                                    if (continuation.isActive) continuation.resume(null)
+                                }
+
+                                override fun onServiceResolved(service: NsdServiceInfo) {
+                                    if (continuation.isActive) continuation.resume(service)
+                                }
+                            },
+                        )
+                    }
+                }
+            if (resolved != null) return resolved
+            if (failure != NsdManager.FAILURE_ALREADY_ACTIVE) return null
+            delay(250L * (attempt + 1))
+        }
+        return null
+    }
+
     fun local(context: Context) =
         callbackFlow<Server> {
             val manager = context.getSystemService(NsdManager::class.java)
+            val found = Channel<NsdServiceInfo>(Channel.UNLIMITED)
+            launch {
+                for (info in found) {
+                    val service = resolve(manager, info) ?: continue
+                    service.host?.hostAddress?.let { host ->
+                        send(
+                            Server(
+                                id = "$host:${service.port}",
+                                name = service.serviceName,
+                                host = host,
+                                port = service.port,
+                            )
+                        )
+                    }
+                }
+            }
             val listener =
                 object : NsdManager.DiscoveryListener {
                     override fun onDiscoveryStarted(type: String) {}
@@ -91,28 +141,13 @@ object Discovery {
                     override fun onServiceLost(info: NsdServiceInfo) {}
 
                     override fun onServiceFound(info: NsdServiceInfo) {
-                        manager.resolveService(
-                            info,
-                            object : NsdManager.ResolveListener {
-                                override fun onResolveFailed(service: NsdServiceInfo, error: Int) {}
-
-                                override fun onServiceResolved(service: NsdServiceInfo) {
-                                    service.host?.hostAddress?.let { host ->
-                                        trySend(
-                                            Server(
-                                                id = "$host:${service.port}",
-                                                name = service.serviceName,
-                                                host = host,
-                                                port = service.port,
-                                            )
-                                        )
-                                    }
-                                }
-                            },
-                        )
+                        found.trySend(info)
                     }
                 }
             manager.discoverServices("_mumble._tcp.", NsdManager.PROTOCOL_DNS_SD, listener)
-            awaitClose { runCatching { manager.stopServiceDiscovery(listener) } }
+            awaitClose {
+                runCatching { manager.stopServiceDiscovery(listener) }
+                found.close()
+            }
         }
 }

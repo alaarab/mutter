@@ -15,7 +15,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        acceptIntent(intent)
+        if (savedInstanceState == null) acceptIntent(intent)
         setContent {
             MutterApp(application as MutterApplication, deepLink.value) { deepLink.value = null }
         }

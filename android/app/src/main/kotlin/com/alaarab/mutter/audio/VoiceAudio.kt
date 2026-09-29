@@ -26,9 +26,24 @@ class VoiceAudio(
 ) {
     val level = MutableStateFlow(0f)
     val transmitting = MutableStateFlow(false)
-    @Volatile var held = false
-    @Volatile var whisperHeld = false
+    val pausedByAnotherApp = MutableStateFlow(false)
+
+    @Volatile
+    var held = false
+        set(value) {
+            field = value
+            if (value) reclaimFocus()
+        }
+
+    @Volatile
+    var whisperHeld = false
+        set(value) {
+            field = value
+            if (value) reclaimFocus()
+        }
+
     @Volatile var focusAvailable = true
+    @Volatile private var started = false
     private var job: Job? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val streams = ConcurrentHashMap<Int, Playback>()
@@ -47,19 +62,42 @@ class VoiceAudio(
     private val focus =
         AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
             .setAudioAttributes(attributes())
-            .setOnAudioFocusChangeListener { change ->
-                focusAvailable = change == AudioManager.AUDIOFOCUS_GAIN
-                if (!focusAvailable) {
-                    held = false
-                    whisperHeld = false
-                }
-            }
+            .setAcceptsDelayedFocusGain(true)
+            .setWillPauseWhenDucked(false)
+            .setOnAudioFocusChangeListener(
+                { change -> focusChanged(change) },
+                android.os.Handler(android.os.Looper.getMainLooper()),
+            )
             .build()
+
+    private fun focusChanged(change: Int) {
+        when (change) {
+            AudioManager.AUDIOFOCUS_GAIN,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> focusAvailable = true
+            else -> {
+                focusAvailable = false
+                held = false
+                whisperHeld = false
+            }
+        }
+        pausedByAnotherApp.value = started && !focusAvailable
+    }
+
+    private fun requestFocus() {
+        val result = manager.requestAudioFocus(focus)
+        focusAvailable = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        pausedByAnotherApp.value = started && !focusAvailable
+    }
+
+    fun reclaimFocus() {
+        if (started && !focusAvailable) requestFocus()
+    }
 
     fun start() {
         if (job != null) return
+        started = true
         manager.mode = AudioManager.MODE_IN_COMMUNICATION
-        focusAvailable = manager.requestAudioFocus(focus) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        requestFocus()
         manager.registerAudioDeviceCallback(
             deviceCallback,
             android.os.Handler(android.os.Looper.getMainLooper()),
@@ -116,6 +154,7 @@ class VoiceAudio(
                 record.startRecording()
                 val pcm = ShortArray(960)
                 var talking = false
+                var spurtTarget = 0
                 var hangover = 0L
                 var timestamp = 0L
                 var bitrate = -1
@@ -170,7 +209,18 @@ class VoiceAudio(
                                 held ||
                                 settings.voiceMode == "continuous" ||
                                 (settings.voiceMode == "vad" && now < hangover))
+                    val target = if (whisperHeld) 1 else 0
+                    if (open && talking && target != spurtTarget) {
+                        encoder?.let { finished ->
+                            drain(finished) { packet ->
+                                client.sendAudio(packet, target = spurtTarget)
+                            }
+                        }
+                        client.sendAudio(byteArrayOf(), end = true, target = spurtTarget)
+                        talking = false
+                    }
                     if (open) {
+                        spurtTarget = target
                         val codec = encoder!!
                         val index = codec.dequeueInputBuffer(10000)
                         if (index >= 0) {
@@ -182,12 +232,12 @@ class VoiceAudio(
                             codec.queueInputBuffer(index, 0, count * 2, timestamp, 0)
                             timestamp += count * 1000000L / 48000
                         }
-                        drain(codec) { packet ->
-                            client.sendAudio(packet, target = if (whisperHeld) 1 else 0)
-                        }
+                        drain(codec) { packet -> client.sendAudio(packet, target = spurtTarget) }
                     } else if (talking) {
-                        encoder?.let { drain(it) { packet -> client.sendAudio(packet) } }
-                        client.sendAudio(byteArrayOf(), end = true)
+                        encoder?.let {
+                            drain(it) { packet -> client.sendAudio(packet, target = spurtTarget) }
+                        }
+                        client.sendAudio(byteArrayOf(), end = true, target = spurtTarget)
                     }
                     transmitting.value = open
                     talking = open
@@ -208,8 +258,10 @@ class VoiceAudio(
     }
 
     fun stop() {
+        started = false
         held = false
         whisperHeld = false
+        pausedByAnotherApp.value = false
         job?.cancel()
         job = null
         runCatching { recorder?.stop() }
@@ -269,15 +321,20 @@ class VoiceAudio(
     }
 
     fun receive(packet: VoicePacket) {
+        if (packet.opus.isEmpty()) {
+            if (packet.end) streams[packet.session]?.end()
+            return
+        }
         val state = client.state.value
         if (state.self?.selfDeaf == true || state.self?.deaf == true || !focusAvailable) return
         val user = state.users[packet.session] ?: return
-        if (user.localMute || packet.opus.isEmpty()) return
+        if (user.localMute) return
         streams.computeIfAbsent(packet.session) { Playback(it) }.offer(packet)
     }
 
     private inner class Playback(private val session: Int) {
         private val queue = PriorityBlockingQueue<VoicePacket>(16, compareBy { it.frame })
+        @Volatile private var ended = false
         private val worker = scope.launch {
             var codec: MediaCodec? = null
             var track: AudioTrack? = null
@@ -343,7 +400,7 @@ class VoiceAudio(
                         .build()
                 track.play()
                 delay(40)
-                var last = -1L
+                val sequence = FrameSequence()
                 var idle = 0
                 fun playPending() {
                     drain(codec) { pcm ->
@@ -371,8 +428,12 @@ class VoiceAudio(
                         continue
                     }
                     idle = 0
-                    if (packet.frame <= last) continue
-                    last = packet.frame
+                    if (ended) {
+                        ended = false
+                        sequence.end()
+                    }
+                    if (!sequence.accept(packet.frame, System.currentTimeMillis())) continue
+                    if (packet.end) sequence.end()
                     val index = codec.dequeueInputBuffer(10000)
                     if (index < 0) continue
                     codec.getInputBuffer(index)!!.put(packet.opus)
@@ -393,6 +454,10 @@ class VoiceAudio(
         fun offer(packet: VoicePacket) {
             if (queue.size > 25) queue.clear()
             queue.offer(packet)
+        }
+
+        fun end() {
+            ended = true
         }
 
         fun close() {

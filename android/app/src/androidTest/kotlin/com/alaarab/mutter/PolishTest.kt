@@ -154,6 +154,7 @@ class PolishTest {
 
     private fun connectFixture() {
         ui.runOnIdle {
+            app.forgetTestServers(arguments.getString("mumbleHost") ?: "10.0.2.2")
             app.connect(
                 Server(
                     id = "visual-review",

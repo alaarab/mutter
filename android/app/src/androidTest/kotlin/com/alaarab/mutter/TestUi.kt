@@ -7,6 +7,12 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.test.platform.app.InstrumentationRegistry
 
+fun MutterApplication.forgetTestServers(host: String) {
+    store.servers.value
+        .filter { it.host == host && it.port in 64740..64746 }
+        .forEach { store.deleteServer(it.id) }
+}
+
 fun AndroidComposeTestRule<*, MainActivity>.dismissKeyboard() {
     fun visible() =
         ViewCompat.getRootWindowInsets(activity.window.decorView)
