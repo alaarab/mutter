@@ -53,7 +53,10 @@ class AppIntegrationTest {
                 port = port,
                 username = name,
             )
-        ui.runOnIdle { app.connect(server) }
+        ui.runOnIdle {
+            app.forgetTestServers(host)
+            app.connect(server)
+        }
         ui.waitUntil(15000) { app.client.state.value.certificate != null }
         assertFalse(app.client.state.value.connected)
         ui.waitUntil(5000) { ui.onNodeWithText("Trust this server?").isDisplayed() }

@@ -45,7 +45,10 @@ class RobustnessTest {
                 "com.alaarab.mutter",
                 "android.permission.BLUETOOTH_CONNECT",
             )
-        ui.runOnIdle { app.disconnect() }
+        ui.runOnIdle {
+            app.disconnect()
+            app.forgetTestServers(host)
+        }
     }
 
     @After
