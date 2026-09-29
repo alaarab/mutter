@@ -13,6 +13,7 @@ import {
   pluginDataMessage,
   createChannelMessage,
   userStatsRequest,
+  requestBlobMessage,
   REJECT_REASONS,
 } from '../src/mumble.js';
 import { encodeAudio, decodeVoice, wireFormatFor } from '../src/voice.js';
@@ -22,6 +23,8 @@ const REJECT_USERNAME_IN_USE = 5;
 const USERNAME_RETRIES_BEFORE_RENAME = 2;
 const PING_INTERVAL_MS = 5000;
 const WATCHDOG_MS = 20_000;
+const HANDSHAKE_TIMEOUT_MS = 20_000;
+const MAX_CACHED_BLOBS = 256;
 const TALK_SWEEP_MS = 100;
 const TALK_HOLD_MS = 250;
 const MAX_RECONNECTS = 6;
@@ -31,6 +34,7 @@ const MAX_LOG_ENTRIES = 400;
 const PING_SAMPLE_COUNT = 10;
 const MAX_PING_MS = 60_000;
 const STALL_GAP_MS = 250;
+const NEW_SPURT_GAP_MS = 2000;
 const STALL_FRAMES = 20;
 
 const DenyType = {
@@ -65,6 +69,10 @@ const DENY_TEXT = {
   [DenyType.userListenerLimit]: 'You’re listening to too many channels',
 };
 
+function hexOf(bytes) {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 export function compareByName(a, b) {
   return (a.name ?? '').localeCompare(b.name ?? '');
 }
@@ -84,6 +92,7 @@ export class MumbleClient extends EventTarget {
   stats = { tcpPingMs: 0, samples: [], udp: null, stalls: 0 };
   log = [];
   certificateTrust = null;
+  handshakeTimeoutMs = HANDSHAKE_TIMEOUT_MS;
 
   #socket = null;
   #opening = null;
@@ -99,6 +108,10 @@ export class MumbleClient extends EventTarget {
   #lastReceivedAt = 0;
   #lastOwnMessage = null;
   #timers = {};
+  #blobs = new Map();
+  #awaitedBlobs = { comment: new Set(), description: new Set() };
+  #unsentBlobs = { comment: [], description: [] };
+  #blobFlushQueued = false;
 
   connect(target) {
     this.#teardown();
@@ -142,6 +155,63 @@ export class MumbleClient extends EventTarget {
 
   usersIn(channelId) {
     return [...this.users.values()].filter((user) => (user.channelId ?? 0) === channelId).sort(compareByName);
+  }
+
+  roster() {
+    const childrenOf = new Map();
+    const usersOf = new Map();
+    for (const channel of this.channels.values()) {
+      if (channel.parent === undefined || channel.parent === channel.channelId) {
+        continue;
+      }
+      if (!childrenOf.has(channel.parent)) {
+        childrenOf.set(channel.parent, []);
+      }
+      childrenOf.get(channel.parent).push(channel);
+    }
+    for (const user of this.users.values()) {
+      const channelId = user.channelId ?? 0;
+      if (!usersOf.has(channelId)) {
+        usersOf.set(channelId, []);
+      }
+      usersOf.get(channelId).push(user);
+    }
+    for (const children of childrenOf.values()) {
+      children.sort(compareChannels);
+    }
+    for (const users of usersOf.values()) {
+      users.sort(compareByName);
+    }
+    const subtreeCounts = new Map();
+    const visited = new Set();
+    for (const start of [0, ...this.channels.keys()]) {
+      const order = [];
+      const pending = [start];
+      while (pending.length) {
+        const channelId = pending.pop();
+        if (visited.has(channelId)) {
+          continue;
+        }
+        visited.add(channelId);
+        order.push(channelId);
+        for (const child of childrenOf.get(channelId) ?? []) {
+          pending.push(child.channelId);
+        }
+      }
+      for (let index = order.length - 1; index >= 0; index--) {
+        const channelId = order[index];
+        let count = usersOf.get(channelId)?.length ?? 0;
+        for (const child of childrenOf.get(channelId) ?? []) {
+          count += subtreeCounts.get(child.channelId) ?? 0;
+        }
+        subtreeCounts.set(channelId, count);
+      }
+    }
+    return {
+      children: (channelId) => childrenOf.get(channelId) ?? [],
+      users: (channelId) => usersOf.get(channelId) ?? [],
+      subtreeCount: (channelId) => subtreeCounts.get(channelId) ?? 0,
+    };
   }
 
   sendText(html, scope = { channelId: this.myUser?.channelId ?? 0 }) {
@@ -218,6 +288,7 @@ export class MumbleClient extends EventTarget {
     const opening = new AbortController();
     this.#opening = opening;
     this.#setState(this.#reconnectAttempt ? 'reconnecting' : 'connecting');
+    this.#armHandshakeTimer();
     let token;
     try {
       const response = await fetch('/bridge-token', { cache: 'no-store', signal: opening.signal });
@@ -260,12 +331,14 @@ export class MumbleClient extends EventTarget {
     } else if (message.event === 'certificate') {
       const socket = this.#socket;
       const signal = this.#opening.signal;
+      clearTimeout(this.#timers.handshake);
       let accepted = false;
       try {
         accepted = await this.certificateTrust?.(message, signal);
       } catch {}
       if (signal.aborted || this.#socket !== socket) return;
       if (accepted === true) {
+        this.#armHandshakeTimer();
         socket.send(JSON.stringify({ event: 'trust', fingerprint: message.fingerprint }));
       } else {
         this.#intentional = true;
@@ -319,6 +392,14 @@ export class MumbleClient extends EventTarget {
     );
   }
 
+  #armHandshakeTimer() {
+    clearTimeout(this.#timers.handshake);
+    this.#timers.handshake = setTimeout(() => {
+      this.diag('connection', `the server did not finish signing in within ${this.handshakeTimeoutMs / 1000} s — dropping`);
+      this.#fail('The server did not finish signing in.');
+    }, this.handshakeTimeoutMs);
+  }
+
   #send(bytes) {
     if (this.#socket?.readyState === WebSocket.OPEN) {
       this.#socket.send(bytes);
@@ -330,8 +411,10 @@ export class MumbleClient extends EventTarget {
     this.#opening = null;
     for (const timer of Object.values(this.#timers)) {
       clearInterval(timer);
+      clearTimeout(timer);
     }
     this.#timers = {};
+    this.#forgetBlobRequests();
     const socket = this.#socket;
     this.#socket = null;
     try {
@@ -412,6 +495,7 @@ export class MumbleClient extends EventTarget {
         break;
       case MessageType.channelRemove:
         this.channels.delete(message.channelId);
+        this.#awaitedBlobs.description.delete(message.channelId);
         this.#emit('channels');
         break;
       case MessageType.userState:
@@ -480,17 +564,20 @@ export class MumbleClient extends EventTarget {
   #onChannelState(message) {
     const previous = this.channels.get(message.channelId) ?? {};
     const defaultParent = message.channelId === 0 ? undefined : 0;
-    this.channels.set(message.channelId, {
+    const channel = {
       ...previous,
       ...message,
       parent: message.parent ?? previous.parent ?? defaultParent,
-    });
+    };
+    this.#resolveBlob(channel, previous, message, { kind: 'description', id: message.channelId, text: 'description', hash: 'descriptionHash' });
+    this.channels.set(message.channelId, channel);
     this.#emit('channels');
   }
 
   #onUserState(message) {
     const previous = this.users.get(message.session);
     const user = { ...previous, ...message, channelId: message.channelId ?? previous?.channelId ?? 0 };
+    this.#resolveBlob(user, previous, message, { kind: 'comment', id: message.session, text: 'comment', hash: 'commentHash' });
     this.users.set(message.session, user);
     if (this.isConnected) {
       if (!previous) {
@@ -507,6 +594,8 @@ export class MumbleClient extends EventTarget {
     const gone = this.users.get(message.session);
     this.users.delete(message.session);
     this.#talkers.delete(message.session);
+    this.#lastPacket.delete(message.session);
+    this.#awaitedBlobs.comment.delete(message.session);
     if (gone && this.isConnected) {
       const how = message.ban ? 'was banned' : message.actor !== undefined ? 'was kicked' : 'disconnected';
       this.#notice(`${gone.name} ${how}`, 'leave');
@@ -515,6 +604,8 @@ export class MumbleClient extends EventTarget {
   }
 
   #onServerSync(message) {
+    clearTimeout(this.#timers.handshake);
+    delete this.#timers.handshake;
     this.me = message.session;
     this.#reconnectAttempt = 0;
     this.#usernameInUseRetries = 0;
@@ -611,6 +702,7 @@ export class MumbleClient extends EventTarget {
     this.#emit('voice', packet);
     if (packet.isTerminator) {
       this.#setTalking(packet.session, false);
+      this.#lastPacket.delete(packet.session);
     }
   }
 
@@ -618,11 +710,74 @@ export class MumbleClient extends EventTarget {
     const now = Date.now();
     const frame = Number(packet.frameNumber);
     const last = this.#lastPacket.get(packet.session);
-    if (last && now - last.at > STALL_GAP_MS && frame - last.frame >= STALL_FRAMES) {
+    const quietFor = last ? now - last.at : 0;
+    if (last && quietFor > STALL_GAP_MS && quietFor < NEW_SPURT_GAP_MS && frame - last.frame >= STALL_FRAMES) {
       this.stats.stalls++;
       this.diag('voice', `${user.name}: ${now - last.at} ms delivery stall (${frame - last.frame} frames arrived late)`);
     }
     this.#lastPacket.set(packet.session, { at: now, frame });
+  }
+
+  #resolveBlob(record, previous, message, { kind, id, text, hash }) {
+    if (message[hash] !== undefined) {
+      const digest = hexOf(message[hash]);
+      record[hash] = digest;
+      if (message[text] !== undefined) {
+        this.#rememberBlob(digest, message[text]);
+        return;
+      }
+      const known = this.#blobs.get(digest) ?? (previous?.[hash] === digest ? previous[text] : undefined);
+      if (known !== undefined) {
+        record[text] = known;
+      } else {
+        delete record[text];
+        this.#requestBlob(kind, id);
+      }
+      return;
+    }
+    if (message[text] === undefined) {
+      return;
+    }
+    if (this.#awaitedBlobs[kind].delete(id) && record[hash]) {
+      this.#rememberBlob(record[hash], message[text]);
+    } else {
+      delete record[hash];
+    }
+  }
+
+  #rememberBlob(digest, value) {
+    this.#blobs.delete(digest);
+    this.#blobs.set(digest, value);
+    if (this.#blobs.size > MAX_CACHED_BLOBS) {
+      this.#blobs.delete(this.#blobs.keys().next().value);
+    }
+  }
+
+  #requestBlob(kind, id) {
+    if (this.#awaitedBlobs[kind].has(id)) {
+      return;
+    }
+    this.#awaitedBlobs[kind].add(id);
+    this.#unsentBlobs[kind].push(id);
+    if (!this.#blobFlushQueued) {
+      this.#blobFlushQueued = true;
+      queueMicrotask(() => this.#flushBlobRequests());
+    }
+  }
+
+  #flushBlobRequests() {
+    this.#blobFlushQueued = false;
+    const { comment, description } = this.#unsentBlobs;
+    this.#unsentBlobs = { comment: [], description: [] };
+    if (comment.length || description.length) {
+      this.#send(requestBlobMessage({ sessionComments: comment, channelDescriptions: description }));
+    }
+  }
+
+  #forgetBlobRequests() {
+    this.#awaitedBlobs.comment.clear();
+    this.#awaitedBlobs.description.clear();
+    this.#unsentBlobs = { comment: [], description: [] };
   }
 
   #setTalking(session, talking) {

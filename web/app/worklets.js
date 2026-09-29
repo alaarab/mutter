@@ -20,6 +20,8 @@ const FADE_SAMPLES = 96;
 const RENDER_QUANTUM = 128;
 const TICKS_PER_SECOND = SAMPLE_RATE / RENDER_QUANTUM;
 const CALM_SECONDS_BEFORE_SHRINK = 15;
+const UNDERRUN_CONFIRM_MS = 300;
+const UNDERRUN_CONFIRM_TICKS = Math.round((UNDERRUN_CONFIRM_MS * SAMPLES_PER_MILLISECOND) / RENDER_QUANTUM);
 
 class Framer extends AudioWorkletProcessor {
   constructor() {
@@ -31,7 +33,16 @@ class Framer extends AudioWorkletProcessor {
     this.suppressor = new NoiseSuppressor('strong');
     this.rnnoise = null;
     this.rnnoiseInput = new Float32Array(RNNOISE_BLOCK);
+    this.rnnoiseOutput = new Float32Array(RNNOISE_BLOCK);
     this.rnnoiseFill = 0;
+    this.collectBound = (samples) => this.collect(samples);
+    this.emitFrameBound = () => {
+      this.emitFrame();
+    };
+    this.runRnnoiseBound = () => {
+      this.runRnnoiseBlock();
+      this.collect(this.rnnoiseOutput);
+    };
     this.port.onmessage = ({ data }) => {
       if (data.type === 'suppress') {
         this.setLevel(data.level);
@@ -64,6 +75,9 @@ class Framer extends AudioWorkletProcessor {
         state,
         input: exports.malloc(RNNOISE_BLOCK * 4),
         output: exports.malloc(RNNOISE_BLOCK * 4),
+        memory: null,
+        inputView: null,
+        outputView: null,
       };
       this.port.postMessage({ type: 'rnnoise', ready: true });
     } catch (error) {
@@ -76,32 +90,35 @@ class Framer extends AudioWorkletProcessor {
   }
 
   denoise(samples) {
-    const blocks = [];
-    this.rnnoiseFill = feedBlocks(samples, this.rnnoiseInput, this.rnnoiseFill, () => {
-      blocks.push(this.runRnnoiseBlock());
-    });
-    if (blocks.length === 1) {
-      return blocks[0];
+    this.rnnoiseFill = feedBlocks(samples, this.rnnoiseInput, this.rnnoiseFill, this.runRnnoiseBound);
+  }
+
+  rnnoiseViews() {
+    const rnnoise = this.rnnoise;
+    const memory = rnnoise.exports.memory.buffer;
+    if (rnnoise.memory !== memory) {
+      rnnoise.memory = memory;
+      rnnoise.inputView = new Float32Array(memory, rnnoise.input, RNNOISE_BLOCK);
+      rnnoise.outputView = new Float32Array(memory, rnnoise.output, RNNOISE_BLOCK);
     }
-    const all = new Float32Array(blocks.length * RNNOISE_BLOCK);
-    blocks.forEach((block, index) => all.set(block, index * RNNOISE_BLOCK));
-    return all;
+    return rnnoise;
   }
 
   runRnnoiseBlock() {
-    const { exports, state, input, output } = this.rnnoise;
-    const memoryIn = new Float32Array(exports.memory.buffer);
+    const { exports, state, input, output, inputView } = this.rnnoiseViews();
     for (let k = 0; k < RNNOISE_BLOCK; k++) {
-      memoryIn[input / 4 + k] = this.rnnoiseInput[k] * RNNOISE_SCALE;
+      inputView[k] = this.rnnoiseInput[k] * RNNOISE_SCALE;
     }
     const vad = exports.rnnoise_process_frame(state, output, input);
     this.vad = Math.max(this.vad, vad);
-    const memoryOut = new Float32Array(exports.memory.buffer);
-    const result = new Float32Array(RNNOISE_BLOCK);
+    const { outputView } = this.rnnoiseViews();
     for (let k = 0; k < RNNOISE_BLOCK; k++) {
-      result[k] = memoryOut[output / 4 + k] / RNNOISE_SCALE;
+      this.rnnoiseOutput[k] = outputView[k] / RNNOISE_SCALE;
     }
-    return result;
+  }
+
+  collect(samples) {
+    this.frameFill = feedBlocks(samples, this.frame, this.frameFill, this.emitFrameBound);
   }
 
   process(inputs) {
@@ -109,10 +126,11 @@ class Framer extends AudioWorkletProcessor {
     if (!channel) {
       return true;
     }
-    const cleaned = this.usingRnnoise ? this.denoise(channel) : this.suppressor.process(channel);
-    this.frameFill = feedBlocks(cleaned, this.frame, this.frameFill, () => {
-      this.emitFrame();
-    });
+    if (this.usingRnnoise) {
+      this.denoise(channel);
+    } else {
+      this.suppressor.processInto(channel, this.collectBound);
+    }
     return true;
   }
 
@@ -169,13 +187,26 @@ class Mixer extends AudioWorkletProcessor {
   }
 
   newUser(gain = 1) {
-    return { ring: new Float32Array(RING_SAMPLES), read: 0, write: 0, gain, primed: false, ending: false, fadeIn: 0, lastSample: 0 };
+    return {
+      ring: new Float32Array(RING_SAMPLES),
+      read: 0,
+      write: 0,
+      gain,
+      primed: false,
+      ending: false,
+      fadeIn: 0,
+      lastSample: 0,
+      dryTicks: null,
+      lowWater: Infinity,
+    };
   }
 
   endStream(session) {
     const user = this.users.get(session);
     if (user) {
       user.ending = true;
+      user.dryTicks = null;
+      user.lowWater = Infinity;
     }
   }
 
@@ -199,6 +230,12 @@ class Mixer extends AudioWorkletProcessor {
       this.users.set(session, user);
     }
     user.ending = false;
+    if (user.dryTicks !== null) {
+      this.underruns++;
+      user.dryTicks = null;
+    }
+    this.lowWater = Math.min(this.lowWater, user.lowWater);
+    user.lowWater = Infinity;
     if (this.available(user) + samples.length > RUN_AHEAD_CAP) {
       user.read = (user.write - this.policy.target + RING_SAMPLES) % RING_SAMPLES;
     }
@@ -238,10 +275,14 @@ class Mixer extends AudioWorkletProcessor {
       this.reportHealth();
     }
     for (const user of this.users.values()) {
+      if (user.dryTicks !== null && ++user.dryTicks > UNDERRUN_CONFIRM_TICKS) {
+        user.dryTicks = null;
+        user.lowWater = Infinity;
+      }
       const available = this.available(user);
       if (user.primed && !user.ending) {
         this.playedThisSecond = true;
-        this.lowWater = Math.min(this.lowWater, available);
+        user.lowWater = Math.min(user.lowWater, available);
       }
       if (!user.primed) {
         const ready = available >= this.policy.target || (user.ending && available > 0);
@@ -262,7 +303,7 @@ class Mixer extends AudioWorkletProcessor {
       if (user.ending) {
         user.ending = false;
       } else {
-        this.underruns++;
+        user.dryTicks = 0;
       }
     }
     for (let i = 0; i < left.length; i++) {

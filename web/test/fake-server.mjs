@@ -32,6 +32,7 @@ const LOOPBACK_TARGET = 31;
 const MAX_BANDWIDTH = 558_000;
 const FAKE_PORT = 64740;
 const WELCOME_HTML = '<b>Welcome</b> to the fake server. Nothing here is real.';
+const BLOB_HASH_FROM_CHARS = 128;
 
 const DenyType = { text: 0, permission: 1, channelName: 3, textTooLong: 4 };
 const RejectType = { invalidUsername: 2, wrongServerPassword: 4, usernameInUse: 5 };
@@ -77,6 +78,8 @@ export class FakeMumbleServer extends EventEmitter {
     this.nextChannel = 5;
     this.config = { allowHtml: true, messageLength: 5000, imageMessageLength: 131072, maxUsers: 100 };
     this.dropped = { plugin: 0, text: 0 };
+    this.holdSync = false;
+    this.blobRequests = [];
   }
 
   listen(port) {
@@ -175,6 +178,10 @@ export class FakeMumbleServer extends EventEmitter {
       return;
     }
     if (type === MessageType.authenticate) {
+      if (this.holdSync) {
+        this.log(`holding ${message.username ?? '?'} before ServerSync`);
+        return;
+      }
       this.authenticate(user, message);
       return;
     }
@@ -209,9 +216,40 @@ export class FakeMumbleServer extends EventEmitter {
       case MessageType.cryptSetup:
         this.onCryptSetup(user, message);
         break;
+      case MessageType.requestBlob:
+        this.onRequestBlob(user, message);
+        break;
       default:
         break;
     }
+  }
+
+  onRequestBlob(user, message) {
+    this.blobRequests.push({ from: user.session, sessionComments: message.sessionComments ?? [], channelDescriptions: message.channelDescriptions ?? [] });
+    for (const session of message.sessionComments ?? []) {
+      const target = this.users.get(session);
+      if (target) {
+        this.sendTo(user, frame(MessageType.userState, new Writer().uint(1, session).string(14, target.comment ?? '').finish()));
+      }
+    }
+    for (const channelId of message.channelDescriptions ?? []) {
+      const channel = this.channels.get(channelId);
+      if (channel) {
+        this.sendTo(user, frame(MessageType.channelState, new Writer().uint(1, channelId).string(5, channel.description ?? '').finish()));
+      }
+    }
+  }
+
+  setComment(session, comment) {
+    const user = this.users.get(session);
+    user.comment = comment;
+    this.broadcast(encode.userState({ session, comment }));
+  }
+
+  setDescription(channelId, description) {
+    const channel = this.channels.get(channelId);
+    channel.description = description;
+    this.broadcast(encode.channelState(channel));
   }
 
   authenticate(user, message) {
@@ -529,6 +567,9 @@ export class FakeMumbleServer extends EventEmitter {
       via,
     });
     const outgoing = encodeServerAudio({ ...packet, session: user.session, context: 0 }, this.voiceFormat);
+    if (packet.isTerminator && this.impairment.dropTerminators) {
+      return;
+    }
     if (packet.target === LOOPBACK_TARGET) {
       this.sendVoice(user, outgoing);
       return;
@@ -635,16 +676,22 @@ export class FakeMumbleServer extends EventEmitter {
   }
 }
 
+function blobHash(text) {
+  return new Uint8Array(crypto.createHash('sha1').update(text).digest());
+}
+
+function writeBlob(writer, textField, hashField, text) {
+  if (text !== undefined && text.length >= BLOB_HASH_FROM_CHARS) {
+    return writer.bytes(hashField, blobHash(text));
+  }
+  return writer.string(textField, text);
+}
+
 const encode = {
   channelState(channel) {
-    const writer = new Writer()
-      .uint(1, channel.channelId)
-      .uint(2, channel.parent)
-      .string(3, channel.name)
-      .string(5, channel.description)
-      .bool(8, channel.temporary)
-      .uint(9, channel.position)
-      .uint(11, channel.maxUsers);
+    const writer = new Writer().uint(1, channel.channelId).uint(2, channel.parent).string(3, channel.name);
+    writeBlob(writer, 5, 10, channel.description);
+    writer.bool(8, channel.temporary).uint(9, channel.position).uint(11, channel.maxUsers);
     return frame(MessageType.channelState, writer.finish());
   },
   userState(user, full = false) {
@@ -656,17 +703,17 @@ const encode = {
         .bool(6, user.mute || undefined)
         .bool(7, user.deaf || undefined)
         .bool(9, user.selfMute || undefined)
-        .bool(10, user.selfDeaf || undefined)
-        .string(14, user.comment);
+        .bool(10, user.selfDeaf || undefined);
+      writeBlob(writer, 14, 16, user.comment);
     } else {
       writer
         .uint(5, user.channelId)
         .bool(6, user.mute)
         .bool(7, user.deaf)
         .bool(9, user.selfMute)
-        .bool(10, user.selfDeaf)
-        .string(14, user.comment)
-        .bool(18, user.prioritySpeaker);
+        .bool(10, user.selfDeaf);
+      writeBlob(writer, 14, 16, user.comment);
+      writer.bool(18, user.prioritySpeaker);
     }
     return frame(MessageType.userState, writer.finish());
   },

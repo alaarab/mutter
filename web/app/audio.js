@@ -108,6 +108,9 @@ export class AudioEngine extends EventTarget {
   #lastStallLogAt = 0;
   #rnnoiseBytes = null;
   #captureResolve = null;
+  #generation = 0;
+  #starting = null;
+  #microphoneRequest = 0;
 
   constructor(client, settings = {}) {
     super();
@@ -136,31 +139,76 @@ export class AudioEngine extends EventTarget {
     return this.settings.autoSensitivity ? this.effectiveThresholdDb : this.settings.vadThresholdDb;
   }
 
-  async start({ source } = {}) {
+  start(options = {}) {
     if (this.running) {
+      return Promise.resolve();
+    }
+    if (this.#starting?.generation === this.#generation) {
+      return this.#starting.promise;
+    }
+    const starting = { generation: this.#generation, promise: null };
+    starting.promise = this.#startFresh(options, starting.generation);
+    this.#starting = starting;
+    const forgetStart = () => {
+      if (this.#starting === starting) {
+        this.#starting = null;
+      }
+    };
+    starting.promise.then(forgetStart, forgetStart);
+    return starting.promise;
+  }
+
+  async #startFresh({ source }, generation) {
+    const isStale = () => generation !== this.#generation;
+    const context = new AudioContext({ sampleRate: SAMPLE_RATE, latencyHint: 'interactive' });
+    try {
+      await context.audioWorklet.addModule('/app/worklets.js');
+    } catch (error) {
+      context.close().catch(() => {});
+      throw error;
+    }
+    if (isStale()) {
+      context.close().catch(() => {});
       return;
     }
-    this.#context = new AudioContext({ sampleRate: SAMPLE_RATE, latencyHint: 'interactive' });
-    await this.#context.audioWorklet.addModule('/app/worklets.js');
-    this.#createMixer();
-    this.#createFramer();
-    this.#createEncoder();
-    this.running = true;
-    await this.#applySink();
-    await this.#context.resume();
-    if (source === 'tone') {
-      this.#startTestTone();
-    } else {
-      await this.#openMicrophone();
+    this.#context = context;
+    try {
+      this.#createMixer();
+      this.#createFramer();
+      this.#createEncoder();
+      this.running = true;
+      await this.#applySink();
+      if (isStale()) {
+        return;
+      }
+      await context.resume();
+      if (isStale()) {
+        return;
+      }
+      if (source === 'tone') {
+        this.#startTestTone();
+      } else {
+        await this.#openMicrophone();
+      }
+    } catch (error) {
+      if (!isStale()) {
+        await this.stop();
+      }
+      throw error;
     }
-    this.#emit('state');
+    if (!isStale()) {
+      this.#emit('state');
+    }
   }
 
   async stop() {
-    if (!this.running) {
+    this.#generation++;
+    this.#microphoneRequest++;
+    if (!this.running && !this.#context) {
       return;
     }
     this.running = false;
+    const context = this.#context;
     this.#source?.disconnect();
     this.#framer?.disconnect();
     this.#stopStream();
@@ -173,7 +221,6 @@ export class AudioEngine extends EventTarget {
       clearTimeout(receiver.flushTimer);
     }
     this.#receivers.clear();
-    await this.#context?.close();
     this.#context = null;
     this.#mixer = null;
     this.#framer = null;
@@ -184,6 +231,7 @@ export class AudioEngine extends EventTarget {
     this.#closing = false;
     this.#pendingTerminators = [];
     this.#setTransmitting(false);
+    await context?.close().catch(() => {});
     this.#emit('state');
   }
 
@@ -352,10 +400,14 @@ export class AudioEngine extends EventTarget {
     if (this.neural === false) {
       return;
     }
+    const framer = this.#framer;
     try {
       this.#rnnoiseBytes ??= await (await fetch('/app/rnnoise.wasm')).arrayBuffer();
+      if (this.#framer !== framer) {
+        return;
+      }
       const copy = this.#rnnoiseBytes.slice(0);
-      this.#framer?.port.postMessage({ type: 'rnnoise', bytes: copy }, [copy]);
+      framer.port.postMessage({ type: 'rnnoise', bytes: copy }, [copy]);
     } catch (error) {
       this.neural = false;
       this.#diag(`RNNoise unavailable: ${error.message}`);
@@ -431,13 +483,18 @@ export class AudioEngine extends EventTarget {
   }
 
   async #openMicrophone() {
+    const request = ++this.#microphoneRequest;
     this.#source?.disconnect();
     this.#stopStream();
     this.#source = null;
     this.captureError = null;
+    let stream;
     try {
-      this.#stream = await navigator.mediaDevices.getUserMedia({ audio: this.#microphoneConstraints() });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: this.#microphoneConstraints() });
     } catch (error) {
+      if (request !== this.#microphoneRequest || !this.running) {
+        return;
+      }
       if (this.settings.inputDeviceId) {
         this.settings.inputDeviceId = '';
         return this.#openMicrophone();
@@ -447,8 +504,13 @@ export class AudioEngine extends EventTarget {
       this.#emit('state');
       return;
     }
-    const track = this.#stream.getAudioTracks()[0];
-    this.#source = new MediaStreamAudioSourceNode(this.#context, { mediaStream: this.#stream });
+    if (request !== this.#microphoneRequest || !this.running) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
+    this.#stream = stream;
+    const track = stream.getAudioTracks()[0];
+    this.#source = new MediaStreamAudioSourceNode(this.#context, { mediaStream: stream });
     this.#source.connect(this.#framer);
     track.onended = () => {
       this.#diag('microphone track ended');
@@ -598,6 +660,9 @@ export class AudioEngine extends EventTarget {
     }
     this.stats.packetsIn++;
     if (!packet.opus.length) {
+      if (packet.isTerminator) {
+        this.#endWithoutAudio(packet.session);
+      }
       return;
     }
     const receiver = this.#receiverFor(packet.session);
@@ -607,6 +672,17 @@ export class AudioEngine extends EventTarget {
     }
     receiver.pending.set(sequence, packet);
     this.#drainPending(receiver, false);
+  }
+
+  #endWithoutAudio(session) {
+    const receiver = this.#receivers.get(session);
+    if (!receiver) {
+      return;
+    }
+    this.#drainPending(receiver, true);
+    receiver.nextSequence = null;
+    receiver.queue.push({ ending: true });
+    this.#emitReady(receiver);
   }
 
   #receiverFor(session) {
@@ -719,6 +795,8 @@ export class AudioEngine extends EventTarget {
       const item = receiver.queue[0];
       if (item.broke) {
         this.#emitBreak(receiver);
+      } else if (item.ending) {
+        this.#mixer?.port.postMessage({ type: 'end', session: receiver.session });
       } else if (item.fills !== undefined) {
         this.#emitFills(receiver, item.fills, item.packetSamples);
       } else if (item.pcm) {
