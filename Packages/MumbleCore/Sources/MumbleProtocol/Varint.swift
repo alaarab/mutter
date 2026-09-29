@@ -39,6 +39,10 @@ public enum MumbleVarint {
     }
 
     public static func decode(_ data: Data, offset: inout Int) -> Int64? {
+        decode(data, offset: &offset, allowsNegation: true)
+    }
+
+    private static func decode(_ data: Data, offset: inout Int, allowsNegation: Bool) -> Int64? {
         guard offset < data.count else { return nil }
         let base = data.startIndex
         func byte(_ index: Int) -> UInt8? {
@@ -65,8 +69,9 @@ public enum MumbleVarint {
             case 0xF4:
                 return readBigEndian(byte, offset: &offset, byteCount: 8, highBits: 0)
             case 0xF8:
+                guard allowsNegation else { return nil }
                 offset += 1
-                guard let inner = decode(data, offset: &offset) else { return nil }
+                guard let inner = decode(data, offset: &offset, allowsNegation: false) else { return nil }
                 return ~inner
             case 0xFC:
                 offset += 1

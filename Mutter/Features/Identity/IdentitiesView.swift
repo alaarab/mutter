@@ -49,6 +49,11 @@ struct IdentitiesView: View {
                                             .font(.caption2)
                                             .foregroundStyle(exp < Date() ? Theme.danger : Theme.muted)
                                     }
+                                    if model.unavailableIdentityIDs.contains(identity.id) {
+                                        Label("Not on this device. Import it again to use it.", systemImage: "exclamationmark.triangle.fill")
+                                            .font(.caption2)
+                                            .foregroundStyle(Theme.danger)
+                                    }
                                 }
                                 Spacer()
                                 if settings.defaultIdentityID == identity.id {

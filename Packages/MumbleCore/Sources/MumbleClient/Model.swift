@@ -36,6 +36,28 @@ public struct Channel: Identifiable, Hashable, Sendable {
     }
 
     public static let rootID: UInt32 = 0
+
+    public static func ancestry(of channelID: UInt32, in channels: [UInt32: Channel]) -> [Channel] {
+        var lineage: [Channel] = []
+        var visited: Set<UInt32> = []
+        var current = channels[channelID]
+        while let channel = current, visited.insert(channel.id).inserted {
+            lineage.append(channel)
+            guard let parentID = channel.parentID else { break }
+            current = channels[parentID]
+        }
+        return lineage.reversed()
+    }
+
+    public static func wouldCreateCycle(movingChannel channelID: UInt32, under parentID: UInt32, in channels: [UInt32: Channel]) -> Bool {
+        var visited: Set<UInt32> = []
+        var current: UInt32? = parentID
+        while let ancestorID = current, visited.insert(ancestorID).inserted {
+            if ancestorID == channelID { return true }
+            current = channels[ancestorID]?.parentID
+        }
+        return current != nil
+    }
 }
 
 public struct User: Identifiable, Hashable, Sendable {

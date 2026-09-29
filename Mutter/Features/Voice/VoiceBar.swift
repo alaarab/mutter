@@ -193,10 +193,10 @@ struct PushToTalkButton: View {
                 label
                     .onHold(
                         onPress: {
-                            model.audio.isPushToTalkPressed = true
+                            model.beginHoldToTalk()
                             Haptics.impact(.rigid)
                         },
-                        onRelease: { model.audio.isPushToTalkPressed = false }
+                        onRelease: { model.endHoldToTalk() }
                     )
             }
         }
