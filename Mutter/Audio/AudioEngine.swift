@@ -68,7 +68,12 @@ final class AudioEngine: VoiceSink {
     var autoSensitivity = true
     var useVoiceProcessing = true { didSet { if oldValue != useVoiceProcessing { rebuildIfRunning() } } }
     var noiseSuppression: NoiseSuppressor.Level = .strong { didSet { processingQueue.async { self.suppressor?.level = self.noiseSuppression } } }
-    var bitrate: Int32 = 40_000 { didSet { encoder?.setBitrate(bitrate) } }
+    var bitrate: Int32 = 40_000 {
+        didSet {
+            let updated = bitrate
+            processingQueue.async { self.encoder?.setBitrate(updated) }
+        }
+    }
     var frameMilliseconds: Int = 20
     var isPushToTalkPressed = false
     var isMuted = false
@@ -83,14 +88,15 @@ final class AudioEngine: VoiceSink {
 
     @ObservationIgnored private let engine = AVAudioEngine()
     @ObservationIgnored private var encoder: OpusEncoderWrapper?
-    @ObservationIgnored private var converter: AVAudioConverter?
     @ObservationIgnored private let processingQueue = DispatchQueue(label: "mutter.audio.encode", qos: .userInteractive)
     @ObservationIgnored private var pending: [Float] = []
     @ObservationIgnored private var gateOpen = false
     @ObservationIgnored private var lastVoiceAt: TimeInterval = 0
     @ObservationIgnored private var sendTerminator = false
     @ObservationIgnored private var streams: [UInt32: UserStream] = [:]
+    @ObservationIgnored private var renderedStreams: [UserStream] = []
     @ObservationIgnored private let streamsLock = OSAllocatedUnfairLock()
+    @ObservationIgnored private var lastPruneAt = Date()
     @ObservationIgnored private var sourceNode: AVAudioSourceNode?
     @ObservationIgnored private var levelTick = 0
     @ObservationIgnored private var localVolumes: [UInt32: Float] = [:]
@@ -101,6 +107,9 @@ final class AudioEngine: VoiceSink {
     @ObservationIgnored private var rebuildScheduled = false
 
     private static let format48kMono = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000, channels: 1, interleaved: false)!
+    private static let maximumStreamCount = 64
+    private static let pruneInterval: TimeInterval = 2
+    private static let retiredStreamGracePeriod: TimeInterval = 1
 
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
 
@@ -125,7 +134,8 @@ final class AudioEngine: VoiceSink {
         guard !isRunning else { return }
         do {
             try configureSession()
-            encoder = try OpusEncoderWrapper(bitrate: bitrate)
+            let freshEncoder = try OpusEncoderWrapper(bitrate: bitrate)
+            processingQueue.sync { installCaptureState(encoder: freshEncoder) }
             try buildGraph()
             try engine.start()
             isRunning = true
@@ -144,14 +154,19 @@ final class AudioEngine: VoiceSink {
         engine.stop()
         if let sourceNode { engine.detach(sourceNode) }
         sourceNode = nil
-        encoder = nil
-        converter = nil
-        pending = []
-        processingQueue.async { self.suppressor?.reset() }
+        processingQueue.async { self.installCaptureState(encoder: nil) }
         isRunning = false
-        gateOpen = false
         isTransmitting = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    private func installCaptureState(encoder freshEncoder: OpusEncoderWrapper?) {
+        encoder = freshEncoder
+        pending = []
+        gateOpen = false
+        sendTerminator = false
+        openFrames = 0
+        suppressor?.reset()
     }
 
     private var categoryOptions: AVAudioSession.CategoryOptions {
@@ -248,13 +263,15 @@ final class AudioEngine: VoiceSink {
             }
         }
         let hardwareFormat = input.outputFormat(forBus: 0)
-        guard hardwareFormat.sampleRate > 0 else { throw NSError(domain: "Mutter", code: 1, userInfo: [NSLocalizedDescriptionKey: "No microphone available."]) }
-        converter = AVAudioConverter(from: hardwareFormat, to: AudioEngine.format48kMono)
+        guard hardwareFormat.sampleRate > 0,
+              let converter = AVAudioConverter(from: hardwareFormat, to: AudioEngine.format48kMono) else {
+            throw NSError(domain: "Mutter", code: 1, userInfo: [NSLocalizedDescriptionKey: "No microphone available."])
+        }
 
         input.removeTap(onBus: 0)
         let tapFrames = AVAudioFrameCount(hardwareFormat.sampleRate * 0.02)
         input.installTap(onBus: 0, bufferSize: tapFrames, format: hardwareFormat) { [weak self] buffer, _ in
-            self?.handleInput(buffer)
+            self?.handleInput(buffer, converter: converter)
         }
 
         let source = AVAudioSourceNode(format: AudioEngine.format48kMono) { [weak self] _, _, frameCount, audioBufferList -> OSStatus in
@@ -274,8 +291,7 @@ final class AudioEngine: VoiceSink {
         engine.prepare()
     }
 
-    private func handleInput(_ buffer: AVAudioPCMBuffer) {
-        guard let converter else { return }
+    private func handleInput(_ buffer: AVAudioPCMBuffer, converter: AVAudioConverter) {
         let ratio = 48_000.0 / buffer.format.sampleRate
         let outCapacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 32
         guard let out = AVAudioPCMBuffer(pcmFormat: AudioEngine.format48kMono, frameCapacity: outCapacity) else { return }
@@ -380,19 +396,37 @@ final class AudioEngine: VoiceSink {
 
     func receiveAudio(_ packet: AudioPacket) {
         guard !isDeafened, let sender = packet.senderSession else { return }
-        let stream = withStreams { () -> UserStream? in
-            if let existing = streams[sender] { return existing }
-            guard let created = try? UserStream(session: sender) else { return nil }
+        pruneIdleStreamsIfDue()
+        guard let stream = existingStream(for: sender) ?? addStream(for: sender) else { return }
+        stream.push(packet)
+    }
+
+    private func existingStream(for sender: UInt32) -> UserStream? {
+        withStreams { streams[sender] }
+    }
+
+    private func addStream(for sender: UInt32) -> UserStream? {
+        if withStreams({ streams.count }) >= Self.maximumStreamCount {
+            pruneIdleStreams()
+            guard withStreams({ streams.count }) < Self.maximumStreamCount else { return nil }
+        }
+        guard let created = try? UserStream(session: sender) else { return nil }
+        let previousSnapshot = withStreams { () -> [UserStream] in
             created.volume = localVolumes[sender] ?? 1.0
             streams[sender] = created
-            return created
+            return publishRenderedStreams()
         }
-        stream?.push(packet)
-        pruneIdleStreams()
+        releaseAwayFromRenderThread([previousSnapshot])
+        return created
     }
 
     func voiceStreamsDidReset() {
-        withStreams { streams = [:] }
+        let retired = withStreams { () -> [[UserStream]] in
+            let removed = Array(streams.values)
+            streams = [:]
+            return [removed, publishRenderedStreams()]
+        }
+        releaseAwayFromRenderThread(retired)
     }
 
     func setVolume(_ volume: Float, for session: UInt32) {
@@ -402,18 +436,41 @@ final class AudioEngine: VoiceSink {
         }
     }
 
-    private var pruneCounter = 0
+    private func pruneIdleStreamsIfDue() {
+        guard Date().timeIntervalSince(lastPruneAt) >= Self.pruneInterval else { return }
+        pruneIdleStreams()
+    }
+
     private func pruneIdleStreams() {
-        pruneCounter += 1
-        guard pruneCounter % 200 == 0 else { return }
-        withStreams {
-            for (session, stream) in streams where stream.isIdle { streams[session] = nil }
+        lastPruneAt = Date()
+        let candidates = withStreams { streams }
+        let idleSessions = candidates.filter { $0.value.isIdle }.map(\.key)
+        guard !idleSessions.isEmpty else { return }
+        let retired = withStreams { () -> [[UserStream]] in
+            var removed: [UserStream] = []
+            for session in idleSessions {
+                if let stream = streams.removeValue(forKey: session) { removed.append(stream) }
+            }
+            return [removed, publishRenderedStreams()]
+        }
+        releaseAwayFromRenderThread(retired)
+    }
+
+    private func publishRenderedStreams() -> [UserStream] {
+        let previous = renderedStreams
+        renderedStreams = Array(streams.values)
+        return previous
+    }
+
+    private func releaseAwayFromRenderThread(_ retired: [[UserStream]]) {
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + Self.retiredStreamGracePeriod) {
+            withExtendedLifetime(retired) {}
         }
     }
 
     private func render(into out: UnsafeMutablePointer<Float>, frames: Int) {
         guard !isDeafened else { return }
-        let active = withStreams { Array(streams.values) }
+        let active = withStreams { renderedStreams }
         for stream in active { stream.mix(into: out, frames: frames, masterGain: outputGain) }
         for index in 0..<frames {
             let sample = out[index]

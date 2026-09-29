@@ -111,4 +111,11 @@ final class VoicePacketTests: XCTestCase {
         XCTAssertEqual(parsed.maxUsers, 100)
         XCTAssertEqual(parsed.bandwidth, 71536)
     }
+
+    func testLegacyAudioWithNegationChainIsRejected() {
+        var encoded = Data([0x80])
+        encoded.append(Data(repeating: 0xF8, count: 500_000))
+        encoded.append(0x01)
+        XCTAssertNil(VoiceCodec.decode(encoded, format: .legacy))
+    }
 }

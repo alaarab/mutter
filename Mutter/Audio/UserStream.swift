@@ -20,6 +20,11 @@ final class UserStream {
 
     private let prebufferSamples: Int
     private let capacity: Int
+    private let maximumBufferedSamples = 48 * 250
+    private let trimmedBufferedSamples = 48 * 120
+
+    private static let lateToleranceUnits: UInt64 = 100
+    private static let sequenceRestartGap: TimeInterval = 0.2
 
     init(session: UInt32, prebufferMs: Int = 40) throws {
         self.session = session
@@ -40,6 +45,17 @@ final class UserStream {
     }
 
     func push(_ packet: AudioPacket) {
+        let secondsSinceLastPacket = synchronized { Date().timeIntervalSince(lastPacketAt) }
+        if lastFrameNumber != 0, packet.frameNumber < lastFrameNumber {
+            let unitsBehind = lastFrameNumber - packet.frameNumber
+            let isLate = unitsBehind <= Self.lateToleranceUnits && secondsSinceLastPacket < Self.sequenceRestartGap
+            if isLate {
+                synchronized { lastPacketAt = Date() }
+                return
+            }
+            lastFrameNumber = 0
+            decoder.reset()
+        }
         let expected = lastFrameNumber
         let missingUnits = packet.frameNumber > expected && expected != 0 ? packet.frameNumber - expected : 0
         if let samplesPerPacket = lastPacketSamples,
@@ -77,6 +93,12 @@ final class UserStream {
                 ring[writeIndex] = sample
                 writeIndex = (writeIndex + 1) % capacity
                 available += 1
+            }
+            if started && available > maximumBufferedSamples {
+                let excess = available - trimmedBufferedSamples
+                readIndex = (readIndex + excess) % capacity
+                available -= excess
+                fadeIn = rampSamples
             }
             if !started && available >= prebufferSamples {
                 started = true

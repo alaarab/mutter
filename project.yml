@@ -162,6 +162,7 @@ schemes:
       config: Debug
       targets:
         - package: MumbleCore/MumbleProtocolTests
+        - package: MumbleCore/MumbleClientTests
         - MutterUITests
     archive:
       config: Release

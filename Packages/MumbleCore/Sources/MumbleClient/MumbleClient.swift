@@ -37,8 +37,11 @@ public final class MumbleClient {
     public var certificateTrust: ((CertificateTrustQuestion) async -> Bool)?
     public var didAcceptCertificate: ((ServerEndpoint, ServerCertificateInfo) -> Void)?
     public var onPluginData: (@MainActor (PluginDataTransmissionMessage) -> Void)?
+    public var prepareMessageForDisplay: ((String) -> Void)?
 
     private let queue = DispatchQueue(label: "mutter.mumble.client", qos: .userInteractive)
+    private let messagePreparationQueue = DispatchQueue(label: "mutter.mumble.messages", qos: .userInitiated)
+    private static let handshakeTimeout: TimeInterval = 30
     private var control: ControlConnection?
     private var voice: VoiceConnection?
     private let crypt = CryptState()
@@ -55,6 +58,8 @@ public final class MumbleClient {
     private var usernameOverride: String?
     private var usernameInUseRetries = 0
     private var pendingCertificate: ServerCertificateInfo?
+    private var handshakeTimeoutWorkItem: DispatchWorkItem?
+    private var sessionGeneration = 0
 
     private var pingTimer: DispatchSourceTimer?
     private var talkTimer: DispatchSourceTimer?
@@ -77,6 +82,7 @@ public final class MumbleClient {
     public func connect(to endpoint: ServerEndpoint, options: ConnectionOptions) {
         queue.async {
             self.teardown(keepState: false)
+            self.sessionGeneration += 1
             self.endpoint = endpoint
             self.options = options
             self.intentionalDisconnect = false
@@ -99,6 +105,7 @@ public final class MumbleClient {
         queue.async {
             self.intentionalDisconnect = true
             self.teardown(keepState: false)
+            self.sessionGeneration += 1
             self.ui { session in
                 session.state = .disconnected
                 session.isTransmitting = false
@@ -114,25 +121,46 @@ public final class MumbleClient {
         }
         control.onEvent = { [weak self] event in self?.handleControl(event) }
         self.control = control
+        startHandshakeTimeout()
         control.start()
+    }
+
+    private func startHandshakeTimeout() {
+        handshakeTimeoutWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.control != nil, !self.isSynced else { return }
+            self.handshakeTimeoutWorkItem = nil
+            self.fail(.timeout)
+        }
+        handshakeTimeoutWorkItem = work
+        queue.asyncAfter(deadline: .now() + Self.handshakeTimeout, execute: work)
+    }
+
+    private func pauseHandshakeTimeout() {
+        handshakeTimeoutWorkItem?.cancel()
+        handshakeTimeoutWorkItem = nil
     }
 
     private func evaluateCertificate(trust: SecTrust, info: ServerCertificateInfo, complete: @escaping (Bool) -> Void) {
         pendingCertificate = info
+        let pinIfAccepted: (Bool) -> Void = { [weak self] accepted in
+            if accepted { self?.options?.expectedFingerprint = info.sha256Fingerprint }
+            complete(accepted)
+        }
         let expected = options?.expectedFingerprint
         if let expected {
             if expected == info.sha256Fingerprint {
                 complete(true)
                 return
             }
-            ask(.changed(expected: expected, actual: info), complete: complete)
+            ask(.changed(expected: expected, actual: info), complete: pinIfAccepted)
             return
         }
         if CertificateInspector.isSystemTrusted(trust) {
             complete(true)
             return
         }
-        ask(.firstContact(info), complete: complete)
+        ask(.firstContact(info), complete: pinIfAccepted)
     }
 
     private func ask(_ question: CertificateTrustQuestion, complete: @escaping (Bool) -> Void) {
@@ -140,15 +168,21 @@ public final class MumbleClient {
             if case .firstContact = question { complete(true) } else { complete(false) }
             return
         }
+        pauseHandshakeTimeout()
+        let askingControl = control
         Task {
             let ok = await handler(question)
-            self.queue.async { complete(ok) }
+            self.queue.async {
+                if ok, self.control != nil, self.control === askingControl { self.startHandshakeTimeout() }
+                complete(ok)
+            }
         }
     }
 
     private func teardown(keepState: Bool) {
         reconnectWorkItem?.cancel()
         reconnectWorkItem = nil
+        pauseHandshakeTimeout()
         pingTimer?.cancel()
         pingTimer = nil
         talkTimer?.cancel()
@@ -381,10 +415,12 @@ public final class MumbleClient {
     private func handleServerSync(_ sync: ServerSyncMessage) {
         mySession = sync.session
         isSynced = true
+        pauseHandshakeTimeout()
         reconnectAttempt = 0
         usernameInUseRetries = 0
         usernameOverride = nil
         let certificate = pendingCertificate
+        if let certificate { options?.expectedFingerprint = certificate.sha256Fingerprint }
         let endpoint = self.endpoint
         let permissions = Permissions(rawValue: UInt32(truncatingIfNeeded: sync.permissions ?? 0))
         ui { session in
@@ -430,8 +466,17 @@ public final class MumbleClient {
 
     private func applyChannelState(_ state: ChannelStateMessage) {
         guard let channelID = state.channelId else { return }
-        var channel = channels[channelID] ?? Channel(id: channelID, parentID: state.parent, name: state.name ?? "")
-        if let parent = state.parent { channel.parentID = (channelID == Channel.rootID) ? nil : parent }
+        let isKnown = channels[channelID] != nil
+        var channel = channels[channelID] ?? Channel(id: channelID, parentID: nil, name: state.name ?? "")
+        if let parent = state.parent {
+            if channelID == Channel.rootID {
+                channel.parentID = nil
+            } else if !Channel.wouldCreateCycle(movingChannel: channelID, under: parent, in: channels) {
+                channel.parentID = parent
+            } else if !isKnown {
+                channel.parentID = Channel.rootID
+            }
+        }
         if let name = state.name { channel.name = name }
         if let description = state.description {
             channel.description = description
@@ -542,6 +587,21 @@ public final class MumbleClient {
             scope = .system
         }
         let message = ChatMessage(senderSession: text.actor, senderName: senderName, html: text.message, scope: scope)
+        guard let prepare = prepareMessageForDisplay else {
+            publish(message)
+            return
+        }
+        let generation = sessionGeneration
+        messagePreparationQueue.async { [weak self] in
+            prepare(message.html)
+            self?.queue.async {
+                guard let self, self.sessionGeneration == generation else { return }
+                self.publish(message)
+            }
+        }
+    }
+
+    private func publish(_ message: ChatMessage) {
         ui { session in
             session.appendMessage(message)
             session.appendNotice(.textMessage(message))
@@ -583,8 +643,8 @@ public final class MumbleClient {
                 }
             }
         case .audio(let audio):
-            guard let sender = audio.senderSession else { return }
-            if users[sender]?.isLocallyMuted == true { return }
+            guard let sender = audio.senderSession, let user = users[sender] else { return }
+            if user.isLocallyMuted { return }
             voiceSink?.receiveAudio(audio)
             noteTalking(sender, context: audio.context, ended: audio.isTerminator)
         }

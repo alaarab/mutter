@@ -41,4 +41,24 @@ final class FramingTests: XCTestCase {
         parser.append(Data([0, 0, 0xFF, 0xFF, 0xFF, 0xFF]))
         XCTAssertThrowsError(try parser.nextFrame())
     }
+
+    func testManyFramesFromOneReadKeepTheirOrderAndPartialTail() throws {
+        var stream = Data()
+        for index in 0..<2_000 {
+            stream.append(ControlFraming.frame(type: 1, payload: Data([UInt8(index % 256), UInt8(index / 256)])))
+        }
+        let tail = ControlFraming.frame(type: 7, payload: Data(repeating: 9, count: 50))
+        var parser = ControlFrameParser()
+        parser.append(stream + tail.prefix(20))
+        var parsed: [ControlFrame] = []
+        while let frame = try parser.nextFrame() {
+            parsed.append(frame)
+        }
+        XCTAssertEqual(parsed.count, 2_000)
+        XCTAssertEqual(parsed[1_234].payload, Data([UInt8(1_234 % 256), UInt8(1_234 / 256)]))
+        XCTAssertEqual(parser.pendingBytes, 20)
+        parser.append(tail.dropFirst(20))
+        XCTAssertEqual(try parser.nextFrame(), ControlFrame(type: 7, payload: Data(repeating: 9, count: 50)))
+        XCTAssertEqual(parser.pendingBytes, 0)
+    }
 }
