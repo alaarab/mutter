@@ -22,12 +22,14 @@ jobs:
         with:
           node-version: '22'
           package-manager-cache: false
+      - run: node web/test/protobuf.test.mjs
       - run: node web/test/ocb2.test.mjs
       - run: node web/test/voice.test.mjs
       - run: node web/test/signal.test.mjs
       - run: node web/test/jitter.test.mjs
       - run: node web/test/dsp.test.mjs
       - run: node web/test/rnnoise.test.mjs
+      - run: node web/test/roster.test.mjs
 
   browser:
     runs-on: ubuntu-latest
@@ -50,4 +52,4 @@ jobs:
         env:
           FAKE_UDP: '0'
       - run: node web/test/share.test.mjs
-      - run: node --test --test-concurrency=1 web/test/appearance.test.mjs web/test/persistence.test.mjs
+      - run: node --test --test-concurrency=1 web/test/lifecycle.test.mjs web/test/appearance.test.mjs web/test/persistence.test.mjs
