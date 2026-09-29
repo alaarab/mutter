@@ -75,6 +75,9 @@ BrowserWindow ──http/ws──▶ bridge (in the main process) ──TLS + UD
 - `web/` and the fonts are shipped as extra resources next to the app, not inside the archive,
   so they can be inspected and edited in place. The bridge finds them through
   `process.resourcesPath`.
+- Packaged builds flip Electron's fuses: `ELECTRON_RUN_AS_NODE`, `NODE_OPTIONS` and `--inspect`
+  are ignored, the app loads only from `app.asar`, and macOS and Windows builds check that
+  archive's integrity. The web client in the extra resources is outside that check.
 - The renderer runs sandboxed with context isolation. Its preload exposes only credential
   reads and writes; the main process checks the requesting window, frame, and URL. The picker
   has a separate preload exposing its selection controls. The picker loads the shared
