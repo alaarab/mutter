@@ -263,3 +263,49 @@ test('auto connect keeps the saved password in secure storage', { timeout: 60_00
   assert.ok(!(await page.eval(`localStorage.getItem('mutter.servers')`)).includes('hunter2'));
   assert.deepEqual(page.errors(), []);
 });
+
+test('an empty terminator packet still ends the speaker’s stream', { timeout: 60_000 }, async (t) => {
+  const environment = await startEnvironment();
+  t.after(() => environment.close());
+  const page = await environment.browser.newPage(environment.bridge.url);
+  const ended = await page.eval(`(async () => {
+    const { AudioEngine } = await import('/app/audio.js');
+    const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+    const packets = [];
+    const encoder = new AudioEncoder({ output: (chunk) => { const bytes = new Uint8Array(chunk.byteLength); chunk.copyTo(bytes); packets.push(bytes); }, error() {} });
+    encoder.configure({ codec: 'opus', sampleRate: 48000, numberOfChannels: 1, bitrate: 32000, opus: { frameDuration: 20000 } });
+    for (let index = 0; index < 3; index++) {
+      encoder.encode(new AudioData({ format: 'f32-planar', sampleRate: 48000, numberOfFrames: 960, numberOfChannels: 1, timestamp: index * 20000, data: new Float32Array(960).fill(0.01) }));
+    }
+    await encoder.flush();
+    const ends = [];
+    const originalPost = MessagePort.prototype.postMessage;
+    MessagePort.prototype.postMessage = function (message, ...rest) {
+      if (message?.type === 'end') {
+        ends.push(message.session);
+      }
+      return originalPost.call(this, message, ...rest);
+    };
+    const client = Object.assign(new EventTarget(), {
+      users: new Map([[2, { session: 2, name: 'Talker' }]]),
+      isConnected: false,
+      diag() {},
+      setSelfMute() {},
+      setSelfDeaf() {},
+    });
+    const engine = new AudioEngine(client, {});
+    await engine.start({ source: 'tone' });
+    const voice = (frameNumber, opus, isTerminator = false) =>
+      client.dispatchEvent(new CustomEvent('voice', { detail: { session: 2, frameNumber: BigInt(frameNumber), opus, isTerminator } }));
+    voice(0, packets[0]);
+    voice(2, packets[1]);
+    await wait(100);
+    voice(4, new Uint8Array(0), true);
+    await wait(100);
+    await engine.stop();
+    MessagePort.prototype.postMessage = originalPost;
+    return ends;
+  })()`);
+  assert.deepEqual(ended, [2]);
+  assert.deepEqual(page.errors(), []);
+});
