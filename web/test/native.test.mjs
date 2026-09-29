@@ -17,13 +17,21 @@ if (process.platform !== 'darwin') {
   const packageArgs = ['--package-path', path.join(root, 'Packages/MumbleCore'), '--scratch-path', path.join(temporary, 'build')];
   execFileSync('swift', ['build', ...packageArgs], { stdio: 'pipe' });
   const bin = execFileSync('swift', ['build', ...packageArgs, '--show-bin-path'], { encoding: 'utf8' }).trim();
-  const objects = module => fs.readdirSync(path.join(bin, `${module}.build`))
-    .filter(name => name.endsWith('.swift.o')).map(name => path.join(bin, `${module}.build`, name));
+  const objects = module => {
+    const perFileDirectory = path.join(bin, `${module}.build`);
+    if (fs.existsSync(perFileDirectory)) {
+      return fs.readdirSync(perFileDirectory)
+        .filter(name => name.endsWith('.swift.o')).map(name => path.join(perFileDirectory, name));
+    }
+    return [path.join(bin, `${module}.o`)];
+  };
+  const moduleSearchPaths = [path.join(bin, 'Modules'), bin].filter(directory => fs.existsSync(directory))
+    .flatMap(directory => ['-I', directory]);
   const protocolObjects = objects('MumbleProtocol');
   const compile = (name, extra) => {
     const output = path.join(temporary, name);
     execFileSync('swiftc', ['-parse-as-library', '-target', `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macosx14.0`,
-      '-I', path.join(bin, 'Modules'), path.join(root, `web/test/native/${name}.swift`), ...extra, ...protocolObjects, '-o', output], { stdio: 'pipe' });
+      ...moduleSearchPaths, path.join(root, `web/test/native/${name}.swift`), ...extra, ...protocolObjects, '-o', output], { stdio: 'pipe' });
     return output;
   };
   const audio = compile('AudioProbe', [path.join(root, 'Mutter/Audio/UserStream.swift')]);
