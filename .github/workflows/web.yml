@@ -1,0 +1,53 @@
+name: web
+
+on:
+  push:
+    branches: [main]
+    paths: ['web/**', 'design/**', 'scripts/generate-themes.mjs', '.github/workflows/web.yml']
+  pull_request:
+    paths: ['web/**', 'design/**', 'scripts/generate-themes.mjs', '.github/workflows/web.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  units:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - run: node web/test/ocb2.test.mjs
+      - run: node web/test/voice.test.mjs
+      - run: node web/test/signal.test.mjs
+      - run: node web/test/jitter.test.mjs
+      - run: node web/test/dsp.test.mjs
+      - run: node web/test/rnnoise.test.mjs
+
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CHROME: google-chrome
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - run: node web/test/e2e.test.mjs
+      - run: node web/test/e2e.test.mjs
+        env:
+          FAKE_VERSION: 1.4.287
+      - run: node web/test/e2e.test.mjs
+        env:
+          FAKE_UDP: '0'
+      - run: node web/test/share.test.mjs
+      - run: node --test --test-concurrency=1 web/test/appearance.test.mjs web/test/persistence.test.mjs

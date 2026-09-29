@@ -1,0 +1,29 @@
+name: ios
+
+on:
+  push:
+    branches: [main]
+    paths: ['Mutter/**', 'MutterWidgets/**', 'MutterUITests/**', 'Packages/**', 'design/**', 'project.yml', 'Signing.xcconfig', '.github/workflows/ios.yml']
+  pull_request:
+    paths: ['Mutter/**', 'MutterWidgets/**', 'MutterUITests/**', 'Packages/**', 'design/**', 'project.yml', 'Signing.xcconfig', '.github/workflows/ios.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - run: >
+          xcodebuild build-for-testing
+          -project Mutter.xcodeproj
+          -scheme Mutter
+          -destination 'generic/platform=iOS Simulator'
+          -skipPackagePluginValidation
+          CODE_SIGNING_ALLOWED=NO
