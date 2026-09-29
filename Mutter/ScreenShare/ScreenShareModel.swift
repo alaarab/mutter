@@ -211,22 +211,30 @@ final class ScreenShareModel: NSObject {
 
         do {
             try await connection.setRemoteDescription(RTCSessionDescription(type: .offer, sdp: sdp))
+            guard isCurrent(connection) else { return }
             remoteDescriptionSet = true
             if !pendingCandidates.isEmpty {
                 addCandidates(pendingCandidates, to: connection)
                 pendingCandidates.removeAll()
             }
             let answer = try await connection.answer(for: constraints)
+            guard isCurrent(connection) else { return }
             try await connection.setLocalDescription(answer)
+            guard isCurrent(connection) else { return }
             await waitForGathering(connection)
-            guard let local = connection.localDescription, watching?.id == id else { return }
+            guard isCurrent(connection), let local = connection.localDescription, watching?.id == id else { return }
             sender.send(.answer(id, sdp: local.sdp), to: [sharer])
             startStats()
         } catch {
+            guard isCurrent(connection) else { return }
             self.error = error.localizedDescription
             DiagnosticsLog.shared.add("share", "answer failed: \(error.localizedDescription)")
             stopWatching(sendLeave: true)
         }
+    }
+
+    private func isCurrent(_ connection: RTCPeerConnection) -> Bool {
+        peerConnection === connection
     }
 
     private func waitForGathering(_ connection: RTCPeerConnection) async {
@@ -285,7 +293,10 @@ extension ScreenShareModel: RTCPeerConnectionDelegate {
 
     nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream) {
         if let track = stream.videoTracks.first {
-            Task { @MainActor in self.videoTrack = track }
+            Task { @MainActor in
+                guard self.isCurrent(peerConnection) else { return }
+                self.videoTrack = track
+            }
         }
     }
 
@@ -304,6 +315,7 @@ extension ScreenShareModel: RTCPeerConnectionDelegate {
         default: label = "Connecting…"
         }
         Task { @MainActor in
+            guard self.isCurrent(peerConnection) else { return }
             self.connectionState = label
             DiagnosticsLog.shared.add("share", "ice → \(label)")
             if newState == .failed {
@@ -322,7 +334,10 @@ extension ScreenShareModel: RTCPeerConnectionDelegate {
 
     nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didAdd rtpReceiver: RTCRtpReceiver, streams mediaStreams: [RTCMediaStream]) {
         if let track = rtpReceiver.track as? RTCVideoTrack {
-            Task { @MainActor in self.videoTrack = track }
+            Task { @MainActor in
+                guard self.isCurrent(peerConnection) else { return }
+                self.videoTrack = track
+            }
         }
     }
 }

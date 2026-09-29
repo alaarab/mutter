@@ -30,6 +30,11 @@ struct RootView: View {
         } message: {
             Text(model.settings.storageError ?? model.servers.storageError ?? "Please try again.")
         }
+        .alert("Can’t connect", isPresented: Binding(isPresent: $model.connectionProblem)) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(model.connectionProblem ?? "")
+        }
         .sheet(item: $model.trustPrompt) { prompt in
             CertificateTrustSheet(prompt: prompt)
                 .interactiveDismissDisabled()
@@ -39,13 +44,14 @@ struct RootView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             DiagnosticsLog.shared.add("app", "scene → \(phase)")
+            if phase != .active { model.releaseHeldControls() }
             switch phase {
             case .background: model.setBackgrounded(true)
             case .active: model.setBackgrounded(false)
             default: break
             }
         }
-        .onChange(of: model.session.notices.count) { _, _ in
+        .onChange(of: model.session.totalNoticesPosted) { _, _ in
             model.noticesDidChange(scenePhase: scenePhase)
         }
     }

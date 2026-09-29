@@ -23,6 +23,7 @@ final class AppModel {
     let screenShare: ScreenShareModel
 
     private(set) var identities: [ClientIdentity] = IdentityStore.shared.identities
+    private(set) var unavailableIdentityIDs: Set<UUID> = AppModel.unavailableIdentities(in: IdentityStore.shared.identities)
     private(set) var activeServer: SavedServer?
     var isSessionMinimized = false
     private(set) var whisperTarget: WhisperTarget?
@@ -36,9 +37,11 @@ final class AppModel {
     var toast: SessionNotice?
     var pendingChatScope: MessageScope?
     var collapsedChannels: [UUID: Set<UInt32>] = [:]
+    var connectionProblem: String?
 
     @ObservationIgnored private var toastTask: Task<Void, Never>?
-    @ObservationIgnored private var lastNoticeCount = 0
+    @ObservationIgnored private var handledNoticeTotal = 0
+    @ObservationIgnored private var isHoldingToTalk = false
 
     var session: ServerSession { client.session }
 
@@ -46,6 +49,7 @@ final class AppModel {
         client = MumbleClient()
         screenShare = ScreenShareModel(client: client)
         client.voiceSink = audio
+        client.prepareMessageForDisplay = { html in HTMLText.prepareInBackground(html) }
         AppModel.shared = self
         client.onPluginData = { [weak self] plugin in
             guard plugin.dataId == RTCSignal.dataId else { return }
@@ -108,24 +112,33 @@ final class AppModel {
     func connect(_ server: SavedServer) {
         var target = server
         if target.username.isEmpty { target.username = settings.defaultUsername.isEmpty ? "Mutter" : settings.defaultUsername }
-        activeServer = target
         var options = ConnectionOptions(username: target.username, password: servers.password(for: target))
         options.tokens = target.tokens
-        options.expectedFingerprint = target.certificateFingerprint
+        options.expectedFingerprint = target.certificateFingerprint ?? servers.pinnedFingerprint(for: target.endpoint)
         options.osVersion = UIDevice.current.systemVersion
         options.clientRelease = "Mutter \(Bundle.main.shortVersion ?? "0.1")"
         if let identityID = target.identityID ?? settings.defaultIdentityID,
            let identity = identities.first(where: { $0.id == identityID }) {
-            options.identity = IdentityStore.shared.secIdentity(for: identity)
+            guard let secIdentity = IdentityStore.shared.secIdentity(for: identity) else {
+                reloadIdentities()
+                connectionProblem = "The certificate “\(identity.name)” isn’t on this device. Import it again or choose another certificate for this server."
+                return
+            }
+            options.identity = secIdentity
         }
+        activeServer = target
         collapsedChannels[target.id] = collapsedChannels[target.id] ?? []
         isSessionMinimized = false
-        lastNoticeCount = 0
         client.connect(to: target.endpoint, options: options)
         requestNotificationPermission()
     }
 
     func quickConnect(host: String, port: UInt16, username: String) {
+        let endpoint = ServerEndpoint(host: host, port: port)
+        if let existing = servers.server(for: endpoint, username: username) {
+            connect(existing)
+            return
+        }
         let server = SavedServer(name: "", host: host, port: port, username: username, isFavorite: false)
         servers.upsert(server)
         connect(server)
@@ -223,8 +236,28 @@ final class AppModel {
         syncTransmitTarget()
     }
 
+    func beginHoldToTalk() {
+        isHoldingToTalk = true
+        audio.isPushToTalkPressed = true
+    }
+
+    func endHoldToTalk() {
+        guard isHoldingToTalk else { return }
+        isHoldingToTalk = false
+        audio.isPushToTalkPressed = false
+    }
+
+    func releaseHeldControls() {
+        endHoldToTalk()
+        if isWhisperHeld { setWhisperHeld(false) }
+    }
+
     func setWhisperHeld(_ held: Bool) {
-        guard whisperTarget != nil, !isMuted else { return }
+        if held {
+            guard whisperTarget != nil, !isMuted else { return }
+        } else {
+            guard isWhisperHeld else { return }
+        }
         isWhisperHeld = held
         syncTransmitTarget()
         if settings.transmitMode == .pushToTalk {
@@ -310,17 +343,19 @@ final class AppModel {
 
     func reloadIdentities() {
         identities = IdentityStore.shared.identities
+        unavailableIdentityIDs = Self.unavailableIdentities(in: identities)
+    }
+
+    nonisolated private static func unavailableIdentities(in identities: [ClientIdentity]) -> Set<UUID> {
+        Set(identities.filter { !IdentityStore.shared.hasKeychainItem(for: $0) }.map(\.id))
     }
 
     func noticesDidChange(scenePhase: ScenePhase) {
-        let notices = session.notices
-        guard notices.count > lastNoticeCount else {
-            lastNoticeCount = notices.count
-            return
-        }
-        let fresh = notices[lastNoticeCount...]
-        lastNoticeCount = notices.count
-        for notice in fresh {
+        let total = session.totalNoticesPosted
+        let unseenCount = min(max(total - handledNoticeTotal, 0), session.notices.count)
+        handledNoticeTotal = total
+        guard unseenCount > 0 else { return }
+        for notice in session.notices.suffix(unseenCount) {
             switch notice {
             case .textMessage(let message):
                 if scenePhase != .active && settings.notifyOnMessage {

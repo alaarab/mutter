@@ -26,5 +26,10 @@ let package = Package(
             dependencies: ["MumbleProtocol"],
             path: "Tests/MumbleProtocolTests"
         ),
+        .testTarget(
+            name: "MumbleClientTests",
+            dependencies: ["MumbleClient"],
+            path: "Tests/MumbleClientTests"
+        ),
     ]
 )

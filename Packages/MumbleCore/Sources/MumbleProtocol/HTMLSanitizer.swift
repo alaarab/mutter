@@ -10,9 +10,9 @@ public enum HTMLSanitizer {
 
     public static func sanitize(_ html: String) -> String {
         let text = String(html.prefix(65_536)) as NSString
-        guard let tokens = try? NSRegularExpression(pattern: "<[^>]*>|[^<]+|<"),
-              let names = try? NSRegularExpression(pattern: "^<\\s*(/?)\\s*([a-zA-Z][a-zA-Z0-9]*)\\b"),
-              let href = try? NSRegularExpression(pattern: "\\s+href\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s>]+))", options: .caseInsensitive) else { return "" }
+        guard let tokens = try? NSRegularExpression(pattern: "<[^<>]*+>|[^<]++|<"),
+              let names = try? NSRegularExpression(pattern: "^<\\s*+(/?)\\s*+([a-zA-Z][a-zA-Z0-9]*+)\\b"),
+              let href = try? NSRegularExpression(pattern: "\\shref\\s*+=\\s*+(?:\"([^\"]*+)\"|'([^']*+)'|([^\\s>]++))", options: .caseInsensitive) else { return "" }
         var output = ""
         var suppressed: String?
         for token in tokens.matches(in: text as String, range: NSRange(location: 0, length: text.length)) {

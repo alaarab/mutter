@@ -20,6 +20,12 @@ struct SavedServer: Identifiable, Codable, Hashable {
     var displayName: String { name.isEmpty ? host : name }
 }
 
+extension ServerEndpoint {
+    func matches(_ other: ServerEndpoint) -> Bool {
+        host.lowercased() == other.host.lowercased() && port == other.port
+    }
+}
+
 @Observable
 final class ServerStore {
     private(set) var servers: [SavedServer] = []
@@ -152,7 +158,15 @@ final class ServerStore {
     }
 
     func server(for endpoint: ServerEndpoint) -> SavedServer? {
-        servers.first { $0.host.lowercased() == endpoint.host.lowercased() && $0.port == endpoint.port }
+        servers.first { $0.endpoint.matches(endpoint) }
+    }
+
+    func server(for endpoint: ServerEndpoint, username: String) -> SavedServer? {
+        servers.first { $0.endpoint.matches(endpoint) && $0.username == username }
+    }
+
+    func pinnedFingerprint(for endpoint: ServerEndpoint) -> Data? {
+        servers.first { $0.endpoint.matches(endpoint) && $0.certificateFingerprint != nil }?.certificateFingerprint
     }
 
     func markConnected(_ id: UUID) {
@@ -164,7 +178,7 @@ final class ServerStore {
 
     func setFingerprint(_ fingerprint: Data, for endpoint: ServerEndpoint) {
         var updated = servers
-        for i in updated.indices where updated[i].host.lowercased() == endpoint.host.lowercased() && updated[i].port == endpoint.port {
+        for i in updated.indices where updated[i].endpoint.matches(endpoint) {
             updated[i].certificateFingerprint = fingerprint
         }
         if updated != servers { persist(updated) }
