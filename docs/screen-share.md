@@ -47,8 +47,8 @@ the sharer when it starts, so late or stale signals for an earlier share can be 
 
 | `t` | Direction | Fields | When |
 |---|---|---|---|
-| `announce` | sharer → channel members | `id`, `title`, `w`, `h`, `audio` | Once on start to everyone in the channel, and once to each person who joins the channel afterwards. Never repeated: the control channel is reliable, and the plugin channel is someone else's server — nothing recurring rides on it. Viewers keep the offer until `stop`, or the sharer leaves. |
-| `stop` | sharer → everyone announced to | `id` | Sharing ended. |
+| `announce` | sharer → channel members | `id`, `title`, `w`, `h`, `audio` | Once on start to everyone in the channel, and once to each person who joins the channel afterwards. Never repeated: the control channel is reliable, and the plugin channel is someone else's server — nothing recurring rides on it. Viewers keep the offer until `stop`, or until either of them leaves the channel. |
+| `stop` | sharer → everyone announced to | `id` | Sharing ended, or that person left the sharer's channel. |
 | `watch` | viewer → sharer | `id` | Please send me an offer. |
 | `offer` | sharer → viewer | `id`, `sdp` | Complete SDP offer, candidates included (vanilla ICE: gather until complete or 1.5 s). |
 | `answer` | viewer → sharer | `id`, `sdp` | Complete SDP answer, same rule. |
@@ -73,15 +73,20 @@ handful of people). A viewer watches one share at a time.
 
 Rules both sides follow:
 
-- The sharer answers **any** `watch` that carries its current `id`, whether or not it has seen
-  an announce reach that viewer (a late joiner may have learned the id another way). It then
-  treats that viewer as announced, so it also receives `stop`.
+- The sharer answers a `watch` that carries its current `id` only from someone who is **in its
+  channel right now**. When a viewer leaves the channel, the sharer closes that viewer's
+  connection and sends it `stop`; coming back brings a fresh `announce`. The id is never
+  rotated, so this channel check is what keeps former members out.
+- The sharer accepts a short burst of `watch` requests from one viewer (4, then one every 2 s)
+  and ignores the rest. A newer `offer` or `answer` for the same viewer and share replaces one
+  still waiting in the send queue, and the queue is capped, so a flood cannot delay everyone
+  else's signaling.
 - A viewer may **decline the audio m-line** in its answer (port 0). iOS always does — WebRTC's
   audio unit would fight Mutter's own audio engine — and the web does when "Play the sharer's
   audio" is off. The sharer must keep the video going regardless; `web/test/share.test.mjs`
   checks this.
 - A viewer sends `watch` only after it has an `announce` for that `id`; an `offer` for an
-  unknown `id` is ignored.
+  unknown `id` is ignored. A viewer drops offers from anyone who is not in its channel.
 
 ## Media
 

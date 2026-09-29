@@ -112,6 +112,69 @@ try {
     }
   });
 
+  await step('watching twice in a row keeps one connection', async () => {
+    await bravo.eval(`(() => {
+      const sender = [...mutter.share.available.keys()][0];
+      mutter.share.watch(sender);
+      mutter.share.watch(sender);
+    })()`);
+    await bravo.waitFor(`mutter.share.watching?.state === 'connected'`, { timeout: 15_000, label: 'double watch connected' });
+    await sleep(1500);
+    if ((await bravo.eval(`mutter.share.watching?.state`)) !== 'connected') {
+      throw new Error('the second watch broke the first connection');
+    }
+    const peers = await alpha.eval('mutter.share.sharing.peers.size');
+    if (peers !== 1) {
+      throw new Error(`sharer holds ${peers} peers for one viewer`);
+    }
+  });
+
+  await step('a viewer who leaves the channel is dropped and cannot watch from outside', async () => {
+    await bravo.eval('mutter.client.joinChannel(1)');
+    await alpha.waitFor('mutter.share.sharing.peers.size === 0', { timeout: 5000, label: 'sharer closed the departed viewer' });
+    await bravo.waitFor('!mutter.share.watching && mutter.share.available.size === 0', { timeout: 5000 });
+    await bravo.eval(`(async () => {
+      const { encodeSignal, DATA_ID } = await import('/src/rtcsignal.js');
+      const sharer = [...mutter.client.users.values()].find((user) => user.name === 'Alpha').session;
+      const id = ${JSON.stringify(await alpha.eval('mutter.share.sharing.id'))};
+      for (const data of await encodeSignal({ t: 'watch', id }, 200)) {
+        mutter.client.sendPlugin([sharer], DATA_ID, data);
+      }
+    })()`);
+    await alpha.waitFor(`mutter.client.log.some((entry) => entry.message.includes('not in this channel'))`, { timeout: 5000 });
+    if ((await alpha.eval('mutter.share.sharing.peers.size')) !== 0) {
+      throw new Error('sharer answered a watch from another channel');
+    }
+  });
+
+  await step('coming back to the channel offers the share again', async () => {
+    await bravo.eval('mutter.client.joinChannel(0)');
+    await bravo.waitFor('mutter.share.available.size === 1', { timeout: 5000, label: 'announce after returning' });
+    await bravo.click('.offer .watch');
+    await bravo.waitFor(`mutter.share.watching?.state === 'connected'`, { timeout: 15_000 });
+    await bravo.eval(`document.querySelector('.stage-bar .icon[title="Stop watching"]').click()`);
+    await alpha.waitFor('mutter.share.sharing.peers.size === 0', { timeout: 5000 });
+  });
+
+  await step('two quick camera starts leave no camera running after Camera off', async () => {
+    const live = await alpha.eval(`(async () => {
+      const tracks = [];
+      const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = async (constraints) => {
+        const stream = await original(constraints);
+        tracks.push(...stream.getTracks());
+        return stream;
+      };
+      await Promise.all([mutter.share.startCamera(), mutter.share.startCamera()]);
+      mutter.share.stopCamera();
+      navigator.mediaDevices.getUserMedia = original;
+      return { opened: tracks.length, live: tracks.filter((track) => track.readyState === 'live').length };
+    })()`);
+    if (live.opened !== 1 || live.live !== 0) {
+      throw new Error(`camera tracks after Camera off: ${JSON.stringify(live)}`);
+    }
+  });
+
   await step('a newcomer to the channel is announced to immediately', async () => {
     const charlie = await openViewer('Charlie');
     await charlie.waitFor('mutter.share.available.size === 1', { timeout: 4000 });
