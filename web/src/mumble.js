@@ -1,4 +1,4 @@
-import { Reader, Writer } from './protobuf.js';
+import { ByteQueue, Reader, Writer } from './protobuf.js';
 
 export const MessageType = {
   version: 0,
@@ -211,27 +211,25 @@ export function frame(type, payload) {
 
 export class FrameParser {
   constructor() {
-    this.buffer = new Uint8Array(0);
+    this.pending = new ByteQueue();
   }
 
   push(chunk) {
-    const merged = new Uint8Array(this.buffer.length + chunk.length);
-    merged.set(this.buffer);
-    merged.set(chunk, this.buffer.length);
-    this.buffer = merged;
+    this.pending.push(chunk);
     const frames = [];
-    while (this.buffer.length >= HEADER_SIZE) {
-      const view = new DataView(this.buffer.buffer, this.buffer.byteOffset);
+    while (this.pending.length >= HEADER_SIZE) {
+      const header = this.pending.peek(HEADER_SIZE);
+      const view = new DataView(header.buffer, header.byteOffset, HEADER_SIZE);
       const type = view.getUint16(0, false);
       const length = view.getUint32(2, false);
       if (length > MAX_PAYLOAD) {
         throw new Error(`payload too large: ${length}`);
       }
-      if (this.buffer.length < HEADER_SIZE + length) {
+      if (this.pending.length < HEADER_SIZE + length) {
         break;
       }
-      frames.push({ type, payload: this.buffer.subarray(HEADER_SIZE, HEADER_SIZE + length) });
-      this.buffer = this.buffer.subarray(HEADER_SIZE + length);
+      this.pending.skip(HEADER_SIZE);
+      frames.push({ type, payload: this.pending.take(length) });
     }
     return frames;
   }
