@@ -33,21 +33,57 @@ class AppStore(private val context: Context) {
                 }
                 .generateKey()
     }
-    private var data =
-        read("settings")?.let { JSONObject(it.toString(Charsets.UTF_8)) } ?: JSONObject()
-    private val mutableSettings =
-        MutableStateFlow(readSettings(data.optJSONObject("settings") ?: JSONObject()))
+    private val mutableRecoveryNotice = MutableStateFlow<String?>(null)
+    val recoveryNotice = mutableRecoveryNotice.asStateFlow()
+    private val saved = loadSaved()
+    private var data = saved.data
+    private val mutableSettings = MutableStateFlow(saved.settings)
     val settings = mutableSettings.asStateFlow()
-    private val mutableServers =
-        MutableStateFlow(data.optJSONArray("servers").objects().map(::readServer))
+    private val mutableServers = MutableStateFlow(saved.servers)
     val servers = mutableServers.asStateFlow()
-    private val mutableIdentities =
-        MutableStateFlow(
+    private val mutableIdentities = MutableStateFlow(saved.identities)
+    val identities = mutableIdentities.asStateFlow()
+
+    private class Saved(
+        val data: JSONObject,
+        val settings: Settings,
+        val servers: List<Server>,
+        val identities: List<IdentityInfo>,
+    )
+
+    private fun parseSaved(data: JSONObject) =
+        Saved(
+            data,
+            readSettings(data.optJSONObject("settings") ?: JSONObject()),
+            data.optJSONArray("servers").objects().map(::readServer),
             data.optJSONArray("identities").objects().map {
                 IdentityInfo(it.getString("id"), it.getString("name"), it.getString("fingerprint"))
-            }
+            },
         )
-    val identities = mutableIdentities.asStateFlow()
+
+    private fun loadSaved(): Saved =
+        try {
+            parseSaved(
+                read("settings")?.let { JSONObject(it.toString(Charsets.UTF_8)) } ?: JSONObject()
+            )
+        } catch (error: Exception) {
+            setAsideUnreadable("settings")
+            mutableRecoveryNotice.value =
+                "Mutter couldn't read its saved servers and settings, so it started fresh. The unreadable copy is kept on this device."
+            parseSaved(JSONObject())
+        }
+
+    private fun setAsideUnreadable(name: String) {
+        val stamp = System.currentTimeMillis()
+        val current = File(context.filesDir, "$name.enc")
+        val previous = File(context.filesDir, "$name.enc.bak")
+        if (previous.exists()) previous.renameTo(File(context.filesDir, "$name.enc.bak.unreadable-$stamp"))
+        if (current.exists()) current.renameTo(File(context.filesDir, "$name.enc.unreadable-$stamp"))
+    }
+
+    fun dismissRecoveryNotice() {
+        mutableRecoveryNotice.value = null
+    }
 
     @Synchronized
     fun saveSettings(value: Settings) {
@@ -58,6 +94,11 @@ class AppStore(private val context: Context) {
     fun saveServer(value: Server) {
         require(value.host.isNotBlank() && value.port in 1..65535 && value.username.isNotBlank())
         persist(nextServers = servers.value.filterNot { it.id == value.id } + value)
+    }
+
+    @Synchronized
+    fun trustFingerprint(server: Server, fingerprint: String) {
+        persist(nextServers = withTrustedFingerprint(servers.value, server, fingerprint))
     }
 
     @Synchronized

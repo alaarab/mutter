@@ -68,6 +68,7 @@ fun VoiceControls(
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { refreshMicrophone() }
     val level by app.audio.level.collectAsStateWithLifecycle()
     val talking by app.audio.transmitting.collectAsStateWithLifecycle()
+    val paused by app.audio.pausedByAnotherApp.collectAsStateWithLifecycle()
     val preferences by app.store.settings.collectAsStateWithLifecycle()
     val motion = LocalCatalog.current
     val haptic = LocalHapticFeedback.current
@@ -117,14 +118,28 @@ fun VoiceControls(
                 }
                 Text(
                     when {
+                        paused -> "Paused by another app · Tap to resume"
                         state.self?.selfDeaf == true -> "Deafened"
                         muted -> "Muted"
                         talking -> "Transmitting"
                         preferences.voiceMode == "ptt" -> "Hold the button to talk"
                         else -> label
                     },
+                    modifier =
+                        if (paused)
+                            Modifier.testTag("resumeAudio").clickable(
+                                onClickLabel = "Resume audio"
+                            ) {
+                                app.audio.reclaimFocus()
+                            }
+                        else Modifier,
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (talking) p.speaking else p.muted,
+                    color =
+                        when {
+                            paused -> p.danger
+                            talking -> p.speaking
+                            else -> p.muted
+                        },
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
@@ -135,7 +150,9 @@ fun VoiceControls(
                 if (state.self?.selfMute == true) p.danger else p.ink,
                 state.self?.selfMute == true,
             ) {
-                app.client.mute(state.self?.selfMute != true)
+                val unmuting = state.self?.selfMute == true
+                app.client.mute(!unmuting)
+                if (unmuting) app.audio.reclaimFocus()
             }
             RoundControl(
                 if (state.self?.selfDeaf == true) Icons.AutoMirrored.Rounded.VolumeOff
