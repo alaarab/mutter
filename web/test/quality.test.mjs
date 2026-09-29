@@ -174,6 +174,31 @@ try {
         throw new Error(`playout buffer moved from ${bufferBefore} to ${bufferAfter} ms across quiet spurts`);
       }
     });
+
+    await step('spurts whose terminators are lost end without underruns or buffer growth', async () => {
+      const before = await bravo.eval('mutter.audio.stats.underruns');
+      const bufferBefore = await bravo.eval('mutter.audio.stats.jitterMs');
+      environment.server.impairment.dropTerminators = true;
+      try {
+        for (let spurt = 0; spurt < 4; spurt++) {
+          await alpha.eval('mutter.audio.setPTT(true)');
+          await sleep(500);
+          await alpha.eval('mutter.audio.setPTT(false)');
+          await sleep(900);
+        }
+      } finally {
+        environment.server.impairment.dropTerminators = false;
+      }
+      await sleep(1200);
+      const after = await bravo.eval('mutter.audio.stats.underruns');
+      if (after !== before) {
+        throw new Error(`${after - before} underruns counted when terminators were lost`);
+      }
+      const bufferAfter = await bravo.eval('mutter.audio.stats.jitterMs');
+      if (bufferAfter !== bufferBefore) {
+        throw new Error(`playout buffer moved from ${bufferBefore} to ${bufferAfter} ms when terminators were lost`);
+      }
+    });
   }
   checkNoPageErrors([
     ['Alpha', alpha],

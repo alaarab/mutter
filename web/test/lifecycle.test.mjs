@@ -183,3 +183,83 @@ test('a channel tree with a parent loop renders each channel once', { timeout: 6
   assert.deepEqual(rendered, ['Root', 'One', 'Two', 'Looped']);
   assert.deepEqual(page.errors(), []);
 });
+
+test('a new talk spurt is not counted as a delivery stall, a mid-speech loss burst still is', { timeout: 60_000 }, async (t) => {
+  const environment = await startEnvironment();
+  t.after(() => environment.close());
+  const page = await environment.browser.newPage(environment.bridge.url);
+  const stalls = await page.eval(`(async () => {
+    const { MumbleClient } = await import('/app/client.js');
+    const { frame, MessageType } = await import('/src/mumble.js');
+    const { Writer } = await import('/src/protobuf.js');
+    const { encodeServerAudio } = await import('/src/voice.js');
+    const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+    let socket = null;
+    window.WebSocket = class {
+      static OPEN = 1;
+      readyState = 1;
+      constructor() {
+        socket = this;
+      }
+      send() {}
+      close() {}
+    };
+    const client = new MumbleClient();
+    client.connect({ host: 'voice.example', port: 64738, username: 'Listener' });
+    while (!socket) {
+      await wait(10);
+    }
+    const deliver = (type, payload) => socket.onmessage({ data: frame(type, payload).buffer });
+    socket.onmessage({ data: JSON.stringify({ event: 'open', fingerprint: 'f'.repeat(64) }) });
+    deliver(MessageType.userState, new Writer().uint(1, 2).string(3, 'Talker').uint(5, 0).finish());
+    deliver(MessageType.userState, new Writer().uint(1, 1).string(3, 'Listener').uint(5, 0).finish());
+    deliver(MessageType.serverSync, new Writer().uint(1, 1).finish());
+    const speak = (frameNumber, isTerminator = false) =>
+      deliver(MessageType.udpTunnel, encodeServerAudio({ session: 2, frameNumber, opus: new Uint8Array([1, 2, 3]), isTerminator }, 'protobuf'));
+    const counts = {};
+    for (let packet = 0; packet < 10; packet++) speak(packet * 2);
+    speak(20, true);
+    await wait(400);
+    for (let packet = 0; packet < 10; packet++) speak(200 + packet * 2);
+    counts.afterTerminatedSpurt = client.stats.stalls;
+    await wait(2200);
+    for (let packet = 0; packet < 10; packet++) speak(600 + packet * 2);
+    counts.afterLongSilence = client.stats.stalls;
+    await wait(400);
+    speak(700);
+    counts.afterLossBurst = client.stats.stalls;
+    client.disconnect();
+    return counts;
+  })()`);
+  assert.deepEqual(stalls, { afterTerminatedSpurt: 0, afterLongSilence: 0, afterLossBurst: 1 });
+  assert.deepEqual(page.errors(), []);
+});
+
+test('auto connect keeps the saved password in secure storage', { timeout: 60_000 }, async (t) => {
+  const environment = await startEnvironment();
+  t.after(() => environment.close());
+  const { server, bridge } = environment;
+  const page = await environment.browser.newPage(bridge.url);
+  const secretKey = JSON.stringify(['127.0.0.1', server.port, 'Keeper']);
+  await page.eval(`localStorage.setItem('mutter.servers', JSON.stringify([{ host: '127.0.0.1', port: ${server.port}, username: 'Keeper', lastUsed: 1 }]))`);
+  await page.eval(`localStorage.setItem('mutter.certificates', JSON.stringify({ ${JSON.stringify(JSON.stringify(['127.0.0.1', server.port]))}: '${server.fingerprint}' }))`);
+  await page.send('Page.addScriptToEvaluateOnNewDocument', {
+    source: `
+      window.credentialWrites = [];
+      window.mutterCredentials = {
+        read: async () => ({ available: true, value: { servers: { ${JSON.stringify(secretKey)}: 'hunter2' }, turn: '' } }),
+        write: async (value) => { window.credentialWrites.push(value); },
+      };
+    `,
+  });
+  await page.goto(`${bridge.url}/?source=tone#auto`);
+  await page.waitFor(`mutter.client.state === 'connected'`, { label: 'auto connected' });
+  await sleep(300);
+  const writes = await page.eval('window.credentialWrites');
+  for (const write of writes) {
+    assert.equal(write.servers[secretKey], 'hunter2');
+  }
+  assert.equal(await page.eval(`mutter.client.state`), 'connected');
+  assert.ok(!(await page.eval(`localStorage.getItem('mutter.servers')`)).includes('hunter2'));
+  assert.deepEqual(page.errors(), []);
+});

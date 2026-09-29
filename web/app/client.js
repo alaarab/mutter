@@ -34,6 +34,7 @@ const MAX_LOG_ENTRIES = 400;
 const PING_SAMPLE_COUNT = 10;
 const MAX_PING_MS = 60_000;
 const STALL_GAP_MS = 250;
+const NEW_SPURT_GAP_MS = 2000;
 const STALL_FRAMES = 20;
 
 const DenyType = {
@@ -476,7 +477,6 @@ export class MumbleClient extends EventTarget {
       for (const [session, lastHeard] of this.#talkers) {
         if (now - lastHeard > TALK_HOLD_MS) {
           this.#setTalking(session, false);
-          this.#lastPacket.delete(session);
         }
       }
     }, TALK_SWEEP_MS);
@@ -710,7 +710,8 @@ export class MumbleClient extends EventTarget {
     const now = Date.now();
     const frame = Number(packet.frameNumber);
     const last = this.#lastPacket.get(packet.session);
-    if (last && now - last.at > STALL_GAP_MS && frame - last.frame >= STALL_FRAMES) {
+    const quietFor = last ? now - last.at : 0;
+    if (last && quietFor > STALL_GAP_MS && quietFor < NEW_SPURT_GAP_MS && frame - last.frame >= STALL_FRAMES) {
       this.stats.stalls++;
       this.diag('voice', `${user.name}: ${now - last.at} ms delivery stall (${frame - last.frame} frames arrived late)`);
     }
