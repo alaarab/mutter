@@ -26,10 +26,14 @@ Android phones, or the universal APK for other supported devices. These are deve
 builds signed with the local Android debug key; store distribution requires a release key.
 Keep that key across releases so future builds can update existing installs.
 
+Builds are debug-only until a release signing key is set up. Debug builds are debuggable, so
+anyone with `run-as` access to the app on the phone (for example over USB debugging) can use
+its Keystore key to decrypt the stored server passwords, tokens and certificates.
+
 ## Included
 
-- TLS connections with explicit first-contact and changed-certificate prompts, saved pins,
-  generated RSA identities, PKCS#12 import, per-server identity selection, and access tokens.
+- TLS connections with explicit first-contact and changed-certificate prompts, saved pins
+  shared by every entry for the same host and port, generated RSA identities, PKCS#12 import, per-server identity selection, and access tokens.
 - Opus microphone capture and playback, encrypted OCB2 UDP, TCP fallback and UDP recovery,
   Mumble 1.2–1.5 wire formats, reconnect, push to talk, voice activity, open mic, and whisper.
 - Android foreground call service, notification mute/deafen/disconnect actions, headset
@@ -50,8 +54,9 @@ Keep that key across releases so future builds can update existing installs.
 
 Server passwords, access tokens, pins and certificate files are encrypted with a device-bound
 Android Keystore key. Backup and device transfer exclude this data. Signing keys and local
-SDK paths are ignored by Git. The app never transmits login credentials before certificate
-consent. Audio processing availability depends on the device; Bluetooth and physical microphone
+SDK paths are ignored by Git. The app never transmits login credentials before the server
+certificate is trusted. If the saved data can't be decrypted, Mutter keeps the unreadable copy,
+starts fresh, and says so. Audio processing availability depends on the device; Bluetooth and physical microphone
 quality still need testing on real Android hardware.
 
 ## Validation
@@ -82,7 +87,7 @@ Tests use the emulator's `10.0.2.2` host address and ports 64740–64746. They c
 consent, both voice formats, encrypted UDP and TCP voice, chat, channel changes, background
 connections, automatic reconnect, notification controls, UDP interruption and recovery, changed
 certificates, password rejection, channel edits, all theme variants, server-edit recreation,
-encrypted storage tamper detection, PKCS#12 import, and platform Opus capture/encoding/decoding.
+encrypted storage tamper recovery, PKCS#12 import, and platform Opus capture/encoding/decoding.
 A physical test device can use
 `-Pandroid.testInstrumentationRunnerArguments.mumbleHost=YOUR_MAC_ADDRESS` if the test
 servers are explicitly configured to listen on that interface.

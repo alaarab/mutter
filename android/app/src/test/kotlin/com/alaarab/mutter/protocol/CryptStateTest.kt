@@ -70,4 +70,14 @@ class CryptStateTest {
             CryptState().setKey(byteArrayOf(1), key, key)
         }
     }
+
+    @Test
+    fun resyncKeepsReplayHistory() {
+        val (sender, receiver) = pair()
+        val packets = (0..3).map { sender.encrypt(byteArrayOf(it.toByte())) }
+        packets.forEach { assertNotNull(receiver.decrypt(it)) }
+        receiver.resync(sender.encryptIV)
+        assertNull(receiver.decrypt(packets[2]))
+        assertArrayEquals(byteArrayOf(9), receiver.decrypt(sender.encrypt(byteArrayOf(9))))
+    }
 }

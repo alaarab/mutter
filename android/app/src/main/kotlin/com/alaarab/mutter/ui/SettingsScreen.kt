@@ -286,10 +286,17 @@ fun SettingsScreen(app: MutterApplication, settings: Settings, dismiss: () -> Un
                                                 "Voice activation threshold",
                                                 style = MaterialTheme.typography.titleSmall,
                                             )
+                                            var threshold by
+                                                remember(settings.threshold) {
+                                                    mutableFloatStateOf(settings.threshold)
+                                                }
                                             AppSlider(
-                                                settings.threshold,
-                                                { save(settings.copy(threshold = it)) },
+                                                threshold,
+                                                { threshold = it },
                                                 valueRange = 0.005f..0.15f,
+                                                onValueChangeFinished = {
+                                                    save(settings.copy(threshold = threshold))
+                                                },
                                             )
                                             Hint(
                                                 "Raise this if background sound opens the microphone."

@@ -25,6 +25,10 @@ class VoiceService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var media: MediaSession? = null
     private var startedAudio = false
+    private var servedGeneration: Long? = null
+    private val messageHandler: (com.alaarab.mutter.data.ChatMessage) -> Unit = { message ->
+        showMessageNotification(message)
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -48,6 +52,7 @@ class VoiceService : Service() {
                     object : MediaSession.Callback() {
                         override fun onPlay() {
                             app.client.mute(false)
+                            app.audio.reclaimFocus()
                         }
 
                         override fun onPause() {
@@ -61,25 +66,7 @@ class VoiceService : Service() {
                 )
                 isActive = true
             }
-        app.client.onMessage = { message ->
-            if (!message.own && message.direct != null) {
-                val text =
-                    android.text.Html.fromHtml(
-                            message.html,
-                            android.text.Html.FROM_HTML_MODE_COMPACT,
-                        )
-                        .toString()
-                val notice =
-                    NotificationCompat.Builder(this, "messages")
-                        .setSmallIcon(R.drawable.notification_mark)
-                        .setContentTitle(message.name)
-                        .setContentText(text.take(200))
-                        .setContentIntent(openApp())
-                        .setAutoCancel(true)
-                        .build()
-                notifications.notify(100 + message.sender.hashCode(), notice)
-            }
-        }
+        app.client.onMessage = messageHandler
         scope.launch {
             app.client.state
                 .map { listOf(it.status, it.channel?.name, it.self?.selfMute, it.self?.selfDeaf) }
@@ -90,6 +77,7 @@ class VoiceService : Service() {
                         stopSelf()
                         return@collect
                     }
+                    servedGeneration = app.client.generation
                     if (state.connected && !startedAudio) {
                         startedAudio = true
                         app.audio.start()
@@ -119,15 +107,40 @@ class VoiceService : Service() {
         }
     }
 
+    private fun showMessageNotification(message: com.alaarab.mutter.data.ChatMessage) {
+        if (message.own || message.direct == null) return
+        val text =
+            android.text.Html.fromHtml(
+                    message.html.take(MESSAGE_PREVIEW_SOURCE_CHARACTERS),
+                    android.text.Html.FROM_HTML_MODE_COMPACT,
+                )
+                .toString()
+        val notice =
+            NotificationCompat.Builder(this, "messages")
+                .setSmallIcon(R.drawable.notification_mark)
+                .setContentTitle(message.name)
+                .setContentText(text.take(200))
+                .setContentIntent(openApp())
+                .setAutoCancel(true)
+                .build()
+        getSystemService(NotificationManager::class.java)
+            .notify(100 + message.sender.hashCode(), notice)
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
+            null -> startCallForeground()
             "microphone" -> {
                 if (app.client.state.value.connected) {
                     startCallForeground()
                     app.audio.restart()
                 }
             }
-            "mute" -> app.client.mute(app.client.state.value.self?.selfMute != true)
+            "mute" -> {
+                val unmuting = app.client.state.value.self?.selfMute == true
+                app.client.mute(!unmuting)
+                if (unmuting) app.audio.reclaimFocus()
+            }
             "deafen" -> app.client.deafen(app.client.state.value.self?.selfDeaf != true)
             "disconnect" -> app.disconnect()
         }
@@ -189,12 +202,19 @@ class VoiceService : Service() {
 
     override fun onDestroy() {
         scope.cancel()
-        app.client.onMessage = {}
-        app.audio.stop()
-        app.client.disconnect()
-        app.shares.reset()
+        if (app.client.onMessage === messageHandler) app.client.onMessage = {}
+        val served = servedGeneration
+        if (served != null && served == app.client.generation) {
+            app.audio.stop()
+            app.client.disconnect(onlyGeneration = served)
+            app.shares.reset()
+        }
         wakeLock?.let { if (it.isHeld) it.release() }
         media?.release()
         super.onDestroy()
+    }
+
+    private companion object {
+        const val MESSAGE_PREVIEW_SOURCE_CHARACTERS = 65536
     }
 }

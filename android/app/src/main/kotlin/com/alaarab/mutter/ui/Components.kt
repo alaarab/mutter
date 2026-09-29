@@ -333,12 +333,14 @@ fun AppSlider(
     value: Float,
     onValueChange: (Float) -> Unit,
     valueRange: ClosedFloatingPointRange<Float>,
+    onValueChangeFinished: (() -> Unit)? = null,
 ) {
     val p = LocalPalette.current
     Slider(
         value,
         onValueChange,
         valueRange = valueRange,
+        onValueChangeFinished = onValueChangeFinished,
         thumb = {
             Box(
                 Modifier.size(24.dp)

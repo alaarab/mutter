@@ -24,82 +24,83 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+private const val INLINE_PARSE_CHARACTERS = 4000
+private const val LONGEST_IMAGE_SIDE = 1280
+private val imageTag = Regex("<img\\b[^<>]*>", RegexOption.IGNORE_CASE)
+private val imageSource =
+    Regex("<img\\b[^<>]*?\\bsrc=[\"']([^\"'<>]+)[\"'][^<>]*>", RegexOption.IGNORE_CASE)
+
+private fun annotatedMessage(html: String, color: Color): AnnotatedString {
+    val text = Html.fromHtml(html.replace(imageTag, ""), Html.FROM_HTML_MODE_COMPACT)
+    return buildAnnotatedString {
+        append(text.toString().trimEnd())
+        text.getSpans(0, text.length, StyleSpan::class.java).forEach { span ->
+            if (span.style and android.graphics.Typeface.BOLD != 0)
+                addStyle(
+                    SpanStyle(fontWeight = FontWeight.Bold),
+                    text.getSpanStart(span).coerceAtMost(length),
+                    text.getSpanEnd(span).coerceAtMost(length),
+                )
+        }
+        text.getSpans(0, text.length, URLSpan::class.java).forEach { span ->
+            val uri = Uri.parse(span.url)
+            if (uri.scheme in listOf("https", "http", "mumble")) {
+                addLink(
+                    LinkAnnotation.Url(
+                        span.url,
+                        TextLinkStyles(
+                            style = SpanStyle(color = color, textDecoration = TextDecoration.Underline)
+                        ),
+                    ),
+                    text.getSpanStart(span).coerceAtMost(length),
+                    text.getSpanEnd(span).coerceAtMost(length),
+                )
+            }
+        }
+    }
+}
+
+private fun decodeSharedImage(source: String): Bitmap? =
+    runCatching {
+            val bytes = Base64.decode(source.substringAfter(','), Base64.DEFAULT)
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+            val options =
+                BitmapFactory.Options().apply {
+                    inSampleSize =
+                        sampleSizeFor(bounds.outWidth, bounds.outHeight, LONGEST_IMAGE_SIDE)
+                }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+        }
+        .getOrNull()
+
 @Composable
 fun RichMessage(
     html: String,
     color: Color = LocalPalette.current.body,
 ) {
-    val p = LocalPalette.current
     val context = LocalContext.current
-    val annotated =
+    val parsedInline =
         remember(html, color) {
-            val text =
-                Html.fromHtml(
-                    html.replace(Regex("<img\\b[^>]*>", RegexOption.IGNORE_CASE), ""),
-                    Html.FROM_HTML_MODE_COMPACT,
-                )
-            buildAnnotatedString {
-                append(text.toString().trimEnd())
-                text.getSpans(0, text.length, StyleSpan::class.java).forEach { span ->
-                    if (span.style and android.graphics.Typeface.BOLD != 0)
-                        addStyle(
-                            SpanStyle(fontWeight = FontWeight.Bold),
-                            text.getSpanStart(span).coerceAtMost(length),
-                            text.getSpanEnd(span).coerceAtMost(length),
-                        )
-                }
-                text.getSpans(0, text.length, URLSpan::class.java).forEach { span ->
-                    val uri = Uri.parse(span.url)
-                    if (uri.scheme in listOf("https", "http", "mumble")) {
-                        addLink(
-                            LinkAnnotation.Url(
-                                span.url,
-                                TextLinkStyles(
-                                    style =
-                                        SpanStyle(
-                                            color = color,
-                                            textDecoration = TextDecoration.Underline,
-                                        )
-                                ),
-                            ),
-                            text.getSpanStart(span).coerceAtMost(length),
-                            text.getSpanEnd(span).coerceAtMost(length),
-                        )
-                    }
-                }
-            }
+            if (html.length <= INLINE_PARSE_CHARACTERS) annotatedMessage(html, color) else null
         }
-    if (annotated.isNotBlank())
+    val parsedInBackground by
+        produceState<AnnotatedString?>(null, html, color) {
+            value = null
+            if (parsedInline == null)
+                value = withContext(Dispatchers.Default) { annotatedMessage(html, color) }
+        }
+    val annotated = parsedInline ?: parsedInBackground
+    if (annotated != null && annotated.isNotBlank())
         Text(annotated, color = color, style = MaterialTheme.typography.bodyLarge)
     val images =
-        remember(html) {
-            Regex("<img\\b[^>]*src=[\"']([^\"']+)[\"'][^>]*>", RegexOption.IGNORE_CASE)
-                .findAll(html)
-                .map { it.groupValues[1] }
-                .take(8)
-                .toList()
-        }
+        remember(html) { imageSource.findAll(html).map { it.groupValues[1] }.take(8).toList() }
     images.forEach { src ->
         if (src.startsWith("data:image/") && src.length < 3 * 1024 * 1024) {
             val bitmap by
                 produceState<Bitmap?>(null, src) {
-                    value =
-                        withContext(Dispatchers.IO) {
-                            runCatching {
-                                val bytes = Base64.decode(src.substringAfter(','), Base64.DEFAULT)
-                                val bounds =
-                                    BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-                                val options =
-                                    BitmapFactory.Options().apply {
-                                        inSampleSize =
-                                            (maxOf(bounds.outWidth, bounds.outHeight) / 1280)
-                                                .coerceAtLeast(1)
-                                    }
-                                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-                            }
-                                .getOrNull()
-                        }
+                    value = withContext(Dispatchers.IO) { decodeSharedImage(src) }
                 }
             bitmap?.let {
                 Image(
