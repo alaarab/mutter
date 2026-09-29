@@ -171,6 +171,7 @@ node --test web/test/bridge.test.mjs                # bridge access controls, ma
 node --test web/test/peer-certificate.test.mjs      # CA/hostname validation and certificate pin precedence
 node --test web/test/certificate.test.mjs           # browser certificate approval, decline, and changed pins
 node --test web/test/persistence.test.mjs           # settings survive browser + bridge restarts on a fixed port
+node --test web/test/lifecycle.test.mjs             # audio released on failed connects, handshake timeout, comment blobs, stall counting
 node --test web/test/native.test.mjs                # macOS: native reconnect and exact loss-concealment duration
 node web/test/e2e.test.mjs                          # two tabs, voice both ways over UDP, chat, images, reconnect
 FAKE_VERSION=1.4.287 node web/test/e2e.test.mjs     # same, legacy voice format
@@ -178,6 +179,7 @@ FAKE_UDP=0 node web/test/e2e.test.mjs               # same with UDP blocked: voi
 node web/test/ocb2.test.mjs                         # the cipher against Mumble's test vectors, loss/replay/resync rules
 node web/test/share.test.mjs                        # screen share between two tabs, WebRTC + signaling
 node web/test/signal.test.mjs                       # the plugin-message fragment codec, in Node
+node web/test/roster.test.mjs                       # the channel tree index: counts, parent loops, speed on a large server
 node web/test/dsp.test.mjs                          # the spectral suppressor: FFT, SNR gain, click ducking, block-size independence
 node web/test/rnnoise.test.mjs                      # the RNNoise wasm: loads without imports, −22 dB on noise, voice kept, speed
 node web/test/voice.test.mjs                        # voice packet codec round-trips and missing-packet arithmetic, in Node
