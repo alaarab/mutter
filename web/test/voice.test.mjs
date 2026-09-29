@@ -11,6 +11,7 @@ import {
 } from '../src/voice.js';
 
 const opus = Uint8Array.from([0xfc, 0xff, 0xfe, 1, 2, 3, 4, 5]);
+const OPUS_LEGACY_HEADER = 4 << 5;
 
 for (const format of ['legacy', 'protobuf']) {
   const client = encodeAudio({ target: 3, frameNumber: 300, opus, isTerminator: true }, format);
@@ -41,6 +42,34 @@ assert.equal(decodeVoice(Uint8Array.from([0x00, 1, 2]), 'legacy'), null);
 assert.equal(decodeClientAudio(Uint8Array.from([0x80, 0x0a]), 'legacy'), null);
 assert.equal(decodeVoice(Uint8Array.from([9, 1]), 'protobuf'), null);
 console.log(' ok  junk and truncated packets decode to null');
+
+{
+  const negativeChain = new Uint8Array(200_000).fill(0xf8);
+  negativeChain[0] = OPUS_LEGACY_HEADER;
+  assert.equal(decodeVoice(negativeChain, 'legacy'), null);
+  assert.equal(decodeClientAudio(negativeChain, 'legacy'), null);
+  const oneNegative = encodeServerAudio({ session: 3, frameNumber: -9n, opus }, 'legacy');
+  assert.equal(decodeVoice(oneNegative, 'legacy').frameNumber, -9n);
+
+  const longTimestamp = new Uint8Array(2 + 200).fill(0xff);
+  longTimestamp[0] = 1;
+  longTimestamp[1] = 0x08;
+  longTimestamp[longTimestamp.length - 1] = 0x01;
+  assert.equal(decodeVoice(longTimestamp, 'protobuf'), null);
+  const longFrameNumber = Uint8Array.from(longTimestamp);
+  longFrameNumber[0] = 0;
+  longFrameNumber[1] = 0x20;
+  assert.equal(decodeVoice(longFrameNumber, 'protobuf'), null);
+  const tenByteTimestamp = Uint8Array.from([1, 0x08, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01]);
+  assert.equal(decodeVoice(tenByteTimestamp, 'protobuf').timestamp, 2n ** 64n - 1n);
+
+  const opusAsNumber = Uint8Array.from([0, 0x18, 7, 0x28, 5]);
+  const received = decodeVoice(opusAsNumber, 'protobuf');
+  assert.equal(received.session, 7);
+  assert.ok(received.opus instanceof Uint8Array);
+  assert.equal(received.opus.length, 0);
+  console.log(' ok  negative-varint chains, overlong varints and wrong wire types are rejected without throwing');
+}
 
 assert.equal(missingPackets(0, 960, 2), 0);
 assert.equal(missingPackets(0, 960, 4), 1);

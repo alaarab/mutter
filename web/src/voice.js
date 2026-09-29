@@ -1,4 +1,4 @@
-import { Reader, Writer } from './protobuf.js';
+import { Reader, Writer, WIRE_FIXED32, WIRE_LENGTH_DELIMITED, WIRE_VARINT } from './protobuf.js';
 
 const OPUS = 4;
 const LEGACY_PING = 1;
@@ -7,6 +7,15 @@ const LENGTH_MASK = 0x1fffn;
 const TARGET_MASK = 0x1f;
 const PROTOBUF_AUDIO = 0;
 const PROTOBUF_PING = 1;
+const AUDIO_FIELD_WIRE_TYPES = {
+  1: WIRE_VARINT,
+  2: WIRE_VARINT,
+  3: WIRE_VARINT,
+  4: WIRE_VARINT,
+  5: WIRE_LENGTH_DELIMITED,
+  7: WIRE_FIXED32,
+  16: WIRE_VARINT,
+};
 
 function pushBigEndian(out, value, byteCount) {
   for (let shift = BigInt(8 * (byteCount - 1)); shift >= 0n; shift -= 8n) {
@@ -57,7 +66,7 @@ const MumbleVarint = {
     }
   },
 
-  decode(bytes, offset) {
+  decode(bytes, offset, allowNegative = true) {
     if (offset >= bytes.length) {
       return null;
     }
@@ -80,7 +89,10 @@ const MumbleVarint = {
       case 0xf4:
         return readBigEndian(bytes, offset, 8, 0, true);
       case 0xf8: {
-        const inner = this.decode(bytes, offset + 1);
+        if (!allowNegative) {
+          return null;
+        }
+        const inner = this.decode(bytes, offset + 1, false);
         return inner ? [~inner[0], inner[1]] : null;
       }
       case 0xfc:
@@ -220,7 +232,10 @@ function decodeProtobufAudio(body) {
     isTerminator: false,
     volume: 0,
   };
-  new Reader(body).forEachField((field) => {
+  const wellFormed = new Reader(body).forEachField((field) => {
+    if (AUDIO_FIELD_WIRE_TYPES[field.number] !== field.wire) {
+      return;
+    }
     switch (field.number) {
       case 1:
         packet.target = field.uint;
@@ -232,15 +247,13 @@ function decodeProtobufAudio(body) {
         packet.session = field.uint;
         break;
       case 4:
-        packet.frameNumber = BigInt(field.uint);
+        packet.frameNumber = field.big;
         break;
       case 5:
         packet.opus = field.payload;
         break;
       case 7:
-        if (field.payload?.length === 4) {
-          packet.volume = new DataView(field.payload.buffer, field.payload.byteOffset).getFloat32(0, true);
-        }
+        packet.volume = new DataView(field.payload.buffer, field.payload.byteOffset).getFloat32(0, true);
         break;
       case 16:
         packet.isTerminator = field.bool;
@@ -249,17 +262,17 @@ function decodeProtobufAudio(body) {
         break;
     }
   });
-  return packet;
+  return wellFormed ? packet : null;
 }
 
 function decodeProtobufPing(body) {
   const packet = { kind: 'ping', timestamp: 0n };
-  new Reader(body).forEachField((field) => {
-    if (field.number === 1) {
-      packet.timestamp = BigInt(field.uint);
+  const wellFormed = new Reader(body).forEachField((field) => {
+    if (field.number === 1 && field.wire === WIRE_VARINT) {
+      packet.timestamp = field.big;
     }
   });
-  return packet;
+  return wellFormed ? packet : null;
 }
 
 export function decodeVoice(bytes, format) {
