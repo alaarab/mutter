@@ -27,11 +27,13 @@ struct ChatView: View {
     @FocusState private var composerFocused: Bool
     @State private var isAtBottom = true
     @State private var unseenBelow = 0
+    @State private var followsLatestMessageThroughKeyboard = false
     @State private var transcriptEndOffset: CGFloat = 0
     @State private var transcriptViewportHeight: CGFloat = 0
 
     private static let transcriptSpace = "chat-transcript-space"
     private static let bottomTolerance: CGFloat = 32
+    private static let dockTransitionSeconds = 0.25
 
     private var session: ServerSession { model.session }
 
@@ -81,21 +83,28 @@ struct ChatView: View {
                     Color.clear.preference(key: TranscriptViewportHeightKey.self, value: viewport.size.height)
                 })
                 .onPreferenceChange(TranscriptViewportHeightKey.self) { height in
-                    let followsLatestMessage = isAtBottom
-                    let resized = transcriptViewportHeight > 0 && height != transcriptViewportHeight
                     transcriptViewportHeight = height
-                    if resized && followsLatestMessage {
-                        DispatchQueue.main.async {
-                            unseenBelow = 0
-                            proxy.scrollTo("bottom", anchor: .bottom)
-                        }
+                    if followsLatestMessageThroughKeyboard {
+                        proxy.scrollTo("bottom", anchor: .bottom)
                     } else {
                         updateIsAtBottom()
                     }
                 }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+                    beginFollowingThroughKeyboard(proxy)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                    beginFollowingThroughKeyboard(proxy)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+                    finishFollowingThroughKeyboard(proxy)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) { _ in
+                    finishFollowingThroughKeyboard(proxy)
+                }
                 .onPreferenceChange(TranscriptEndOffsetKey.self) { offset in
                     transcriptEndOffset = offset
-                    updateIsAtBottom()
+                    if !followsLatestMessageThroughKeyboard { updateIsAtBottom() }
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .contentShape(Rectangle())
@@ -168,6 +177,22 @@ struct ChatView: View {
         }
         imageError = nil
         model.client.sendText(html: html, to: target)
+    }
+
+    private func beginFollowingThroughKeyboard(_ proxy: ScrollViewProxy) {
+        guard isAtBottom else { return }
+        followsLatestMessageThroughKeyboard = true
+        unseenBelow = 0
+        DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) }
+    }
+
+    private func finishFollowingThroughKeyboard(_ proxy: ScrollViewProxy) {
+        guard followsLatestMessageThroughKeyboard else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.dockTransitionSeconds) {
+            proxy.scrollTo("bottom", anchor: .bottom)
+            followsLatestMessageThroughKeyboard = false
+            isAtBottom = true
+        }
     }
 
     private func updateIsAtBottom() {
