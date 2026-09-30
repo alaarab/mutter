@@ -309,3 +309,52 @@ test('an empty terminator packet still ends the speaker’s stream', { timeout: 
   assert.deepEqual(ended, [2]);
   assert.deepEqual(page.errors(), []);
 });
+
+test('self mute and deafen survive a dropped connection and a relaunch', { timeout: 90_000 }, async (t) => {
+  const environment = await startEnvironment();
+  t.after(() => environment.close());
+  const serverSees = (field) => [...environment.server.users.values()].find((user) => user.name === 'Quiet')?.[field] === true;
+  const waitForServer = async (field, label) => {
+    const deadline = Date.now() + 10_000;
+    while (!serverSees(field)) {
+      if (Date.now() > deadline) {
+        throw new Error(`the server never saw ${label}`);
+      }
+      await sleep(50);
+    }
+  };
+
+  let page = await openInstrumented(environment);
+  await fillConnectForm(page, environment, 'Quiet');
+  await page.click('#connectBtn');
+  await trustIfAsked(page, environment);
+  await page.waitFor(`mutter.client.state === 'connected'`);
+  await page.click('#muteBtn');
+  await waitForServer('selfMute', 'the mute');
+
+  for (const user of environment.server.users.values()) {
+    if (user.name === 'Quiet') {
+      user.socket.destroy();
+    }
+  }
+  await page.waitFor(`mutter.client.state === 'reconnecting'`, { timeout: 5000 });
+  await page.waitFor(`mutter.client.state === 'connected'`, { timeout: 15_000 });
+  await waitForServer('selfMute', 'the mute after reconnecting');
+  assert.equal(await page.eval('mutter.audio.muted'), true);
+
+  await page.click('#deafBtn');
+  await waitForServer('selfDeaf', 'the deafen');
+  await page.click('#leaveBtn');
+  await page.waitFor(`mutter.client.state === 'disconnected'`);
+  await page.close();
+
+  page = await openInstrumented(environment);
+  assert.equal(await page.eval('mutter.audio.muted && mutter.audio.deafened'), true);
+  await fillConnectForm(page, environment, 'Quiet');
+  await page.click('#connectBtn');
+  await trustIfAsked(page, environment);
+  await page.waitFor(`mutter.client.state === 'connected'`);
+  await waitForServer('selfDeaf', 'the deafen after relaunching');
+  assert.ok(serverSees('selfMute'), 'deafened implies muted on the server');
+  assert.deepEqual(page.errors(), []);
+});

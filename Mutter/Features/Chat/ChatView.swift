@@ -7,13 +7,26 @@ struct ChatView: View {
     @Environment(AppModel.self) private var model
     var onUser: (UInt32) -> Void
 
-    @State private var draft = ""
-    @State private var customScope: MessageScope?
+    private var draft: String {
+        get { model.chatDraft }
+        nonmutating set { model.chatDraft = newValue }
+    }
+
+    private var customScope: MessageScope? {
+        get { model.chatScope }
+        nonmutating set { model.chatScope = newValue }
+    }
+
+    private var draftBinding: Binding<String> {
+        Binding(get: { model.chatDraft }, set: { model.chatDraft = $0 })
+    }
     @State private var photoItem: PhotosPickerItem?
     @State private var pendingPhoto: PendingPhoto?
     @State private var sendingImage = false
     @State private var imageError: String?
     @FocusState private var composerFocused: Bool
+    @State private var isAtBottom = true
+    @State private var unseenBelow = 0
 
     private var session: ServerSession { model.session }
 
@@ -43,17 +56,40 @@ struct ChatView: View {
                             MessageRow(message: message, onUser: onUser)
                                 .id(message.id)
                         }
-                        Color.clear.frame(height: 1).id("bottom")
+                        Color.clear
+                            .frame(height: 1)
+                            .id("bottom")
+                            .onAppear {
+                                isAtBottom = true
+                                unseenBelow = 0
+                            }
+                            .onDisappear { isAtBottom = false }
                     }
                     .padding(.horizontal, 12)
                     .padding(.top, 8)
                 }
                 .scrollDismissesKeyboard(.interactively)
-                .onChange(of: session.totalMessagesPosted, initial: true) { _, _ in
-                    withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) }
+                .contentShape(Rectangle())
+                .simultaneousGesture(TapGesture().onEnded { composerFocused = false })
+                .accessibilityIdentifier("chat-transcript")
+                .overlay(alignment: .bottom) {
+                    if !isAtBottom && unseenBelow > 0 {
+                        NewMessagesButton(count: unseenBelow) { scrollToBottom(proxy) }
+                            .padding(.bottom, 10)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+                .animation(.easeOut(duration: 0.2), value: unseenBelow > 0 && !isAtBottom)
+                .onChange(of: session.totalMessagesPosted, initial: true) { previous, current in
+                    let newestIsOwn = session.messages.last?.isOwn ?? false
+                    if isAtBottom || newestIsOwn || previous == current {
+                        scrollToBottom(proxy)
+                    } else {
+                        unseenBelow += current - previous
+                    }
                 }
                 .onChange(of: composerFocused) { _, focused in
-                    if focused { proxy.scrollTo("bottom", anchor: .bottom) }
+                    if focused && isAtBottom { scrollToBottom(proxy) }
                 }
             }
             composer
@@ -105,6 +141,11 @@ struct ChatView: View {
         model.client.sendText(html: html, to: target)
     }
 
+    private func scrollToBottom(_ proxy: ScrollViewProxy) {
+        unseenBelow = 0
+        withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) }
+    }
+
     private var composer: some View {
         VStack(spacing: 6) {
             Divider().overlay(Theme.separator)
@@ -141,15 +182,17 @@ struct ChatView: View {
                     .padding(.vertical, 8)
                     .foregroundStyle(scopeColor)
                     .background(scopeColor.opacity(0.12), in: Capsule())
+                    .contentShape(Rectangle().inset(by: -6))
                 }
 
-                TextField("Message", text: $draft, axis: .vertical)
+                TextField("Message", text: draftBinding, axis: .vertical)
                     .lineLimit(1...5)
                     .textFieldStyle(.plain)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(Theme.surfaceSunken, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                     .focused($composerFocused)
+                    .accessibilityIdentifier("chat-composer")
                     .onSubmit { send() }
 
                 Button(action: send) {
@@ -158,14 +201,19 @@ struct ChatView: View {
                         .foregroundStyle(Theme.onAccent)
                         .frame(width: 34, height: 34)
                         .background(canSend ? Theme.accent : Theme.muted, in: Circle())
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .disabled(!canSend)
                 .accessibilityLabel("Send")
+                .accessibilityIdentifier("chat-send")
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
         }
         .background(Theme.background)
+        .contentShape(Rectangle())
+        .dismissKeyboardOnDownwardDrag { composerFocused = false }
     }
 
     private var canSend: Bool {
@@ -200,6 +248,28 @@ struct ChatView: View {
         guard !text.isEmpty else { return }
         model.client.sendText(html: HTMLText.htmlFromPlain(text), to: scope)
         draft = ""
+        Haptics.impact(.light)
+    }
+}
+
+struct NewMessagesButton: View {
+    var count: Int
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.down").font(.caption.weight(.bold))
+                Text(count == 1 ? "1 new message" : "\(count) new messages").font(.caption.weight(.semibold))
+            }
+            .foregroundStyle(Theme.onAccent)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(Theme.accent, in: Capsule())
+            .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+        }
+        .buttonStyle(ThemePressStyle())
+        .accessibilityIdentifier("chat-new-messages")
     }
 }
 

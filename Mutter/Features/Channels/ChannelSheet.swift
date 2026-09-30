@@ -105,6 +105,7 @@ struct ChannelSheet: View {
                         .themedRows()
                     }
                 }
+                .scrollDismissesKeyboard(.interactively)
                 .themedList()
                 .navigationBarTitleDisplayMode(.inline)
                 .doneToolbar(dismiss)

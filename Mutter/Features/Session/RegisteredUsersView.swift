@@ -52,6 +52,7 @@ struct RegisteredUsersView: View {
                     }
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .themedList()
             .searchable(text: $search, prompt: "Find an account")
             .navigationTitle("Registered users")

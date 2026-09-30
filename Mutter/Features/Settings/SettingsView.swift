@@ -53,7 +53,7 @@ struct SettingsView: View {
                     Toggle("Notify me about messages", isOn: $settings.notifyOnMessage)
                     Toggle("Show join and leave notices", isOn: $settings.showPresenceNotices)
                     Toggle("Hide empty channels", isOn: $settings.hideEmptyChannels)
-                    Toggle("Haptic when voice activates", isOn: $settings.hapticsOnTransmit)
+                    Toggle("Haptic when you start and stop talking", isOn: $settings.hapticsOnTransmit)
                     Toggle("Keep screen awake while connected", isOn: $settings.keepScreenAwake)
                 } header: { SectionLabel(text: "Behaviour") }
                 .themedRows()
@@ -97,6 +97,7 @@ struct SettingsView: View {
                 }
                 .themedRows()
             }
+            .scrollDismissesKeyboard(.interactively)
             .themedList()
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -254,6 +255,7 @@ struct AudioSettingsView: View {
             }
             .themedRows()
         }
+        .scrollDismissesKeyboard(.interactively)
         .themedList()
         .navigationTitle("Voice & audio")
         .navigationBarTitleDisplayMode(.inline)

@@ -115,6 +115,8 @@ final class AppSettings {
     var voiceProcessing: Bool { didSet { defaults.set(voiceProcessing, forKey: "voiceProcessing") } }
     var autoSensitivity: Bool { didSet { defaults.set(autoSensitivity, forKey: "autoSensitivity") } }
     var headsetButtonAction: HeadsetAction { didSet { defaults.set(headsetButtonAction.rawValue, forKey: "headsetButtonAction") } }
+    var rememberedSelfMute: Bool { didSet { defaults.set(rememberedSelfMute, forKey: "rememberedSelfMute") } }
+    var rememberedSelfDeaf: Bool { didSet { defaults.set(rememberedSelfDeaf, forKey: "rememberedSelfDeaf") } }
 
     init(defaults: UserDefaults = .standard, credentials: any CredentialStore = KeychainCredentials()) {
         self.defaults = defaults
@@ -144,6 +146,8 @@ final class AppSettings {
         voiceProcessing = defaults.value("voiceProcessing", default: true)
         autoSensitivity = defaults.value("autoSensitivity", default: true)
         headsetButtonAction = defaults.rawValue("headsetButtonAction", default: .toggleMute)
+        rememberedSelfMute = defaults.value("rememberedSelfMute", default: false)
+        rememberedSelfDeaf = defaults.value("rememberedSelfDeaf", default: false)
         Theme.style = theme
         do {
             let legacy = defaults.string(forKey: "turnPassword").map { Data($0.utf8) }

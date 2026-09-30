@@ -123,6 +123,7 @@ struct HomeView: View {
                     } label: {
                         Image(systemName: "plus")
                     }
+                    .accessibilityLabel("Add")
                 }
             }
             .refreshable { await model.servers.refreshStatus() }
@@ -224,6 +225,7 @@ struct QuickConnectSheet: View {
                 }
                 .themedRows()
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Quick connect")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

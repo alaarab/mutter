@@ -91,6 +91,12 @@ class AppStore(private val context: Context) {
     }
 
     @Synchronized
+    fun updateSettings(change: (Settings) -> Settings) {
+        val next = change(settings.value)
+        if (next != settings.value) persist(nextSettings = next)
+    }
+
+    @Synchronized
     fun saveServer(value: Server) {
         require(value.host.isNotBlank() && value.port in 1..65535 && value.username.isNotBlank())
         persist(nextServers = servers.value.filterNot { it.id == value.id } + value)
@@ -222,6 +228,8 @@ class AppStore(private val context: Context) {
             v.optString("turnUser"),
             v.optString("turnPassword"),
             v.optString("defaultUsername"),
+            v.optBoolean("selfMute"),
+            v.optBoolean("selfDeaf"),
         )
 
     private fun settingsJson(v: Settings) =
@@ -242,6 +250,8 @@ class AppStore(private val context: Context) {
             .put("turnUser", v.turnUser)
             .put("turnPassword", v.turnPassword)
             .put("defaultUsername", v.defaultUsername)
+            .put("selfMute", v.selfMute)
+            .put("selfDeaf", v.selfDeaf)
 }
 
 private fun JSONArray?.objects() =

@@ -125,6 +125,7 @@ struct UserSheet: View {
                     } header: { SectionLabel(text: "Details") }
                     .themedRows()
                 }
+                .scrollDismissesKeyboard(.interactively)
                 .themedList()
                 .navigationBarTitleDisplayMode(.inline)
                 .doneToolbar(dismiss)

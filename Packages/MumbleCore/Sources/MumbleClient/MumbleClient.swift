@@ -19,6 +19,8 @@ public struct ConnectionOptions {
     public var osName = "iOS"
     public var osVersion = ""
     public var autoReconnect = true
+    public var selfMute = false
+    public var selfDeaf = false
 
     public init(username: String, password: String? = nil) {
         self.username = username
@@ -433,6 +435,7 @@ public final class MumbleClient {
             }
         }
         if let certificate, let endpoint { didAcceptCertificate?(endpoint, certificate) }
+        restoreRememberedSelfState(session: sync.session)
         startTimers()
         requestMissingBlobs()
     }
@@ -833,6 +836,10 @@ public final class MumbleClient {
     }
 
     public func setSelfMute(_ muted: Bool) {
+        queue.async {
+            self.options?.selfMute = muted
+            if !muted { self.options?.selfDeaf = false }
+        }
         updateSelf { state in
             state.selfMute = muted
             if !muted { state.selfDeaf = false }
@@ -840,9 +847,21 @@ public final class MumbleClient {
     }
 
     public func setSelfDeaf(_ deaf: Bool) {
+        queue.async {
+            self.options?.selfDeaf = deaf
+            if deaf { self.options?.selfMute = true }
+        }
         updateSelf { state in
             state.selfDeaf = deaf
             if deaf { state.selfMute = true }
+        }
+    }
+
+    private func restoreRememberedSelfState(session: UInt32) {
+        guard let options, options.selfMute || options.selfDeaf else { return }
+        sendUserState(session: session) { state in
+            state.selfMute = options.selfMute || options.selfDeaf
+            state.selfDeaf = options.selfDeaf
         }
     }
 

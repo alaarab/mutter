@@ -26,8 +26,8 @@ class MumbleConnection(private val store: AppStore, private val identities: Iden
     private val stateLock = Any()
     private var connectionJob: Job? = null
     @Volatile private var trust: CompletableDeferred<Boolean>? = null
-    @Volatile private var desiredMute = false
-    @Volatile private var desiredDeaf = false
+    @Volatile private var desiredDeaf = store.settings.value.selfDeaf
+    @Volatile private var desiredMute = store.settings.value.selfMute || desiredDeaf
     @Volatile private var whisperTarget: ByteArray? = null
     private val lastVoiceAt = ConcurrentHashMap<Int, Long>()
     @Volatile
@@ -175,6 +175,7 @@ class MumbleConnection(private val store: AppStore, private val identities: Iden
         desiredMute = muted
         if (!muted) desiredDeaf = false
         updateSelfFlags()
+        rememberSelfFlags()
         state.value.me?.let {
             action(9, Proto().number(1, it).bool(9, desiredMute).bool(10, desiredDeaf))
         }
@@ -184,8 +185,17 @@ class MumbleConnection(private val store: AppStore, private val identities: Iden
         desiredDeaf = deaf
         if (deaf) desiredMute = true
         updateSelfFlags()
+        rememberSelfFlags()
         state.value.me?.let {
             action(9, Proto().number(1, it).bool(9, desiredMute).bool(10, desiredDeaf))
+        }
+    }
+
+    private fun rememberSelfFlags() {
+        scope.launch {
+            runCatching {
+                store.updateSettings { it.copy(selfMute = desiredMute, selfDeaf = desiredDeaf) }
+            }
         }
     }
 
