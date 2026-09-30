@@ -7,8 +7,9 @@ available code; it is separate from validation on particular browsers, OS versio
 
 All four clients provide saved servers, Mumble connections, encrypted voice with TCP fallback,
 push to talk, voice activation, mute/deafen, channel navigation, chat, images, certificate trust,
-reconnect, and Mutter screen viewing. All use the same 11 themes, light/dark appearance, fonts,
-brand mark, and semantic color roles.
+reconnect, and Mutter screen viewing. Mute and deafen are remembered across reconnects and
+relaunches, and a screen share is offered only to people in the sharer's channel. All use the
+same 11 themes, light/dark appearance, fonts, brand mark, and semantic color roles.
 
 The browser and Electron share one interface and protocol implementation. iOS and Android use
 native interfaces and independent protocol implementations that speak the same wire formats.

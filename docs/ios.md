@@ -22,8 +22,8 @@ public repo. Copy `Local.xcconfig.example` to `Local.xcconfig`, put your 10-char
 it, and re-run `xcodegen generate`. Setting the team in Xcode's Signing & Capabilities tab instead
 works until the next regenerate, which throws it away.
 
-Then build the `Mutter` scheme. Run the package tests with `swift test` from `Packages/MumbleCore`
-(macOS) or via the scheme's Test action.
+Then build the `Mutter` scheme. The app and its widget share one version: change
+`MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in `project.yml`.
 
 For repeatable phone deployment, copy `Local.deploy.json.example` to the ignored
 `Local.deploy.json`. Set the paired device identifier from `xcrun devicectl list devices`
@@ -56,6 +56,15 @@ Build notes:
 3. **Keychain entitlement.** Certificates live in the keychain; the entitlements file is generated
    by XcodeGen from `project.yml`.
 
+
+## Tests
+
+- `swift test --package-path Packages/MumbleCore` runs the protocol and client package tests on macOS.
+- The scheme's Test action runs those plus the UI tests. The chat keyboard tests connect to the
+  fake server, so start `node web/test/fake-server.mjs 64740` on the Mac first; without it they skip.
+- `node --test web/test/native.test.mjs` (macOS) compiles the app's audio playout, credential
+  storage and reconnect code into small probes. It is the only test of those files, so run it after
+  changing `Mutter/Audio/UserStream.swift`, `Mutter/App/ServerStore.swift` or the client package.
 
 ## Source layout
 
