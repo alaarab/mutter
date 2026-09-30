@@ -194,6 +194,7 @@ struct SessionView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("tab-\(item.rawValue)")
                 }
             }
             .padding(.bottom, 2)
