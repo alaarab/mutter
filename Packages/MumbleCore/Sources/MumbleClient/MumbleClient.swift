@@ -435,7 +435,7 @@ public final class MumbleClient {
             }
         }
         if let certificate, let endpoint { didAcceptCertificate?(endpoint, certificate) }
-        restoreRememberedSelfState(session: sync.session)
+        if let session = sync.session { restoreRememberedSelfState(session: session) }
         startTimers()
         requestMissingBlobs()
     }
