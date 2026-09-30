@@ -266,16 +266,17 @@ final class ScreenSharer: NSObject {
 
     private func answer(from session: UInt32, sdp: String) {
         guard let viewer = viewers[session], !viewer.answered else { return }
-        let connection = viewer.connection
-        connection.setRemoteDescription(RTCSessionDescription(type: .answer, sdp: sdp)) { [weak self] error in
+        let viewerIdentity = ObjectIdentifier(viewer)
+        viewer.connection.setRemoteDescription(RTCSessionDescription(type: .answer, sdp: sdp)) { [weak self] error in
+            let failure = error?.localizedDescription
             Task { @MainActor in
-                guard let self, self.viewers[session] === viewer else { return }
-                if let error {
-                    DiagnosticsLog.shared.add("share", "answer rejected: \(error.localizedDescription)")
+                guard let self, let viewer = self.viewers[session], ObjectIdentifier(viewer) == viewerIdentity else { return }
+                if let failure {
+                    DiagnosticsLog.shared.add("share", "answer rejected: \(failure)")
                     return
                 }
                 viewer.answered = true
-                self.add(viewer.waitingCandidates, to: connection)
+                self.add(viewer.waitingCandidates, to: viewer.connection)
                 viewer.waitingCandidates.removeAll()
             }
         }
