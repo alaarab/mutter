@@ -1,4 +1,5 @@
 import SwiftUI
+import ReplayKit
 import WebRTC
 
 struct RTCVideoSurface: UIViewRepresentable {
@@ -95,5 +96,79 @@ struct ScreenShareViewer: View {
         }
         .statusBarHidden()
         .onChange(of: share.watching == nil) { _, ended in if ended { dismiss() } }
+    }
+}
+
+struct BroadcastPickerLauncher: UIViewRepresentable {
+    var request: Int
+
+    func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
+        let picker = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+        picker.preferredExtension = BroadcastChannel.extensionBundleIdentifier
+        picker.showsMicrophoneButton = false
+        picker.isUserInteractionEnabled = false
+        picker.alpha = 0
+        return picker
+    }
+
+    func updateUIView(_ picker: RPSystemBroadcastPickerView, context: Context) {
+        guard request != context.coordinator.handledRequest else { return }
+        context.coordinator.handledRequest = request
+        for case let button as UIButton in picker.subviews {
+            button.sendActions(for: .allTouchEvents)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(handledRequest: request) }
+
+    final class Coordinator {
+        var handledRequest: Int
+        init(handledRequest: Int) { self.handledRequest = handledRequest }
+    }
+}
+
+struct OwnShareBanner: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let sharer = model.screenSharer
+        if let share = sharer.sharing {
+            HStack(spacing: 10) {
+                Image(systemName: "rectangle.on.rectangle.angled.fill").foregroundStyle(Theme.speaking)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("You're sharing your screen")
+                        .font(.subheadline.weight(.semibold)).foregroundStyle(Theme.ink)
+                    Text(Self.viewerLine(share.viewers))
+                        .font(.caption).foregroundStyle(Theme.muted)
+                }
+                Spacer()
+                Button("Stop") { sharer.stop() }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.danger)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .accessibilityIdentifier("stop-screen-share")
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 6)
+            .background(Theme.speaking.opacity(0.12))
+            .overlay(alignment: .bottom) { Divider().overlay(Theme.separator) }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("own-screen-share")
+        } else if let problem = sharer.problem {
+            Text(problem)
+                .font(.caption)
+                .foregroundStyle(Theme.danger)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+        }
+    }
+
+    static func viewerLine(_ viewers: Int) -> String {
+        switch viewers {
+        case 0: return "Nobody is watching yet"
+        case 1: return "1 person watching"
+        default: return "\(viewers) people watching"
+        }
     }
 }

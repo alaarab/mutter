@@ -39,6 +39,7 @@ struct SessionView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            OwnShareBanner()
             ShareBanner()
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

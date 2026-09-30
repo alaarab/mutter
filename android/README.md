@@ -44,8 +44,10 @@ its Keystore key to decrypt the stored server passwords, tokens and certificates
   mute/volume, permission-gated moderation, and registered-user management.
 - Channel and direct chat, formatted text/links, inline attached images, photo attachments
   resized to server limits, unread counts, and direct-message notifications.
-- WebRTC screen viewing compatible with the other Mutter clients. Screen broadcasting and
-  share audio are not included.
+- WebRTC screen viewing and screen sharing compatible with the other Mutter clients. Share
+  screen in the call options menu asks Android for screen-capture consent, then shares the
+  whole screen (up to 1280 pixels on the longest side, 30 fps, no audio) with people in your
+  channel. Stop it from the banner, the call notification, or the system's cast indicator.
 - All 11 shared themes in light, dark, and system appearance, miniature theme previews,
   shared typography and motion, and an adaptive/monochrome launcher icon from `docs/brand/icon.svg`.
 - The shared phone layout: Channels, Chat, and Server tabs; an indented channel tree; circular
@@ -101,8 +103,16 @@ The optional desktop-to-Android video test starts its own server and browser sha
 CHROME=/path/to/chromium node android/test-share.mjs
 ```
 
-It asserts that the Android viewer decodes real 640×360 video frames. Its instrumentation
-test is skipped in the ordinary suite unless this helper provides the sharing-server argument.
+It asserts that the Android viewer decodes real 640×360 video frames. The reverse check has
+Android share a synthetic 640×360 screen and a desktop client watch it:
+
+```bash
+CHROME=/path/to/chromium node android/test-phone-share.mjs
+```
+
+Both instrumentation tests are skipped in the ordinary suite unless these helpers provide the
+sharing-server argument. Real screen capture needs the system consent dialog, so check it by
+hand on a device.
 
 The shared palette generator writes Android's `assets/themes.json` and launch colors alongside
 Swift and browser outputs. Fonts are read from `design/fonts`; Gradle

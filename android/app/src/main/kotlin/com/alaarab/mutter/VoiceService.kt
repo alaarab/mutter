@@ -14,6 +14,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.alaarab.mutter.data.SessionState
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
@@ -26,6 +27,7 @@ class VoiceService : Service() {
     private var media: MediaSession? = null
     private var startedAudio = false
     private var servedGeneration: Long? = null
+    private var foregroundIncludesScreenCapture = false
     private val messageHandler: (com.alaarab.mutter.data.ChatMessage) -> Unit = { message ->
         showMessageNotification(message)
     }
@@ -70,6 +72,7 @@ class VoiceService : Service() {
         scope.launch {
             app.client.state
                 .map { listOf(it.status, it.channel?.name, it.self?.selfMute, it.self?.selfDeaf) }
+                .combine(app.sharer.sharing) { summary, share -> summary + listOf(share) }
                 .distinctUntilChanged()
                 .collect {
                     val state = app.client.state.value
@@ -87,6 +90,8 @@ class VoiceService : Service() {
                         app.audio.stop()
                         app.shares.reset()
                     }
+                    if (foregroundIncludesScreenCapture && app.sharer.sharing.value == null)
+                        startCallForeground(includeScreenCapture = false)
                     notifications.notify(1, notification(state))
                     media?.setPlaybackState(
                         PlaybackState.Builder()
@@ -143,23 +148,39 @@ class VoiceService : Service() {
             }
             "deafen" -> app.client.deafen(app.client.state.value.self?.selfDeaf != true)
             "disconnect" -> app.disconnect()
+            SHARE_SCREEN_ACTION -> startScreenShare(intent)
+            STOP_SCREEN_SHARE_ACTION -> app.sharer.stop()
         }
         return START_NOT_STICKY
     }
 
-    private fun startCallForeground() {
+    private fun startScreenShare(intent: Intent) {
+        val permission =
+            if (Build.VERSION.SDK_INT >= 33)
+                intent.getParcelableExtra(SCREEN_PERMISSION_EXTRA, Intent::class.java)
+            else @Suppress("DEPRECATION") intent.getParcelableExtra(SCREEN_PERMISSION_EXTRA)
+        if (permission == null || !app.client.state.value.connected) return
+        startCallForeground(includeScreenCapture = true)
+        if (!app.sharer.startProjection(permission)) startCallForeground(includeScreenCapture = false)
+    }
+
+    private fun startCallForeground(includeScreenCapture: Boolean = app.sharer.isSharing) {
         val microphone =
             checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
                 PackageManager.PERMISSION_GRANTED
+        val microphoneType =
+            if (microphone && Build.VERSION.SDK_INT >= 30)
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            else 0
+        val screenCaptureType =
+            if (includeScreenCapture) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION else 0
         ServiceCompat.startForeground(
             this,
             1,
             notification(app.client.state.value),
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK or
-                if (microphone && Build.VERSION.SDK_INT >= 30)
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-                else 0,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK or microphoneType or screenCaptureType,
         )
+        foregroundIncludesScreenCapture = includeScreenCapture
     }
 
     private fun openApp() =
@@ -197,6 +218,10 @@ class VoiceService : Service() {
                 if (state.self?.selfDeaf == true) "Undeafen" else "Deafen",
                 action("deafen"),
             )
+            .apply {
+                if (app.sharer.sharing.value != null)
+                    addAction(0, "Stop sharing", action(STOP_SCREEN_SHARE_ACTION))
+            }
             .addAction(0, "Disconnect", action("disconnect"))
             .build()
 
@@ -205,6 +230,7 @@ class VoiceService : Service() {
         if (app.client.onMessage === messageHandler) app.client.onMessage = {}
         val served = servedGeneration
         if (served != null && served == app.client.generation) {
+            app.sharer.stop()
             app.audio.stop()
             app.client.disconnect(onlyGeneration = served)
             app.shares.reset()
@@ -214,7 +240,10 @@ class VoiceService : Service() {
         super.onDestroy()
     }
 
-    private companion object {
-        const val MESSAGE_PREVIEW_SOURCE_CHARACTERS = 65536
+    companion object {
+        private const val MESSAGE_PREVIEW_SOURCE_CHARACTERS = 65536
+        const val SHARE_SCREEN_ACTION = "share-screen"
+        const val STOP_SCREEN_SHARE_ACTION = "stop-screen-share"
+        const val SCREEN_PERMISSION_EXTRA = "screen-permission"
     }
 }
