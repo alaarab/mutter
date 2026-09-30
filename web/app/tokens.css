@@ -15,6 +15,9 @@
 @property --on-status { syntax: '<color>'; inherits: true; initial-value: #111318; }
 @property --accent-active { syntax: '<color>'; inherits: true; initial-value: #E5E5E8; }
 @property --on-accent { syntax: '<color>'; inherits: true; initial-value: #111318; }
+@property --own-bubble { syntax: '<color>'; inherits: true; initial-value: #505055; }
+@property --on-own-bubble { syntax: '<color>'; inherits: true; initial-value: #F3F3F5; }
+@property --on-own-bubble-muted { syntax: '<color>'; inherits: true; initial-value: #CFCFD2; }
 @property --online { syntax: '<color>'; inherits: true; initial-value: #6CDCA0; }
 @property --away { syntax: '<color>'; inherits: true; initial-value: #EBC477; }
 @property --busy { syntax: '<color>'; inherits: true; initial-value: #FF8989; }
@@ -50,6 +53,9 @@
   --on-status: #111318;
   --accent-active: #E5E5E8;
   --on-accent: #111318;
+  --own-bubble: #505055;
+  --on-own-bubble: #F3F3F5;
+  --on-own-bubble-muted: #CFCFD2;
   --online: #6CDCA0;
   --away: #EBC477;
   --busy: #FF8989;
@@ -97,7 +103,7 @@
 }
 
 :root.theme-ready {
-  transition-property: --accent, --secondary, --bg, --surface, --elevated, --sunken, --separator, --ink, --body, --muted, --speaking, --danger, --warn, --whisper, --on-status, --accent-active, --on-accent, --online, --away, --busy, --streaming, --invisible, --on-avatar, --surface-highlight, --shadow, --media, --on-media, --avatar0, --avatar1, --avatar2, --avatar3, --avatar4, --avatar5;
+  transition-property: --accent, --secondary, --bg, --surface, --elevated, --sunken, --separator, --ink, --body, --muted, --speaking, --danger, --warn, --whisper, --on-status, --accent-active, --on-accent, --own-bubble, --on-own-bubble, --on-own-bubble-muted, --online, --away, --busy, --streaming, --invisible, --on-avatar, --surface-highlight, --shadow, --media, --on-media, --avatar0, --avatar1, --avatar2, --avatar3, --avatar4, --avatar5;
   transition-duration: var(--duration-theme);
   transition-timing-function: var(--ease);
 }

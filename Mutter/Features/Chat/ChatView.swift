@@ -333,6 +333,15 @@ struct MessageRow: View {
         !String(rendered.text.characters).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private var bubbleText: AttributedString {
+        guard message.isOwn else { return rendered.text }
+        var restyled = rendered.text
+        for run in restyled.runs where run.link != nil {
+            restyled[run.range].swiftUI.foregroundColor = Theme.onOwnBubble
+        }
+        return restyled
+    }
+
     var body: some View {
         if message.isSystem {
             VStack(spacing: 4) {
@@ -365,12 +374,12 @@ struct MessageRow: View {
                         if !hasText && rendered.images.isEmpty && rendered.unreadableImages > 0 {
                             Label("Image couldn't be shown", systemImage: "photo.badge.exclamationmark")
                                 .font(.footnote)
-                                .foregroundStyle(message.isOwn ? .white.opacity(0.85) : Theme.muted)
+                                .foregroundStyle(message.isOwn ? Theme.onOwnBubbleMuted : Theme.muted)
                         }
                         if hasText {
-                            Text(rendered.text)
+                            Text(bubbleText)
                                 .font(.body)
-                                .foregroundStyle(message.isOwn ? .white : Theme.ink)
+                                .foregroundStyle(message.isOwn ? Theme.onOwnBubble : Theme.ink)
                                 .textSelection(.enabled)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .frame(maxWidth: 300, alignment: .leading)
@@ -380,7 +389,7 @@ struct MessageRow: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, hasText ? 8 : 12)
                     .background(
-                        message.isOwn ? Theme.accent : Theme.surface,
+                        message.isOwn ? Theme.ownBubble : Theme.surface,
                         in: RoundedRectangle(cornerRadius: 16, style: .continuous)
                     )
                     .overlay(
