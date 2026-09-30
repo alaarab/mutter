@@ -181,6 +181,7 @@ FAKE_VERSION=1.4.287 node web/test/e2e.test.mjs     # same, legacy voice format
 FAKE_UDP=0 node web/test/e2e.test.mjs               # same with UDP blocked: voice must stay on the TCP tunnel
 node web/test/ocb2.test.mjs                         # the cipher against Mumble's test vectors, loss/replay/resync rules
 node web/test/share.test.mjs                        # screen share between two tabs, WebRTC + signaling
+node --test web/test/share-network.test.mjs         # two computers whose mDNS names don't resolve: who can still connect
 node web/test/signal.test.mjs                       # the plugin-message fragment codec, in Node
 node web/test/roster.test.mjs                       # the channel tree index: counts, parent loops, speed on a large server
 node web/test/dsp.test.mjs                          # the spectral suppressor: FFT, SNR gain, click ducking, block-size independence

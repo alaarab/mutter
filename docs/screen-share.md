@@ -99,12 +99,20 @@ Rules both sides follow:
 - ICE servers: `stun:stun.l.google.com:19302`, plus an optional TURN server from settings for
   networks that block direct connections (corporate NAT). `bundlePolicy: max-bundle`,
   `rtcpMuxPolicy: require` — keeps the SDP small.
+- Local addresses: browsers replace host candidates with random `.local` mDNS names unless the
+  page holds microphone or camera permission. Two computers that both do this cannot reach each
+  other on a LAN where multicast DNS is blocked, while native viewers (iOS, Android) always offer
+  real addresses. The desktop app starts Chromium with `WebRtcHideLocalIpsWithMdns` disabled so
+  it always offers real local addresses to the peers it connects to.
 
 ## Viewer
 
 The stage (third column) shows the video, `width×height · fps · bitrate · codec` from
 `getStats()` once a second, full-screen and picture-in-picture buttons, and Stop watching.
 A sharing user gets a green screen badge in the channel tree; clicking it watches.
+A viewer that isn't connected 25 seconds after `watch` gives up and says why, naming hidden
+(mDNS-only) local addresses on both ends when that is the cause. A `disconnected` connection
+shows as reconnecting with a Retry button; only `failed` shows as couldn't connect.
 
 ## Notes for the iOS port
 

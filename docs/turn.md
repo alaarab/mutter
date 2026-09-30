@@ -23,12 +23,21 @@ Read the pair of results together:
 - **Both have public addresses but the share still fails.** At least one end is behind a
   symmetric NAT, where the address the outside sees changes per destination, so the address STUN
   reported is useless to the other peer. Again, only a relay gets through.
+- **Both computers are on the same network and neither shows a real local address.** Browsers
+  hide their local addresses behind random `.local` names unless the page has microphone or
+  camera access. Two computers that both hide them can only find each other if those names
+  resolve, and multicast DNS is often blocked (Windows Firewall, guest Wi-Fi, separate subnets).
+  A phone always shares its real address, which is why a phone can watch when a second computer
+  can't. The Mutter desktop app always shares its real local addresses; in a browser, allowing
+  the microphone does the same. The viewer shows this case by name after 25 seconds instead of
+  waiting forever.
 - **Both have a relay.** It will connect. Relayed video is slower and costs the relay's
   bandwidth, but it works everywhere.
 
 The Server tab's log also prints the candidate types both ends offered and the path chosen the
 moment a connection succeeds or fails, e.g. `viewer failed: local host×2 srflx×1 · remote
-host×3 · no relay (TURN) configured`.
+host×3 · no relay (TURN) configured`, and it adds `local addresses hidden (mDNS)` or
+`remote addresses hidden (mDNS)` when an end only offered `.local` names.
 
 ## The fix: a relay you own
 

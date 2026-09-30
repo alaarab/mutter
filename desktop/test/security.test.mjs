@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { allowsPermission, isAppURL, isExternalURL } from '../security.js';
+import { allowsPermission, CHROMIUM_FEATURES_TO_DISABLE, disableChromiumFeatures, isAppURL, isExternalURL } from '../security.js';
 
 const appURL = 'http://localhost:8789';
 
@@ -32,4 +32,28 @@ test('device permissions are limited to the app main frame', () => {
   assert.equal(allowsPermission('media', appURL, appURL, appURL, false), false);
   assert.equal(allowsPermission('openExternal', appURL, appURL, appURL), false);
   assert.equal(allowsPermission('clipboard-read', appURL, appURL, appURL), false);
+});
+
+function recordingCommandLine(initialSwitches = {}) {
+  const switches = { ...initialSwitches };
+  return {
+    switches,
+    getSwitchValue: (name) => switches[name] ?? '',
+    appendSwitch: (name, value) => {
+      switches[name] = value;
+    },
+  };
+}
+
+test('the desktop app shares real local addresses with screen-share peers instead of mDNS names', () => {
+  assert.deepEqual(CHROMIUM_FEATURES_TO_DISABLE, ['WebRtcHideLocalIpsWithMdns']);
+  const commandLine = recordingCommandLine();
+  disableChromiumFeatures(commandLine);
+  assert.equal(commandLine.switches['disable-features'], 'WebRtcHideLocalIpsWithMdns');
+});
+
+test('disabling Chromium features keeps any features already disabled', () => {
+  const commandLine = recordingCommandLine({ 'disable-features': 'SomethingElse,WebRtcHideLocalIpsWithMdns' });
+  disableChromiumFeatures(commandLine);
+  assert.equal(commandLine.switches['disable-features'], 'SomethingElse,WebRtcHideLocalIpsWithMdns');
 });
