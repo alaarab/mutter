@@ -28,6 +28,11 @@ struct ChatView: View {
     @State private var isAtBottom = true
     @State private var unseenBelow = 0
     @State private var followsBottomThroughKeyboard = false
+    @State private var transcriptEndOffset: CGFloat = 0
+    @State private var transcriptViewportHeight: CGFloat = 0
+
+    private static let transcriptSpace = "chat-transcript-space"
+    private static let bottomTolerance: CGFloat = 32
 
     private var session: ServerSession { model.session }
 
@@ -48,26 +53,41 @@ struct ChatView: View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 10) {
-                        if session.messages.isEmpty {
-                            EmptyState(symbol: "bubble.left.and.bubble.right", title: "No messages yet", message: "Messages sent to your channel, or directly to you, show up here.")
-                                .padding(.top, 40)
+                    VStack(spacing: 0) {
+                        LazyVStack(alignment: .leading, spacing: 10) {
+                            if session.messages.isEmpty {
+                                EmptyState(symbol: "bubble.left.and.bubble.right", title: "No messages yet", message: "Messages sent to your channel, or directly to you, show up here.")
+                                    .padding(.top, 40)
+                            }
+                            ForEach(session.messages) { message in
+                                MessageRow(message: message, onUser: onUser)
+                                    .id(message.id)
+                            }
                         }
-                        ForEach(session.messages) { message in
-                            MessageRow(message: message, onUser: onUser)
-                                .id(message.id)
-                        }
+                        .padding(.horizontal, 12)
+                        .padding(.top, 8)
                         Color.clear
                             .frame(height: 1)
                             .id("bottom")
-                            .onAppear {
-                                isAtBottom = true
-                                unseenBelow = 0
-                            }
-                            .onDisappear { isAtBottom = false }
+                            .background(GeometryReader { marker in
+                                Color.clear.preference(
+                                    key: TranscriptEndOffsetKey.self,
+                                    value: marker.frame(in: .named(Self.transcriptSpace)).minY
+                                )
+                            })
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
+                }
+                .coordinateSpace(name: Self.transcriptSpace)
+                .background(GeometryReader { viewport in
+                    Color.clear.preference(key: TranscriptViewportHeightKey.self, value: viewport.size.height)
+                })
+                .onPreferenceChange(TranscriptViewportHeightKey.self) { height in
+                    transcriptViewportHeight = height
+                    updateIsAtBottom()
+                }
+                .onPreferenceChange(TranscriptEndOffsetKey.self) { offset in
+                    transcriptEndOffset = offset
+                    updateIsAtBottom()
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .contentShape(Rectangle())
@@ -151,6 +171,13 @@ struct ChatView: View {
         }
         imageError = nil
         model.client.sendText(html: html, to: target)
+    }
+
+    private func updateIsAtBottom() {
+        guard transcriptViewportHeight > 0 else { return }
+        let atBottom = transcriptEndOffset <= transcriptViewportHeight + Self.bottomTolerance
+        if atBottom != isAtBottom { isAtBottom = atBottom }
+        if atBottom && unseenBelow != 0 { unseenBelow = 0 }
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
@@ -262,6 +289,16 @@ struct ChatView: View {
         draft = ""
         Haptics.impact(.light)
     }
+}
+
+private struct TranscriptEndOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+private struct TranscriptViewportHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
 struct NewMessagesButton: View {
