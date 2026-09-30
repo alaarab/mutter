@@ -2,10 +2,11 @@
 
 import argparse
 import json
-import shlex
 import subprocess
 import sys
 from pathlib import Path
+
+from signing_keychain import signing_keychain
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -26,43 +27,14 @@ def build(config, derived_data):
             "-disableAutomaticPackageResolution",
         ])
 
-    previous_keychains = None
     log_path = derived_data / "deploy-build.log"
-    try:
-        if config.get("keychain"):
-            keychain = str(Path(config["keychain"]).expanduser().resolve())
-            password_path = Path(config["keychain_password_file"]).expanduser()
-            if password_path.stat().st_mode & 0o077:
-                raise ValueError(f"Restrict the signing password file to its owner: chmod 600 {password_path}")
-            password = password_path.read_text().strip()
-            if not password:
-                raise ValueError("The signing keychain password file is empty.")
-
-            unlocked = subprocess.run(
-                ["security", "unlock-keychain", "-p", password, keychain],
-                capture_output=True,
-                check=False,
-            )
-            if unlocked.returncode:
-                raise RuntimeError("Cannot unlock the configured signing keychain; check its password file.")
-
-            previous_keychains = shlex.split(run(
-                "security", "list-keychains", "-d", "user", capture_output=True, text=True,
-            ).stdout)
-
-            run("security", "list-keychains", "-d", "user", "-s", keychain,
-                *[item for item in previous_keychains if item != keychain])
-            command.append(f"OTHER_CODE_SIGN_FLAGS=--keychain {shlex.quote(keychain)}")
-
+    with signing_keychain(config, ROOT) as signing_settings:
         derived_data.mkdir(parents=True, exist_ok=True)
         print(f"Building and signing Mutter. Build log: {log_path}", flush=True)
         with log_path.open("w") as log:
-            result = subprocess.run(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, check=False)
+            result = subprocess.run(command + signing_settings, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, check=False)
         if result.returncode:
             raise RuntimeError(f"Xcode build failed. See {log_path}")
-    finally:
-        if previous_keychains is not None:
-            run("security", "list-keychains", "-d", "user", "-s", *previous_keychains)
 
 
 def main():

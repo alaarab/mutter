@@ -47,6 +47,23 @@ launches Mutter. `--device` overrides the saved phone; optional `derived_data` a
 `source_packages` paths let you reuse an existing build and Swift package cache.
 Omit the keychain fields when using Xcode's ordinary interactive signing setup.
 
+## TestFlight
+
+TestFlight builds need an app record for `com.alaarab.mutter` in App Store Connect, and a Mac
+that can sign for your team. Put an App Store Connect API key in `~/.config/ios-release.json`
+(`key_id`, `issuer_id`, `key_path` pointing at the `.p8` file) so Xcode can create the App Group
+and extension profiles without an Apple ID signed into Xcode. If `Local.deploy.json` names a
+build keychain, the release uses it the same way the phone deploy does. Then run:
+
+```bash
+python3 scripts/release-ios.py --build-number 2            # signed archive and IPA
+python3 scripts/release-ios.py --build-number 3 --upload   # upload to TestFlight
+```
+
+Use a build number higher than any already uploaded. The version comes from `MARKETING_VERSION`
+in `project.yml`. Archives go under `~/Library/Developer/Xcode/Archives/mutter/`. Uploading only
+sends the build to TestFlight; it does not submit it for App Review.
+
 Git authentication is configured per checkout. If the Mac's default GitHub host uses
 another repository's deploy key, use an SSH URL and select the appropriate account key
 with local `core.sshCommand`. Keep machine paths and credentials out of committed files.
