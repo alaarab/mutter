@@ -402,8 +402,10 @@ final class AppModel {
                 }
             case .userJoined, .userLeft, .userMoved:
                 if settings.showPresenceNotices { showToast(notice) }
-            case .permissionDenied, .info, .disconnected:
+            case .permissionDenied, .info:
                 showToast(notice)
+            case .disconnected:
+                if !session.wasConnectedThisSession { showToast(notice) }
             case .connected:
                 break
             }
