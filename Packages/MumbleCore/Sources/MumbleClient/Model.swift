@@ -181,10 +181,6 @@ public struct ServerCertificateInfo: Hashable, Sendable {
     public var sha1Fingerprint: Data
     public var notValidAfter: Date?
     public var derChain: [Data]
-
-    public var fingerprintDisplay: String {
-        sha256Fingerprint.map { String(format: "%02X", $0) }.joined(separator: ":")
-    }
 }
 
 public enum ConnectionError: Error, LocalizedError, Sendable {

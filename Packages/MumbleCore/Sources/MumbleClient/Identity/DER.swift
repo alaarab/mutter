@@ -73,10 +73,6 @@ enum DER {
         tlv(0x0C, Data(text.utf8))
     }
 
-    static func printableString(_ text: String) -> Data {
-        tlv(0x13, Data(text.utf8))
-    }
-
     static func ia5String(_ text: String) -> Data {
         tlv(0x16, Data(text.utf8))
     }
