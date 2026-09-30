@@ -155,8 +155,6 @@ fun Avatar(name: String, talking: Boolean = false, size: Int = 42, rounded: Bool
 fun User.withLocalSpeech(me: Int?, transmitting: Boolean) =
     if (session == me && transmitting) copy(talkingUntil = Long.MAX_VALUE) else this
 
-fun peopleLabel(count: Int) = if (count == 1) "1 person" else "$count people"
-
 fun userStatus(user: User, now: Long): String =
     when {
         user.deaf || user.selfDeaf -> "Deafened"
