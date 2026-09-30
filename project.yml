@@ -50,6 +50,7 @@ targets:
       - package: WebRTC
         product: WebRTC
       - target: MutterWidgets
+      - target: MutterBroadcast
     info:
       path: Mutter/Resources/Info.plist
       properties:
@@ -105,6 +106,8 @@ targets:
       properties:
         keychain-access-groups:
           - $(AppIdentifierPrefix)com.alaarab.mutter
+        com.apple.security.application-groups:
+          - group.com.alaarab.mutter
 
   MutterWidgets:
     type: app-extension
@@ -137,6 +140,34 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.alaarab.mutter.widgets
         SWIFT_VERSION: "5.0"
         INFOPLIST_KEY_CFBundleDisplayName: Mutter
+
+  MutterBroadcast:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: MutterBroadcast
+      - path: Mutter/ScreenShare/BroadcastFrames.swift
+    dependencies:
+      - sdk: ReplayKit.framework
+    info:
+      path: MutterBroadcast/Info.plist
+      properties:
+        CFBundleDisplayName: Mutter
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.broadcast-services-upload
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).SampleHandler
+          RPBroadcastProcessMode: RPBroadcastProcessModeSampleBuffer
+    entitlements:
+      path: MutterBroadcast/MutterBroadcast.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.alaarab.mutter
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.alaarab.mutter.broadcast
+        SWIFT_VERSION: "5.0"
 
   MutterUITests:
     type: bundle.ui-testing

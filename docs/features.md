@@ -7,7 +7,7 @@ available code; it is separate from validation on particular browsers, OS versio
 
 All four clients provide saved servers, Mumble connections, encrypted voice with TCP fallback,
 push to talk, voice activation, mute/deafen, channel navigation, chat, images, certificate trust,
-reconnect, and Mutter screen viewing. All use the same 11 themes, light/dark appearance, fonts,
+reconnect, and Mutter screen viewing and sharing. All use the same 11 themes, light/dark appearance, fonts,
 brand mark, and semantic color roles.
 
 The browser and Electron share one interface and protocol implementation. iOS and Android use
@@ -21,7 +21,7 @@ native interfaces and independent protocol implementations that speak the same w
 | Audio codec | WebCodecs Opus | libopus | Android MediaCodec Opus | Chromium WebCodecs Opus |
 | Audio processing | Browser processing, RNNoise or spectral suppression | Apple processing, spectral suppression, adaptive gate | Device-provided echo cancellation, noise suppression, gain control | Chromium processing, RNNoise or spectral suppression |
 | Background controls | Browser-dependent | Live Activities, Now Playing, App Intents | Foreground call notification and media controls | Desktop shell and global push to talk |
-| Screen/camera broadcasting | Supported browser capture | Viewer | Viewer | Desktop picker and camera capture |
+| Screen/camera broadcasting | Supported browser capture | Whole-screen sharing through a broadcast extension, viewer | Whole-screen sharing through MediaProjection, viewer | Desktop picker and camera capture |
 | Screen-share audio | Browser capture capabilities | Not implemented | Not implemented | Windows loopback capture; OS-dependent elsewhere |
 | LAN discovery | Not implemented | Bonjour | Android NSD | Not implemented |
 | Password and identity storage | Session-only passwords; bridge identity | Apple Keychain | Android Keystore encryption | OS-encrypted passwords; bridge identity |
@@ -43,6 +43,6 @@ includes device and protocol test commands.
 ## Remaining work
 
 Full ACL/group and ban-list editors, positional audio, recording, and server-defined context
-actions are not implemented across the clients. Mobile screen broadcasting and share audio need
-dedicated platform work. Android real-device audio quality, accessory routing, OEM power
+actions are not implemented across the clients. Phones share video only: share audio and phone
+cameras need dedicated platform work. Android real-device audio quality, accessory routing, OEM power
 management, and release signing remain separate from emulator and protocol validation.
