@@ -5,6 +5,8 @@ package com.alaarab.mutter.ui
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.projection.MediaProjectionManager
+import androidx.core.content.ContextCompat
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
@@ -14,6 +16,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ScreenShare
 import androidx.compose.material.icons.automirrored.rounded.VolumeOff
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.*
@@ -65,6 +68,19 @@ fun VoiceControls(
         rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
             refreshMicrophone()
         }
+    val screenCaptureConsent =
+        rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            result ->
+            val permission = result.data
+            if (result.resultCode == android.app.Activity.RESULT_OK && permission != null)
+                ContextCompat.startForegroundService(
+                    context,
+                    Intent(context, VoiceService::class.java)
+                        .setAction(VoiceService.SHARE_SCREEN_ACTION)
+                        .putExtra(VoiceService.SCREEN_PERMISSION_EXTRA, permission),
+                )
+        }
+    val ownShare by app.sharer.sharing.collectAsStateWithLifecycle()
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { refreshMicrophone() }
     val level by app.audio.level.collectAsStateWithLifecycle()
     val talking by app.audio.transmitting.collectAsStateWithLifecycle()
@@ -211,6 +227,27 @@ fun VoiceControls(
                             )
                         }
                     HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text(if (ownShare == null) "Share screen" else "Stop sharing") },
+                        leadingIcon = {
+                            Icon(
+                                if (ownShare == null) Icons.AutoMirrored.Rounded.ScreenShare
+                                else Icons.Rounded.StopScreenShare,
+                                null,
+                            )
+                        },
+                        modifier = Modifier.testTag("shareScreen"),
+                        onClick = {
+                            menu = false
+                            if (ownShare != null) app.sharer.stop()
+                            else
+                                screenCaptureConsent.launch(
+                                    context
+                                        .getSystemService(MediaProjectionManager::class.java)
+                                        .createScreenCaptureIntent()
+                                )
+                        },
+                    )
                     DropdownMenuItem(
                         text = { Text("Whisper or shout…") },
                         leadingIcon = { Icon(Icons.Rounded.RecordVoiceOver, null) },

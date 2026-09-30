@@ -215,6 +215,41 @@ fun SheetHeader(
 @Composable
 fun ShareBanner(app: MutterApplication) {
     val shares by app.shares.shares.collectAsStateWithLifecycle()
+    val ownShare by app.sharer.sharing.collectAsStateWithLifecycle()
+    val problem by app.sharer.problem.collectAsStateWithLifecycle()
+    val p = LocalPalette.current
+    ownShare?.let { share ->
+        Row(
+            Modifier.fillMaxWidth()
+                .background(p.speaking.copy(alpha = .12f))
+                .padding(horizontal = 16.dp, vertical = 6.dp)
+                .testTag("ownScreenShare"),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(Icons.AutoMirrored.Rounded.ScreenShare, null, Modifier.size(18.dp), tint = p.speaking)
+            Column(Modifier.weight(1f)) {
+                Text("You're sharing your screen", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    when (share.viewers) {
+                        0 -> "Nobody is watching yet"
+                        1 -> "1 person watching"
+                        else -> "${share.viewers} people watching"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = p.muted,
+                )
+            }
+            TextButton(app.sharer::stop) { Text("Stop", color = p.danger) }
+        }
+    }
+    if (ownShare == null && problem != null)
+        Text(
+            problem.orEmpty(),
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = p.danger,
+        )
     if (shares.isNotEmpty())
         Row(
             Modifier.fillMaxWidth()

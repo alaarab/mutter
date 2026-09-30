@@ -76,7 +76,7 @@ class AppIntegrationTest {
         val codec = SignalCodec()
         fun deliver(from: Int, json: String) {
             for (packet in codec.encode(json.toByteArray())) {
-                ui.runOnIdle { app.shares.receive(from, "mutter/rtc", packet) }
+                ui.runOnIdle { app.client.onPlugin(from, "mutter/rtc", packet) }
             }
         }
         deliver(sender + 1000, """{"t":"announce","id":"forged"}""")

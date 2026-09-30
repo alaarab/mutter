@@ -1,51 +1,35 @@
 package com.alaarab.mutter.sharing
 
-import android.content.Context
 import com.alaarab.mutter.data.AppStore
 import com.alaarab.mutter.protocol.MumbleConnection
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
-import org.json.JSONArray
 import org.json.JSONObject
 import org.webrtc.*
 
 data class ActiveShare(val id: String, val sender: Int, val title: String)
 
 class ShareViewer(
-    context: Context,
+    private val runtime: WebRtcRuntime,
     private val store: AppStore,
     private val client: MumbleConnection,
+    private val signals: SignalChannel,
 ) {
     val shares = MutableStateFlow<List<ActiveShare>>(emptyList())
     val watching = MutableStateFlow<ActiveShare?>(null)
     val video = MutableStateFlow<VideoTrack?>(null)
     val status = MutableStateFlow("Connecting…")
-    val egl: EglBase by lazy { EglBase.create() }
+    val egl: EglBase
+        get() = runtime.egl
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val factory: PeerConnectionFactory by lazy {
-        PeerConnectionFactory.initialize(
-            PeerConnectionFactory.InitializationOptions.builder(context)
-                .createInitializationOptions()
-        )
-        PeerConnectionFactory.builder()
-            .setVideoDecoderFactory(DefaultVideoDecoderFactory(egl.eglBaseContext))
-            .setVideoEncoderFactory(DefaultVideoEncoderFactory(egl.eglBaseContext, true, true))
-            .createPeerConnectionFactory()
-    }
-    private val codec = SignalCodec()
     private var peer: PeerConnection? = null
     private var ready = false
     private val pendingIce = mutableListOf<IceCandidate>()
-    private val outgoing = kotlinx.coroutines.channels.Channel<Pair<Int, ByteArray>>(256)
 
     init {
-        scope.launch {
-            for ((receiver, payload) in outgoing) {
-                client.sendPlugin(listOf(receiver), payload)
-                delay(350)
-            }
-        }
+        signals.listen(::handle)
         scope.launch {
             client.state.collect { state ->
                 if (!state.connected) return@collect
@@ -55,58 +39,40 @@ class ShareViewer(
         }
     }
 
-    fun receive(sender: Int, dataId: String, bytes: ByteArray) {
-        if (dataId != "mutter/rtc" || sender !in client.state.value.users) return
-        val payload = codec.receive(sender, bytes) ?: return
-        val message =
-            runCatching { JSONObject(payload.toString(Charsets.UTF_8)) }.getOrNull() ?: return
-        scope.launch {
-            val id = message.optString("id")
-            if (id.isBlank() || id.length > 256) return@launch
-            when (message.optString("t")) {
-                "announce" ->
-                    if (id.isNotBlank() && sender in client.state.value.users) {
-                        val share =
-                            ActiveShare(
-                                id,
-                                sender,
-                                message.optString(
-                                    "title",
-                                    client.state.value.users[sender]?.name ?: "Screen",
-                                ).take(512),
-                            )
-                        shares.update {
-                            val others = it.filterNot { old -> old.id == id && old.sender == sender }
-                            if (others.size < 256) others + share else it
-                        }
-                    }
-                "stop" -> {
+    private fun handle(sender: Int, message: JSONObject) {
+        val id = message.optString("id")
+        when (message.optString("t")) {
+            "announce" ->
+                if (id.isNotBlank() && sender in client.state.value.users) {
+                    val share =
+                        ActiveShare(
+                            id,
+                            sender,
+                            message.optString(
+                                "title",
+                                client.state.value.users[sender]?.name ?: "Screen",
+                            ).take(512),
+                        )
                     shares.update {
-                        it.filterNot { share -> share.id == id && share.sender == sender }
+                        val others = it.filterNot { old -> old.id == id && old.sender == sender }
+                        if (others.size < 256) others + share else it
                     }
-                    if (watching.value?.let { it.id == id && it.sender == sender } == true) stop()
                 }
-                "offer" ->
-                    if (watching.value?.let { it.id == id && it.sender == sender } == true)
-                        accept(message.optString("sdp"))
-                "ice" ->
-                    if (watching.value?.let { it.id == id && it.sender == sender } == true) {
-                        val candidates = message.optJSONArray("c") ?: JSONArray()
-                        repeat(minOf(candidates.length(), 256)) { index ->
-                            val c = candidates.optJSONObject(index) ?: return@repeat
-                            val sdp = c.optString("candidate")
-                            if (sdp.length > 4096) return@repeat
-                            val candidate =
-                                IceCandidate(
-                                    c.optString("sdpMid"),
-                                    c.optInt("sdpMLineIndex"),
-                                    sdp,
-                                )
-                            if (ready) peer?.addIceCandidate(candidate)
-                            else if (pendingIce.size < 256) pendingIce.add(candidate)
-                        }
-                    }
+            "stop" -> {
+                shares.update {
+                    it.filterNot { share -> share.id == id && share.sender == sender }
+                }
+                if (watching.value?.let { it.id == id && it.sender == sender } == true) stop()
             }
+            "offer" ->
+                if (watching.value?.let { it.id == id && it.sender == sender } == true)
+                    accept(message.optString("sdp"))
+            "ice" ->
+                if (watching.value?.let { it.id == id && it.sender == sender } == true)
+                    readIceCandidates(message).forEach { candidate ->
+                        if (ready) peer?.addIceCandidate(candidate)
+                        else if (pendingIce.size < MAXIMUM_CANDIDATES) pendingIce.add(candidate)
+                    }
         }
     }
 
@@ -131,30 +97,22 @@ class ShareViewer(
     fun reset() {
         stop()
         shares.value = emptyList()
-        while (outgoing.tryReceive().isSuccess) {}
+        signals.clear()
     }
 
     private fun send(type: String, fields: JSONObject = JSONObject()) {
         val share = watching.value ?: return
-        val data = fields.put("t", type).put("id", share.id).toString().toByteArray()
-        for (fragment in codec.encode(data)) outgoing.trySend(share.sender to fragment)
+        signals.send(
+            listOf(share.sender),
+            fields.put("t", type).put("id", share.id),
+            if (type == "answer") "answer:${share.sender}:${share.id}" else null,
+        )
     }
 
     private fun accept(sdp: String) {
         peer?.close()
         peer?.dispose()
         ready = false
-        val settings = store.settings.value
-        val servers = mutableListOf<PeerConnection.IceServer>()
-        if (settings.stun.isNotBlank())
-            servers.add(PeerConnection.IceServer.builder(settings.stun).createIceServer())
-        if (settings.turn.isNotBlank())
-            servers.add(
-                PeerConnection.IceServer.builder(settings.turn)
-                    .setUsername(settings.turnUser)
-                    .setPassword(settings.turnPassword)
-                    .createIceServer()
-            )
         val observer =
             object : PeerConnection.Observer {
                 override fun onSignalingChange(state: PeerConnection.SignalingState) {}
@@ -168,22 +126,7 @@ class ShareViewer(
                 override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) {}
 
                 override fun onIceCandidate(candidate: IceCandidate) {
-                    scope.launch {
-                        send(
-                            "ice",
-                            JSONObject()
-                                .put(
-                                    "c",
-                                    JSONArray()
-                                        .put(
-                                            JSONObject()
-                                                .put("candidate", candidate.sdp)
-                                                .put("sdpMid", candidate.sdpMid)
-                                                .put("sdpMLineIndex", candidate.sdpMLineIndex)
-                                        ),
-                                ),
-                        )
-                    }
+                    scope.launch { send("ice", JSONObject().put("c", candidateList(candidate))) }
                 }
 
                 override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>) {}
@@ -205,10 +148,8 @@ class ShareViewer(
                 }
             }
         val connection =
-            factory.createPeerConnection(
-                PeerConnection.RTCConfiguration(servers).apply {
-                    sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
-                },
+            runtime.factory.createPeerConnection(
+                runtime.configuration(store.settings.value),
                 observer,
             ) ?: return run { status.value = "Could not start the viewer" }
         peer = connection
