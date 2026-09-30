@@ -72,13 +72,21 @@ final class ChatKeyboardTests: XCTestCase {
 
         let latestMessage = app.staticTexts["Follow check \(messageCount)"]
         XCTAssertTrue(latestMessage.waitForExistence(timeout: 5))
-        XCTAssertTrue(isShownAbove(latestMessage, composer), "The latest message is in view before the keyboard opens")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+        attachScreenshot(of: app, named: "chat-keyboard-down-before-follow")
+        XCTAssertTrue(
+            isShownAbove(latestMessage, composer),
+            "The latest message is in view before the keyboard opens (message \(latestMessage.frame), composer \(composer.frame))"
+        )
 
         composer.tap()
         XCTAssertTrue(waitForKeyboard(in: app, visible: true))
         RunLoop.current.run(until: Date().addingTimeInterval(0.8))
         attachScreenshot(of: app, named: "chat-keyboard-follows-latest-message")
-        XCTAssertTrue(isShownAbove(latestMessage, composer), "Opening the keyboard must keep the latest message above the composer")
+        XCTAssertTrue(
+            isShownAbove(latestMessage, composer),
+            "Opening the keyboard must keep the latest message above the composer (message \(latestMessage.frame), composer \(composer.frame))"
+        )
     }
 
     private func launchConnectedToFakeServer() -> XCUIApplication {
