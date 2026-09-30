@@ -36,6 +36,7 @@ const MAX_PING_MS = 60_000;
 const STALL_GAP_MS = 250;
 const NEW_SPURT_GAP_MS = 2000;
 const STALL_FRAMES = 20;
+const ROSTER_MESSAGE_TYPES = new Set([MessageType.channelState, MessageType.channelRemove, MessageType.userState, MessageType.userRemove]);
 
 const DenyType = {
   text: 0,
@@ -100,6 +101,7 @@ export class MumbleClient extends EventTarget {
   #target = null;
   #intentional = false;
   #reconnectAttempt = 0;
+  #rosterIsStale = false;
   #usernameInUseRetries = 0;
   #usernameOverride = null;
   #frameNumber = 0;
@@ -121,6 +123,7 @@ export class MumbleClient extends EventTarget {
     this.#usernameInUseRetries = 0;
     this.#usernameOverride = null;
     this.messages = [];
+    this.#rosterIsStale = false;
     this.#resetRoster();
     this.#open();
   }
@@ -445,7 +448,7 @@ export class MumbleClient extends EventTarget {
     }
     this.#reconnectAttempt++;
     const delay = Math.min(MAX_RECONNECT_DELAY_MS, 2 ** this.#reconnectAttempt * 1000);
-    this.#resetRoster();
+    this.#rosterIsStale = true;
     this.#setState('reconnecting');
     this.diag('connection', `reconnecting in ${delay / 1000}s (attempt ${this.#reconnectAttempt})`);
     this.#timers.reconnect = setTimeout(() => {
@@ -483,6 +486,12 @@ export class MumbleClient extends EventTarget {
   }
 
   #onMessage(type, message) {
+    if (this.#rosterIsStale && ROSTER_MESSAGE_TYPES.has(type)) {
+      this.#rosterIsStale = false;
+      this.channels.clear();
+      this.users.clear();
+      this.me = null;
+    }
     switch (type) {
       case MessageType.version:
         this.#onVersion(message);
@@ -604,6 +613,11 @@ export class MumbleClient extends EventTarget {
   }
 
   #onServerSync(message) {
+    if (this.#rosterIsStale) {
+      this.#rosterIsStale = false;
+      this.channels.clear();
+      this.users.clear();
+    }
     clearTimeout(this.#timers.handshake);
     delete this.#timers.handshake;
     this.me = message.session;

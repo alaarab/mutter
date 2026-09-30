@@ -246,7 +246,7 @@ struct ChatView: View {
                     .contentShape(Rectangle().inset(by: -6))
                 }
 
-                TextField("Message", text: draftBinding, axis: .vertical)
+                TextField(session.isConnected ? "Message" : "Waiting for the connection…", text: draftBinding, axis: .vertical)
                     .lineLimit(1...5)
                     .textFieldStyle(.plain)
                     .padding(.horizontal, 12)

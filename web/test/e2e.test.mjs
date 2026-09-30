@@ -290,6 +290,9 @@ try {
       }
     }
     await bravo.waitFor(`mutter.client.state === 'reconnecting' && !document.getElementById('overlay').hidden`, { timeout: 3000 });
+    if (!(await bravo.eval(`mutter.client.channels.size > 0 && document.getElementById('tree').children.length > 0`))) {
+      throw new Error('the channel tree disappeared while reconnecting');
+    }
     await bravo.waitFor(`mutter.client.state === 'connected' && document.getElementById('overlay').hidden`, { timeout: 10_000 });
     const after = await bravo.eval('mutter.client.me');
     if (after === before) {

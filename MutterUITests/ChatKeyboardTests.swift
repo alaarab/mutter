@@ -1,17 +1,10 @@
 import XCTest
-import Network
 
 final class ChatKeyboardTests: XCTestCase {
-    private static let serverHost = "127.0.0.1"
-    private static let serverPort: UInt16 = 64740
-
     func testChatKeyboardDismissesByDraggingAndTheDraftSurvivesTabs() throws {
         continueAfterFailure = false
-        try XCTSkipUnless(
-            Self.serverIsListening(),
-            "Start node web/test/fake-server.mjs on port \(Self.serverPort) on the test machine to run this test"
-        )
-        let app = launchConnectedToFakeServer()
+        try XCTSkipUnless(FakeServer.isListening(), FakeServer.skipReason)
+        let app = launchConnectedToFakeServer(usernamePrefix: "KeyboardTest")
         let chatTab = app.buttons["tab-chat"]
         let channelsTab = app.buttons["tab-channels"]
         chatTab.tap()
@@ -50,11 +43,8 @@ final class ChatKeyboardTests: XCTestCase {
 
     func testOpeningTheKeyboardKeepsTheLatestMessageInView() throws {
         continueAfterFailure = false
-        try XCTSkipUnless(
-            Self.serverIsListening(),
-            "Start node web/test/fake-server.mjs on port \(Self.serverPort) on the test machine to run this test"
-        )
-        let app = launchConnectedToFakeServer()
+        try XCTSkipUnless(FakeServer.isListening(), FakeServer.skipReason)
+        let app = launchConnectedToFakeServer(usernamePrefix: "KeyboardTest")
         app.buttons["tab-chat"].tap()
 
         let composer = app.descendants(matching: .any)["chat-composer"]
@@ -89,39 +79,8 @@ final class ChatKeyboardTests: XCTestCase {
         )
     }
 
-    private func launchConnectedToFakeServer() -> XCUIApplication {
-        let app = XCUIApplication()
-        app.launchArguments = ["-defaultUsername", "KeyboardTest\(Int.random(in: 1000...9999))", "-rememberedSelfMute", "NO", "-rememberedSelfDeaf", "NO"]
-        app.launch()
-
-        app.buttons["Add"].tap()
-        app.buttons["Quick connect"].tap()
-        let address = app.textFields["host or host:port"]
-        XCTAssertTrue(address.waitForExistence(timeout: 5))
-        address.tap()
-        address.typeText("\(Self.serverHost):\(Self.serverPort)")
-        app.buttons["Connect"].tap()
-        let trust = app.buttons["Trust & connect"]
-        if trust.waitForExistence(timeout: 10) { trust.tap() }
-        XCTAssertTrue(waitForSession(app.buttons["tab-chat"]))
-        return app
-    }
-
     private func isShownAbove(_ message: XCUIElement, _ composer: XCUIElement) -> Bool {
         message.exists && message.frame.height > 0 && message.frame.maxY <= composer.frame.minY + 1 && message.frame.minY >= 0
-    }
-
-    private func waitForSession(_ chatTab: XCUIElement) -> Bool {
-        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        let deadline = Date().addingTimeInterval(30)
-        while Date() < deadline {
-            for answer in ["Allow", "OK"] where springboard.buttons[answer].exists {
-                springboard.buttons[answer].tap()
-            }
-            if chatTab.exists && chatTab.isHittable { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
-        }
-        return false
     }
 
     private func waitForKeyboard(in app: XCUIApplication, visible: Bool) -> Bool {
@@ -131,37 +90,5 @@ final class ChatKeyboardTests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return false
-    }
-
-    private func attachScreenshot(of app: XCUIApplication, named name: String) {
-        let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = name
-        attachment.lifetime = .keepAlways
-        add(attachment)
-    }
-
-    private static func serverIsListening() -> Bool {
-        let connection = NWConnection(
-            host: NWEndpoint.Host(serverHost),
-            port: NWEndpoint.Port(rawValue: serverPort)!,
-            using: .tcp
-        )
-        let finished = DispatchSemaphore(value: 0)
-        var listening = false
-        connection.stateUpdateHandler = { state in
-            switch state {
-            case .ready:
-                listening = true
-                finished.signal()
-            case .failed, .waiting:
-                finished.signal()
-            default:
-                break
-            }
-        }
-        connection.start(queue: DispatchQueue(label: "mutter.uitest.probe"))
-        _ = finished.wait(timeout: .now() + 2)
-        connection.cancel()
-        return listening
     }
 }

@@ -25,6 +25,7 @@ import { CryptState } from '../src/ocb2.js';
 
 const ALL_PERMISSIONS = 0x1f07ff;
 const IDLE_DROP_MS = 30_000;
+const DROP_CONNECTION_COMMAND = 'fake-server:drop-my-connection';
 const UDP_FRESH_MS = 15_000;
 const PLUGIN_MAX_BYTES = 1000;
 const PLUGIN_BUCKET = { rate: 4, burst: 15 };
@@ -476,6 +477,11 @@ export class FakeMumbleServer extends EventEmitter {
 
   onText(sender, message) {
     const html = message.message ?? '';
+    if (html.trim() === DROP_CONNECTION_COMMAND) {
+      this.log(`${sender.name} asked to be dropped`);
+      setTimeout(() => sender.socket.destroy(), 50);
+      return;
+    }
     if (!this.textAllowed(html)) {
       this.dropped.text++;
       this.deny(sender, DenyType.textTooLong);
