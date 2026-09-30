@@ -10,11 +10,8 @@ final class VoiceActivityController {
     var isActive: Bool { activity != nil }
 
     nonisolated static func endAllOnLaunch() {
-        Task { @MainActor in await endAll() }
-    }
-
-    static func endAll() async {
-        await end(Activity<VoiceActivityAttributes>.activities)
+        let activitiesFromEarlierLaunches = Activity<VoiceActivityAttributes>.activities
+        Task { @MainActor in await end(activitiesFromEarlierLaunches) }
     }
 
     private static func end(_ activities: [Activity<VoiceActivityAttributes>]) async {
