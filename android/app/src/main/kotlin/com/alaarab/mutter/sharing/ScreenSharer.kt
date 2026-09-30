@@ -442,10 +442,10 @@ class ScreenSharer(
         const val TRICKLE_BATCH_MILLISECONDS = 250L
 
         fun captureSize(displayWidth: Int, displayHeight: Int): Pair<Int, Int> {
-            val longest = maxOf(displayWidth, displayHeight).coerceAtLeast(1)
-            val scale = minOf(1.0, LONGEST_EDGE.toDouble() / longest)
-            fun even(value: Double) = (value.toInt() / 2 * 2).coerceAtLeast(2)
-            return even(displayWidth * scale) to even(displayHeight * scale)
+            val longest = maxOf(displayWidth, displayHeight, 1)
+            val limit = minOf(longest, LONGEST_EDGE)
+            fun even(value: Int) = (value / 2 * 2).coerceAtLeast(2)
+            return even(displayWidth * limit / longest) to even(displayHeight * limit / longest)
         }
     }
 }

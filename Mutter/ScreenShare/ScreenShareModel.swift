@@ -42,9 +42,10 @@ final class ScreenShareModel: NSObject {
     private(set) var error: String?
 
     var turnServer: (url: String, username: String, password: String)?
+    @ObservationIgnored var onSharerMessage: ((SignalMessage, UInt32) -> Void)?
 
     @ObservationIgnored private let client: MumbleClient
-    @ObservationIgnored private let sender: SignalSender
+    @ObservationIgnored let sender: SignalSender
     @ObservationIgnored private let reassembler = SignalReassembler()
     @ObservationIgnored private var peerConnection: RTCPeerConnection?
     @ObservationIgnored private var pruneTimer: Timer?
@@ -58,7 +59,7 @@ final class ScreenShareModel: NSObject {
     private static let gatheringPollNanoseconds: UInt64 = 50_000_000
     private static let defaultStun = "stun:stun.l.google.com:19302"
 
-    @ObservationIgnored private static let factory: RTCPeerConnectionFactory = {
+    @ObservationIgnored static let factory: RTCPeerConnectionFactory = {
         RTCInitializeSSL()
         RTCAudioSession.sharedInstance().useManualAudio = true
         RTCAudioSession.sharedInstance().isAudioEnabled = false
@@ -101,7 +102,10 @@ final class ScreenShareModel: NSObject {
             guard let current = watching, current.id == message.id, current.sender == from, let sdp = message.sdp else { return }
             Task { await accept(offer: sdp, from: from, id: message.id) }
         case .ice:
-            guard watching?.id == message.id, watching?.sender == from else { return }
+            guard watching?.id == message.id, watching?.sender == from else {
+                onSharerMessage?(message, from)
+                return
+            }
             let candidates = (message.candidates ?? []).prefix(256).filter { $0.candidate.utf8.count <= 4096 }
             if let peerConnection, remoteDescriptionSet {
                 addCandidates(candidates, to: peerConnection)
@@ -109,7 +113,7 @@ final class ScreenShareModel: NSObject {
                 pendingCandidates.append(contentsOf: candidates.prefix(256 - pendingCandidates.count))
             }
         case .watch, .answer, .leave:
-            break
+            onSharerMessage?(message, from)
         }
     }
 
@@ -182,7 +186,7 @@ final class ScreenShareModel: NSObject {
         }
     }
 
-    private func makeConfiguration() -> RTCConfiguration {
+    func makeConfiguration() -> RTCConfiguration {
         let configuration = RTCConfiguration()
         var iceServers = [RTCIceServer(urlStrings: [Self.defaultStun])]
         if let turn = turnServer, !turn.url.isEmpty {
@@ -223,7 +227,7 @@ final class ScreenShareModel: NSObject {
             guard isCurrent(connection) else { return }
             await waitForGathering(connection)
             guard isCurrent(connection), let local = connection.localDescription, watching?.id == id else { return }
-            sender.send(.answer(id, sdp: local.sdp), to: [sharer])
+            sender.send(.answer(id, sdp: local.sdp), to: [sharer], replacing: "answer:\(sharer):\(id)")
             startStats()
         } catch {
             guard isCurrent(connection) else { return }

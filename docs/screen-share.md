@@ -5,7 +5,8 @@ not modified and needs no plugin: video travels **peer to peer over WebRTC**, an
 thing that crosses the Mumble server is the signaling, carried in `PluginDataTransmission`
 (control message type 26).
 
-Implemented in `web/app/share.js` + `web/src/rtcsignal.js`. iOS mirrors the wire format.
+Implemented in `web/app/share.js` + `web/src/rtcsignal.js`. iOS and Android mirror the wire format
+and can both share and view.
 
 ## What the server gives us
 
@@ -99,6 +100,30 @@ Rules both sides follow:
 - ICE servers: `stun:stun.l.google.com:19302`, plus an optional TURN server from settings for
   networks that block direct connections (corporate NAT). `bundlePolicy: max-bundle`,
   `rtcpMuxPolicy: require` — keeps the SDP small.
+
+## Phones as sharers
+
+Phones share the whole screen, video only (`audio: false`), and announce `kind: "screen"`.
+
+- **Android** (`sharing/ScreenSharer.kt`): Share screen in the call options asks for
+  MediaProjection consent. The voice service then adds the `mediaProjection` foreground type,
+  and webrtc-sdk's `ScreenCapturerAndroid` captures at up to 1280 pixels on the longest side,
+  30 fps, 2.5 Mbit/s. Stopping from the banner, the notification's Stop sharing, the system's
+  cast indicator, or a disconnect sends `stop` to everyone announced to.
+- **iOS** (`ScreenShare/ScreenSharer.swift`, `MutterBroadcast/`): ReplayKit hands screen frames
+  to a Broadcast Upload Extension, a separate process capped at about 50 MB. WebRTC runs in the
+  app, not in the extension: the extension scales each frame to at most 1280 pixels on the
+  longest side, encodes a JPEG at 15 fps, and writes it to a Unix socket in the App Group
+  container (`share.sock`; frames are `MTRF`, a 4-byte big-endian length, the ReplayKit
+  orientation byte, then the JPEG). The app decodes on the CPU, feeds a screencast
+  `RTCVideoSource`, and signals exactly like the web sharer. The encoder is VP8 in software,
+  because the app keeps encoding while it's in the background and the GPU isn't available to it
+  there. Stop sharing in the app closes the socket, and the extension then ends the broadcast.
+  The app stays running because it's in a voice call; leaving the server stops the share.
+
+Both use the same ICE servers as their viewers (the STUN server and optional TURN server from
+settings), answer `watch` only from people in their channel with the same rate limit as the web,
+and replace a queued `offer` for the same viewer instead of sending two.
 
 ## Viewer
 

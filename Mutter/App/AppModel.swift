@@ -21,6 +21,7 @@ final class AppModel {
     let client: MumbleClient
     let audio = AudioEngine()
     let screenShare: ScreenShareModel
+    let screenSharer: ScreenSharer
 
     private(set) var identities: [ClientIdentity] = IdentityStore.shared.identities
     private(set) var unavailableIdentityIDs: Set<UUID> = AppModel.unavailableIdentities(in: IdentityStore.shared.identities)
@@ -49,13 +50,18 @@ final class AppModel {
 
     init() {
         client = MumbleClient()
-        screenShare = ScreenShareModel(client: client)
+        let viewer = ScreenShareModel(client: client)
+        screenShare = viewer
+        screenSharer = ScreenSharer(client: client, sender: viewer.sender) { viewer.makeConfiguration() }
         client.voiceSink = audio
         client.prepareMessageForDisplay = { html in HTMLText.prepareInBackground(html) }
         AppModel.shared = self
         client.onPluginData = { [weak self] plugin in
             guard plugin.dataId == RTCSignal.dataId else { return }
             self?.screenShare.handle(plugin)
+        }
+        screenShare.onSharerMessage = { [weak self] message, session in
+            self?.screenSharer.handle(message, from: session)
         }
 
         client.certificateTrust = { [weak self] question in
@@ -168,12 +174,14 @@ final class AppModel {
             if let server = activeServer { servers.markConnected(server.id) }
             applyAudioSettings()
             applyShareSettings()
+            screenSharer.prepare()
             audio.start()
             UIApplication.shared.isIdleTimerDisabled = settings.keepScreenAwake
             if let target = whisperTarget { client.setVoiceTarget(VoiceTargetID(1), entries: target.entries) }
             startPresence()
         case .disconnected:
             audio.stop()
+            screenSharer.shutDown()
             screenShare.reset()
             UIApplication.shared.isIdleTimerDisabled = false
             stopPresence()

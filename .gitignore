@@ -9,6 +9,8 @@ Package.resolved
 Mutter/Resources/Info.plist
 Mutter/Resources/Mutter.entitlements
 MutterWidgets/Info.plist
+MutterBroadcast/Info.plist
+MutterBroadcast/MutterBroadcast.entitlements
 
 Local.xcconfig
 Local.deploy.json

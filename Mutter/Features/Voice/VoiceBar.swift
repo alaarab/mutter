@@ -5,6 +5,7 @@ struct VoiceBar: View {
     @Environment(AppModel.self) private var model
     @State private var showTargets = false
     @State private var showSettings = false
+    @State private var broadcastPickerRequest = 0
 
     private var session: ServerSession { model.session }
     private var audio: AudioEngine { model.audio }
@@ -101,6 +102,15 @@ struct VoiceBar: View {
                             Label("Whisper mode", systemImage: "waveform.badge.mic")
                         }
                     }
+                    if model.screenSharer.sharing != nil {
+                        Button { model.screenSharer.stop() } label: {
+                            Label("Stop sharing screen", systemImage: "rectangle.on.rectangle.slash")
+                        }
+                    } else if model.screenSharer.isReady {
+                        Button { broadcastPickerRequest += 1 } label: {
+                            Label("Share screen", systemImage: "rectangle.on.rectangle.angled")
+                        }
+                    }
                     Button { showSettings = true } label: { Label("Settings", systemImage: "gearshape") }
                     Button(role: .destructive) { model.disconnect() } label: { Label("Disconnect", systemImage: "phone.down.fill") }
                 } label: {
@@ -135,6 +145,7 @@ struct VoiceBar: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+        .background(BroadcastPickerLauncher(request: broadcastPickerRequest).frame(width: 1, height: 1).accessibilityHidden(true))
         .sheet(isPresented: $showTargets) { VoiceTargetsSheet() }
         .sheet(isPresented: $showSettings) { SettingsView() }
     }
