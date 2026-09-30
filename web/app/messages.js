@@ -22,6 +22,13 @@ export class MessageList {
       },
       { passive: true }
     );
+    const keepLatestInView = () => {
+      if (this.atBottom) {
+        this.box.scrollTop = this.box.scrollHeight;
+      }
+    };
+    new ResizeObserver(keepLatestInView).observe(this.box);
+    this.box.addEventListener('load', keepLatestInView, true);
   }
 
   reset() {

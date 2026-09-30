@@ -175,6 +175,7 @@ node --test web/test/peer-certificate.test.mjs      # CA/hostname validation and
 node --test web/test/certificate.test.mjs           # browser certificate approval, decline, and changed pins
 node --test web/test/persistence.test.mjs           # settings survive browser + bridge restarts on a fixed port
 node --test web/test/lifecycle.test.mjs             # audio released on failed connects, handshake timeout, comment blobs, stall counting
+node --test web/test/chat-scroll.test.mjs           # the latest message stays in view through window resizes and pictures loading
 node --test web/test/native.test.mjs                # macOS: native reconnect and exact loss-concealment duration
 node web/test/e2e.test.mjs                          # two tabs, voice both ways over UDP, chat, images, reconnect
 FAKE_VERSION=1.4.287 node web/test/e2e.test.mjs     # same, legacy voice format
