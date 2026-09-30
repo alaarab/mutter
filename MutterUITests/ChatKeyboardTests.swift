@@ -25,8 +25,9 @@ final class ChatKeyboardTests: XCTestCase {
         let trust = app.buttons["Trust & connect"]
         if trust.waitForExistence(timeout: 10) { trust.tap() }
 
-        let chatTab = app.buttons["Chat"]
-        XCTAssertTrue(chatTab.waitForExistence(timeout: 20))
+        let chatTab = app.buttons["tab-chat"]
+        let channelsTab = app.buttons["tab-channels"]
+        XCTAssertTrue(waitForSession(chatTab))
         chatTab.tap()
 
         let composer = app.descendants(matching: .any)["chat-composer"]
@@ -37,7 +38,7 @@ final class ChatKeyboardTests: XCTestCase {
             app.buttons["chat-send"].tap()
         }
         XCTAssertTrue(waitForKeyboard(in: app, visible: true))
-        XCTAssertFalse(app.buttons["Channels"].exists, "The tab bar makes way for the composer while typing")
+        XCTAssertFalse(channelsTab.exists, "The tab bar makes way for the composer while typing")
         attachScreenshot(of: app, named: "chat-keyboard-up")
 
         let transcript = app.descendants(matching: .any)["chat-transcript"]
@@ -45,7 +46,7 @@ final class ChatKeyboardTests: XCTestCase {
         let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.98))
         start.press(forDuration: 0.05, thenDragTo: end)
         XCTAssertTrue(waitForKeyboard(in: app, visible: false), "Dragging the transcript down must hide the keyboard")
-        XCTAssertTrue(app.buttons["Channels"].waitForExistence(timeout: 3))
+        XCTAssertTrue(channelsTab.waitForExistence(timeout: 3))
         attachScreenshot(of: app, named: "chat-keyboard-dismissed")
 
         composer.tap()
@@ -55,10 +56,23 @@ final class ChatKeyboardTests: XCTestCase {
         composerTop.press(forDuration: 0.05, thenDragTo: composerTop.withOffset(CGVector(dx: 0, dy: 160)))
         XCTAssertTrue(waitForKeyboard(in: app, visible: false), "Dragging down on the composer must hide the keyboard")
 
-        app.buttons["Channels"].tap()
+        channelsTab.tap()
         chatTab.tap()
         XCTAssertTrue(composer.waitForExistence(timeout: 5))
         XCTAssertEqual(composer.value as? String, "Half written", "The draft must survive switching tabs")
+    }
+
+    private func waitForSession(_ chatTab: XCUIElement) -> Bool {
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let deadline = Date().addingTimeInterval(30)
+        while Date() < deadline {
+            for answer in ["Allow", "OK"] where springboard.buttons[answer].exists {
+                springboard.buttons[answer].tap()
+            }
+            if chatTab.exists && chatTab.isHittable { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        return false
     }
 
     private func waitForKeyboard(in app: XCUIApplication, visible: Bool) -> Bool {
