@@ -2,8 +2,10 @@ import { app, BrowserWindow, session, desktopCapturer, shell, ipcMain, nativeIma
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { allowsPermission, isAppURL, isExternalURL } from './security.js';
+import { allowsPermission, disableChromiumFeatures, isAppURL, isExternalURL } from './security.js';
 import { CredentialVault } from './credentials.js';
+
+disableChromiumFeatures(app.commandLine);
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const webRoot = app.isPackaged ? path.join(process.resourcesPath, 'web') : path.join(here, '..', 'web');

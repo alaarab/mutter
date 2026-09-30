@@ -3,6 +3,7 @@ import { DATA_ID, encodeSignal, SignalAssembler } from '../src/rtcsignal.js';
 const GATHER_MS = 2500;
 const TRICKLE_MS = 250;
 const PROBE_MS = 8000;
+const VIEWER_CONNECT_TIMEOUT_MS = 25_000;
 const STATS_INTERVAL_MS = 1000;
 const MAX_BITRATE = 6_000_000;
 const CAMERA_MAX_BITRATE = 900_000;
@@ -83,6 +84,17 @@ function prettyTitle(label) {
     return 'Screen';
   }
   return label.slice(0, 60);
+}
+
+function hostCandidateAddresses(sdp) {
+  return (sdp ?? '')
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith('a=candidate:') && / typ host(?: |$)/.test(line))
+    .map((line) => line.split(' ')[4] ?? '');
+}
+
+function onlyMdnsAddresses(addresses) {
+  return addresses.length > 0 && addresses.every((address) => address.endsWith('.local'));
 }
 
 function waitForGathering(connection) {
@@ -480,7 +492,18 @@ export class ScreenShare extends EventTarget {
       }
       this.#emit('state');
     };
+    setTimeout(() => this.#giveUpIfStillConnecting(viewer), VIEWER_CONNECT_TIMEOUT_MS);
     this.#send([sender], { t: 'watch', id: offer.id });
+    this.#emit('state');
+  }
+
+  #giveUpIfStillConnecting(viewer) {
+    if (this.watching !== viewer || viewer.state === 'connected' || ENDED_CONNECTION_STATES.has(viewer.state)) {
+      return;
+    }
+    viewer.state = 'failed';
+    this.#diag(`viewer gave up after ${VIEWER_CONNECT_TIMEOUT_MS / 1000} s without a connection`);
+    this.#explainPath(viewer.pc, 'viewer', { gaveUp: true });
     this.#emit('state');
   }
 
@@ -576,7 +599,7 @@ export class ScreenShare extends EventTarget {
     state.pendingIce = [];
   }
 
-  async #explainPath(connection, who) {
+  async #explainPath(connection, who, { gaveUp = false } = {}) {
     try {
       const report = await connection.getStats();
       const local = {};
@@ -606,8 +629,22 @@ export class ScreenShare extends EventTarget {
         const remoteType = byId.get(pair.remoteCandidateId)?.candidateType ?? '?';
         path = ` · path ${localType} → ${remoteType}`;
       }
-      const noRelay = connection.connectionState === 'failed' && !local.relay ? ' · no relay (TURN) configured' : '';
-      this.#diag(`${who} ${connection.connectionState}: local ${describe(local)} · remote ${describe(remote)}${path}${noRelay}`);
+      const failed = gaveUp || connection.connectionState === 'failed';
+      const localHostAddresses = hostCandidateAddresses(connection.localDescription?.sdp);
+      const remoteHostAddresses = hostCandidateAddresses(connection.remoteDescription?.sdp);
+      const localAddressesHidden = onlyMdnsAddresses(localHostAddresses);
+      const remoteAddressesHidden = !remoteHostAddresses.length || onlyMdnsAddresses(remoteHostAddresses);
+      const hiddenNote = [localAddressesHidden && 'local addresses hidden (mDNS)', remoteAddressesHidden && 'remote addresses hidden (mDNS)']
+        .filter(Boolean)
+        .map((note) => ` · ${note}`)
+        .join('');
+      const noRelay = failed && !local.relay ? ' · no relay (TURN) configured' : '';
+      this.#diag(`${who} ${connection.connectionState}: local ${describe(local)} · remote ${describe(remote)}${path}${hiddenNote}${noRelay}`);
+      const viewer = this.watching;
+      if (failed && viewer?.pc === connection) {
+        viewer.failure = localAddressesHidden && remoteAddressesHidden && !local.relay ? 'hidden-addresses' : 'blocked';
+        this.#emit('state');
+      }
     } catch {}
   }
 

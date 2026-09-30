@@ -78,6 +78,11 @@ BrowserWindow ──http/ws──▶ bridge (in the main process) ──TLS + UD
 - Packaged builds flip Electron's fuses: `ELECTRON_RUN_AS_NODE`, `NODE_OPTIONS` and `--inspect`
   are ignored, the app loads only from `app.asar`, and macOS and Windows builds check that
   archive's integrity. The web client in the extra resources is outside that check.
+- Chromium starts with `WebRtcHideLocalIpsWithMdns` disabled, so screen and camera sharing offer
+  real local network addresses instead of random `.local` names. Two computers that both hide
+  their addresses can't connect on a LAN that blocks multicast DNS; phones never hide theirs,
+  which is why a phone could watch when a second computer couldn't. The addresses only go to
+  the people you share with or watch, through the Mumble server's plugin messages.
 - The renderer runs sandboxed with context isolation. Its preload exposes only credential
   reads and writes; the main process checks the requesting window, frame, and URL. The picker
   has a separate preload exposing its selection controls. The picker loads the shared

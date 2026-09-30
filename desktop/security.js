@@ -1,6 +1,7 @@
 const EXTERNAL_PROTOCOLS = new Set(['https:', 'http:', 'mailto:']);
 const APP_PATHS = new Set(['/', '/app/index.html']);
 const APP_PERMISSIONS = new Set(['media', 'display-capture', 'notifications', 'fullscreen', 'clipboard-sanitized-write', 'speaker-selection']);
+export const CHROMIUM_FEATURES_TO_DISABLE = ['WebRtcHideLocalIpsWithMdns'];
 
 export function isExternalURL(value) {
   try {
@@ -23,4 +24,11 @@ export function isAppURL(value, appURL) {
 export function allowsPermission(permission, requestingURL, contentsURL, appURL, isMainFrame = true) {
   return isMainFrame !== false && APP_PERMISSIONS.has(permission) &&
     isAppURL(requestingURL, appURL) && isAppURL(contentsURL, appURL);
+}
+
+export function disableChromiumFeatures(commandLine, features = CHROMIUM_FEATURES_TO_DISABLE) {
+  const alreadyDisabled = (commandLine.getSwitchValue('disable-features') ?? '').split(',').filter(Boolean);
+  const combined = [...new Set([...alreadyDisabled, ...features])];
+  commandLine.appendSwitch('disable-features', combined.join(','));
+  return combined;
 }

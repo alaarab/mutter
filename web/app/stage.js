@@ -3,6 +3,8 @@ import { el } from './ui.js';
 
 const NO_CONNECTION_HINT =
   'One of you is on a network that blocks direct connections. A relay (TURN) in Settings → Screen share fixes that.';
+const HIDDEN_ADDRESSES_HINT =
+  'Both browsers hid their local network addresses, so the computers couldn’t find each other. The Mutter desktop app or allowing microphone access shares the address; a relay (TURN) in Settings → Screen share works everywhere.';
 
 function formatBitrate(kbps) {
   return kbps >= 1000 ? `${(kbps / 1000).toFixed(1)} Mbit/s` : `${kbps} kbit/s`;
@@ -110,11 +112,15 @@ export function mountStage({ share, client, stage, tabs, showTab, toast, applySi
   }
 
   function connectionNote(viewer) {
-    const failed = viewer.state === 'failed' || viewer.state === 'disconnected';
-    const note = el('div', { className: 'frame-note' }, el('span', { textContent: failed ? 'Couldn’t connect' : 'Connecting…' }));
+    const failed = viewer.state === 'failed';
+    const interrupted = viewer.state === 'disconnected';
+    const heading = failed ? 'Couldn’t connect' : interrupted ? 'Connection interrupted, reconnecting…' : 'Connecting…';
+    const note = el('div', { className: 'frame-note' }, el('span', { textContent: heading }));
     if (failed) {
+      note.append(el('span', { className: 'sub', textContent: viewer.failure === 'hidden-addresses' ? HIDDEN_ADDRESSES_HINT : NO_CONNECTION_HINT }));
+    }
+    if (failed || interrupted) {
       note.append(
-        el('span', { className: 'sub', textContent: NO_CONNECTION_HINT }),
         el('button', { type: 'button', className: 'ghost', textContent: 'Retry', onclick: () => share.watch(viewer.sender) })
       );
     }

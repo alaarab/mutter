@@ -52,4 +52,5 @@ jobs:
         env:
           FAKE_UDP: '0'
       - run: node web/test/share.test.mjs
+      - run: node --test --test-concurrency=1 web/test/share-network.test.mjs
       - run: node --test --test-concurrency=1 web/test/lifecycle.test.mjs web/test/appearance.test.mjs web/test/persistence.test.mjs
