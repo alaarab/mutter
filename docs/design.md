@@ -48,6 +48,11 @@ fit the lock screen and Dynamic Island; their theme travels with the activity st
   keep text readable across all four surfaces, with at least 4.8:1 contrast (7:1 for `ink`).
 - `accent` is for selection, actions, links, and unread messages. `secondary` provides ambient
   color and decorative variation. Text on a filled action uses `onAccent`.
+- Your own chat bubbles use `ownBubble`, with `onOwnBubble` for text and links and
+  `onOwnBubbleMuted` for secondary lines. In light mode that is the accent fill;
+  in dark mode the dark palettes' pastel accents would glare, so the generator tints `elevated`
+  with just enough accent to keep 7:1 text contrast. Never fill a bubble with raw `accent` or put
+  white text on a theme fill.
 - Green means voice/presence, red means mute/error/destructive action, amber means caution,
   and violet means whisper or video sharing. Filled status controls use `onStatus`.
 - Avatars use six related colors derived from the active palette and the same UTF-8 name hash
@@ -55,7 +60,7 @@ fit the lock screen and Dynamic Island; their theme travels with the activity st
 - Video/image surfaces remain black with light overlays regardless of theme. These are media
   colors, not application backgrounds.
 
-The generator checks button and avatar contrast as well as text. These are token checks;
+The generator checks button, avatar, and chat bubble contrast as well as text. These are token checks;
 rendered surfaces, opacity, hover states, and layouts still need visual review.
 
 ## Surfaces and motion

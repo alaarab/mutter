@@ -190,10 +190,10 @@ fun ChatScreen(
                                         Modifier.widthIn(max = 324.dp)
                                             .fillMaxWidth()
                                             .clip(MaterialTheme.shapes.medium)
-                                            .background(if (message.own) p.accent else p.surface)
+                                            .background(if (message.own) p["ownBubble"] else p.surface)
                                             .border(
                                                 1.dp,
-                                                if (message.own) p.accent else p["separator"],
+                                                if (message.own) p["ownBubble"] else p["separator"],
                                                 MaterialTheme.shapes.medium,
                                             )
                                             .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -201,7 +201,7 @@ fun ChatScreen(
                                     ) {
                                         RichMessage(
                                             message.html,
-                                            if (message.own) p["onAccent"] else p.ink,
+                                            if (message.own) p["onOwnBubble"] else p.ink,
                                         )
                                     }
                                 }
