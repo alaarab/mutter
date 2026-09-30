@@ -2747,30 +2747,35 @@ body[data-members="off"] #members {
 
 .overlay {
   position: fixed;
-  inset: 0;
-  background: color-mix(in srgb, var(--bg) 78%, transparent);
-  backdrop-filter: blur(6px);
-  display: grid;
-  place-items: center;
+  top: calc(env(safe-area-inset-top) + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100vw - 24px);
   z-index: 50;
+  pointer-events: none;
   animation: fade-in var(--duration-standard) var(--ease);
 }
 
 .overlay .card {
+  pointer-events: auto;
   animation: card-in var(--duration-panel) var(--ease);
-  background: var(--surface);
+  background: color-mix(in srgb, var(--warn) 14%, var(--surface));
   border: 1px solid var(--separator);
-  border-radius: var(--r12);
-  padding: 20px 24px;
-  text-align: center;
+  border-radius: 999px;
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--shadow) 22%, transparent);
+  padding: 6px 6px 6px 16px;
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 12px;
 }
 
 .overlay p {
   margin: 0;
-  font: 700 16px var(--display);
+  font: 600 14px var(--sans);
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .viewer {

@@ -35,6 +35,7 @@ if (process.platform !== 'darwin') {
     return output;
   };
   const audio = compile('AudioProbe', [path.join(root, 'Mutter/Audio/UserStream.swift')]);
+  const liveActivity = compile('LiveActivityProbe', [path.join(root, 'Mutter/LiveActivity/LiveActivityFreshness.swift')]);
   const client = compile('ClientProbe', objects('MumbleClient'));
   const signal = compile('SignalProbe', [path.join(root, 'Mutter/ScreenShare/RTCSignaling.swift'), ...objects('MumbleClient')]);
   const credentials = compile('CredentialProbe', [path.join(root, 'Mutter/App/ServerStore.swift'), ...objects('MumbleClient')]);
@@ -56,7 +57,11 @@ if (process.platform !== 'darwin') {
     assert.match(execFileSync(audio, { encoding: 'utf8' }), /PASS/);
   });
 
-  for (const scenario of ['recovery', 'username', 'mute', 'cancel', 'no-retry']) {
+  test('native Live Activity stays fresh while live and goes stale soon after updates stop', () => {
+    assert.match(execFileSync(liveActivity, { encoding: 'utf8' }), /PASS/);
+  });
+
+  for (const scenario of ['recovery', 'username', 'mute', 'roster', 'retry', 'cancel', 'no-retry']) {
     test(`native reconnect: ${scenario}`, { timeout: 30_000 }, async t => {
       let server = await startFakeServer({ port: 0, quiet: true });
       const port = server.port;
@@ -80,7 +85,7 @@ if (process.platform !== 'darwin') {
                 else authenticate(user, message);
               };
               for (const user of server.users.values()) user.socket.destroy();
-            } else if (scenario === 'mute') {
+            } else if (scenario === 'mute' || scenario === 'roster' || scenario === 'retry') {
               for (const user of server.users.values()) user.socket.destroy();
             } else {
               await server.close();

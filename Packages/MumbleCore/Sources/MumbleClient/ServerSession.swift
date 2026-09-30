@@ -22,6 +22,7 @@ public final class ServerSession {
     public internal(set) var isTransmitting = false
     public internal(set) var unreadCount = 0
     public internal(set) var serverCertificate: ServerCertificateInfo?
+    public internal(set) var wasConnectedThisSession = false
     public var isChatVisible = false {
         didSet { if isChatVisible { unreadCount = 0 } }
     }
@@ -100,6 +101,18 @@ public final class ServerSession {
         stats = ConnectionStats()
         registeredUsers = []
         isTransmitting = false
+    }
+
+    func markEveryoneQuiet() {
+        for sessionID in users.keys where users[sessionID]?.isTalking == true {
+            users[sessionID]?.isTalking = false
+            users[sessionID]?.lastTalkedAt = Date()
+        }
+    }
+
+    func replaceRoster(channels restoredChannels: [UInt32: Channel], users restoredUsers: [UInt32: User]) {
+        channels = restoredChannels
+        users = restoredUsers
     }
 
     func appendNotice(_ notice: SessionNotice) {

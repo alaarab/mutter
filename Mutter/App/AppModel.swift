@@ -158,6 +158,18 @@ final class AppModel {
         connect(server)
     }
 
+    var isShowingLostSession: Bool {
+        activeServer != nil
+            && session.state == .disconnected
+            && session.lastError != nil
+            && session.wasConnectedThisSession
+    }
+
+    func retryConnection() {
+        guard isShowingLostSession else { return }
+        client.retryConnection()
+    }
+
     func disconnect() {
         client.disconnect()
         audio.stop()
@@ -325,12 +337,13 @@ final class AppModel {
             onlineCount: session.users.count,
             isPushToTalk: settings.transmitMode == .pushToTalk,
             isWhispering: isWhisperingNow,
-            theme: settings.theme.rawValue
+            theme: settings.theme.rawValue,
+            isReconnecting: session.isConnected ? nil : true
         )
     }
 
     func refreshPresence() {
-        guard session.isConnected else { return }
+        guard session.state.isActive else { return }
         let state = presenceState()
         liveActivity.update(state)
         remote.setNowPlaying(

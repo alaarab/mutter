@@ -12,6 +12,7 @@ struct VoiceActivityAttributes: ActivityAttributes {
         var isPushToTalk: Bool
         var isWhispering: Bool
         var theme: String? = nil
+        var isReconnecting: Bool? = nil
     }
 
     var serverName: String

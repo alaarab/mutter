@@ -11,10 +11,16 @@ struct HomeView: View {
     @State private var lanServers: [LANServer] = []
     @State private var lanBrowser = LANBrowser()
 
+    private var activeSessionStatus: String {
+        if model.session.isConnected { return "Connected · tap to return" }
+        if model.isShowingLostSession { return "Connection lost · tap to return" }
+        return "Reconnecting…"
+    }
+
     var body: some View {
         NavigationStack {
             List {
-                if model.activeServer != nil && model.session.state.isActive {
+                if model.activeServer != nil && (model.session.state.isActive || model.isShowingLostSession) {
                     Section {
                         Button { model.isSessionMinimized = false } label: {
                             HStack(spacing: 12) {
@@ -24,7 +30,7 @@ struct HomeView: View {
                                     Text(model.activeServer?.displayName ?? "Connected")
                                         .font(.subheadline.weight(.semibold))
                                         .foregroundStyle(Theme.ink)
-                                    Text(model.session.isConnected ? "Connected · tap to return" : "Reconnecting…")
+                                    Text(activeSessionStatus)
                                         .font(.caption)
                                         .foregroundStyle(Theme.muted)
                                 }

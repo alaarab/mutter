@@ -57,6 +57,7 @@ public final class MumbleClient {
     private var intentionalDisconnect = false
     private var reconnectAttempt = 0
     private var reconnectWorkItem: DispatchWorkItem?
+    private var isRestoringRoster = false
     private var usernameOverride: String?
     private var usernameInUseRetries = 0
     private var pendingCertificate: ServerCertificateInfo?
@@ -89,6 +90,7 @@ public final class MumbleClient {
             self.options = options
             self.intentionalDisconnect = false
             self.reconnectAttempt = 0
+            self.isRestoringRoster = false
             self.usernameOverride = nil
             self.usernameInUseRetries = 0
             self.ui { session in
@@ -96,7 +98,24 @@ public final class MumbleClient {
                 session.messages = []
                 session.notices = []
                 session.lastError = nil
+                session.wasConnectedThisSession = false
                 session.endpoint = endpoint
+                session.state = .connecting
+            }
+            self.openControl()
+        }
+    }
+
+    public func retryConnection() {
+        queue.async {
+            guard self.endpoint != nil, self.options != nil, self.control == nil else { return }
+            self.teardown(keepState: true)
+            self.sessionGeneration += 1
+            self.intentionalDisconnect = false
+            self.reconnectAttempt = 0
+            self.isRestoringRoster = true
+            self.ui { session in
+                session.lastError = nil
                 session.state = .connecting
             }
             self.openControl()
@@ -230,12 +249,12 @@ public final class MumbleClient {
             reconnectAttempt += 1
             let attempt = reconnectAttempt
             let delay = min(30.0, pow(2.0, Double(attempt)))
+            isRestoringRoster = true
             ui { session in
                 session.state = .reconnecting(attempt: attempt)
                 session.lastError = error
                 session.isTransmitting = false
-                session.users = [:]
-                session.channels = [:]
+                session.markEveryoneQuiet()
                 session.appendNotice(.disconnected(reason: error.errorDescription))
             }
             let work = DispatchWorkItem { [weak self] in
@@ -251,6 +270,7 @@ public final class MumbleClient {
                 session.state = .disconnected
                 session.lastError = error
                 session.isTransmitting = false
+                session.markEveryoneQuiet()
                 session.appendNotice(.disconnected(reason: error.errorDescription))
             }
         }
@@ -329,6 +349,7 @@ public final class MumbleClient {
         case .channelRemove(let removal):
             channels[removal.channelId] = nil
             let removed = removal.channelId
+            guard !isRestoringRoster else { return }
             ui { $0.channels[removed] = nil }
 
         case .userState(let state):
@@ -384,7 +405,7 @@ public final class MumbleClient {
             ui { $0.registeredUsers = list.users }
 
         case .userStats(let stats):
-            guard let sessionID = stats.session else { return }
+            guard let sessionID = stats.session, !isRestoringRoster else { return }
             ui { $0.users[sessionID]?.stats = stats }
 
         case .unhandled:
@@ -398,10 +419,12 @@ public final class MumbleClient {
         users[removal.session] = nil
         talkers[removal.session] = nil
         let wasKicked = removal.actor != nil && actorName != nil
-        ui { session in
-            session.users[removal.session] = nil
-            if session.isConnected || removal.session == session.mySession {
-                session.appendNotice(.userLeft(name: name, reason: removal.reason, wasKicked: wasKicked, wasBanned: removal.ban ?? false))
+        if !isRestoringRoster {
+            ui { session in
+                session.users[removal.session] = nil
+                if session.isConnected || removal.session == session.mySession {
+                    session.appendNotice(.userLeft(name: name, reason: removal.reason, wasKicked: wasKicked, wasBanned: removal.ban ?? false))
+                }
             }
         }
         if removal.session == mySession {
@@ -422,7 +445,14 @@ public final class MumbleClient {
         if let certificate { options?.expectedFingerprint = certificate.sha256Fingerprint }
         let endpoint = self.endpoint
         let permissions = Permissions(rawValue: UInt32(truncatingIfNeeded: sync.permissions ?? 0))
+        let restoredChannels: [UInt32: Channel]? = isRestoringRoster ? channels : nil
+        let restoredUsers: [UInt32: User]? = isRestoringRoster ? users : nil
+        isRestoringRoster = false
         ui { session in
+            if let restoredChannels, let restoredUsers {
+                session.replaceRoster(channels: restoredChannels, users: restoredUsers)
+            }
+            session.wasConnectedThisSession = true
             session.mySession = sync.session
             session.serverInfo.welcomeText = sync.welcomeText
             session.serverInfo.maxBandwidth = sync.maxBandwidth
@@ -444,6 +474,7 @@ public final class MumbleClient {
         guard let channelID = query.channelId else { return }
         let permissions = Permissions(rawValue: query.permissions ?? 0)
         channels[channelID]?.permissions = permissions
+        guard !isRestoringRoster else { return }
         ui { session in
             if query.flush == true {
                 for key in session.channels.keys { session.channels[key]?.permissions = nil }
@@ -493,6 +524,7 @@ public final class MumbleClient {
         if let canEnter = state.canEnter { channel.canEnter = canEnter }
         channels[channelID] = channel
         let snapshot = channel
+        guard !isRestoringRoster else { return }
         ui { session in
             var merged = snapshot
             merged.permissions = session.channels[channelID]?.permissions ?? snapshot.permissions
@@ -537,26 +569,28 @@ public final class MumbleClient {
         let movedToChannelName = moved ? (channels[user.channelID]?.name ?? "a channel") : nil
         let snapshot = user
 
-        ui { session in
-            var merged = snapshot
-            if let existing = session.users[sessionID] {
-                merged.isTalking = existing.isTalking
-                merged.talkingContext = existing.talkingContext
-                merged.isLocallyMuted = existing.isLocallyMuted
-                merged.localVolume = existing.localVolume
-                merged.lastTalkedAt = existing.lastTalkedAt
-                merged.stats = existing.stats
-            }
-            session.users[sessionID] = merged
-            guard synced else { return }
-            if isNew {
-                session.appendNotice(.userJoined(name: merged.name))
-            } else if let target = movedToChannelName {
-                let myChannel = session.me?.channelID
-                let involvesMe = sessionID == me || previousChannel == myChannel || merged.channelID == myChannel
-                if involvesMe {
-                    let actor = (state.actor == sessionID) ? nil : actorName
-                    session.appendNotice(.userMoved(name: merged.name, toChannel: target, byActor: actor))
+        if !isRestoringRoster {
+            ui { session in
+                var merged = snapshot
+                if let existing = session.users[sessionID] {
+                    merged.isTalking = existing.isTalking
+                    merged.talkingContext = existing.talkingContext
+                    merged.isLocallyMuted = existing.isLocallyMuted
+                    merged.localVolume = existing.localVolume
+                    merged.lastTalkedAt = existing.lastTalkedAt
+                    merged.stats = existing.stats
+                }
+                session.users[sessionID] = merged
+                guard synced else { return }
+                if isNew {
+                    session.appendNotice(.userJoined(name: merged.name))
+                } else if let target = movedToChannelName {
+                    let myChannel = session.me?.channelID
+                    let involvesMe = sessionID == me || previousChannel == myChannel || merged.channelID == myChannel
+                    if involvesMe {
+                        let actor = (state.actor == sessionID) ? nil : actorName
+                        session.appendNotice(.userMoved(name: merged.name, toChannel: target, byActor: actor))
+                    }
                 }
             }
         }

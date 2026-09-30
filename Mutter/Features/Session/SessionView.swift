@@ -39,6 +39,7 @@ struct SessionView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            ConnectionBanner()
             OwnShareBanner()
             ShareBanner()
             content
@@ -60,6 +61,7 @@ struct SessionView: View {
             withAnimation(.easeOut(duration: 0.2)) { isKeyboardShowing = showing }
         }
         .animation(ThemeMotion.animation(DesignMotion.panel), value: model.toast)
+        .animation(ThemeMotion.animation(DesignMotion.panel), value: session.state)
         .sheet(item: $userSheet) { id in UserSheet(sessionID: id.id) }
         .sheet(item: $channelSheet) { id in ChannelSheet(channelID: id.id) }
         .fullScreenCover(isPresented: Binding(
@@ -139,7 +141,7 @@ struct SessionView: View {
 
     @ViewBuilder
     private var content: some View {
-        if !session.isConnected {
+        if !session.isConnected && !session.wasConnectedThisSession {
             VStack(spacing: 14) {
                 ProgressView().controlSize(.large)
                 Text(isReconnecting ? "Reconnecting…" : "Connecting…")

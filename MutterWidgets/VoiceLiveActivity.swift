@@ -24,21 +24,27 @@ struct VoiceLiveActivity: Widget {
                     .padding(.leading, 4)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    HStack(spacing: 8) {
-                        MuteButton(state: context.state)
-                        TalkButton(state: context.state)
+                    if !context.isStale {
+                        HStack(spacing: 8) {
+                            MuteButton(state: context.state)
+                            TalkButton(state: context.state)
+                        }
                     }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    SpeakersLine(state: context.state)
+                    SpeakersLine(state: context.state, isStale: context.isStale)
                         .padding(.horizontal, 4)
                 }
             } compactLeading: {
-                Image(systemName: context.state.speakers.isEmpty ? "waveform" : "waveform.circle.fill")
-                    .foregroundStyle(context.state.speakers.isEmpty ? context.state.color(\.muted) : context.state.color(\.speaking))
-                    .symbolEffect(.variableColor.iterative, isActive: !context.state.speakers.isEmpty)
+                Image(systemName: context.isStale ? "waveform.slash" : (context.state.speakers.isEmpty ? "waveform" : "waveform.circle.fill"))
+                    .foregroundStyle(context.isStale || context.state.speakers.isEmpty ? context.state.color(\.muted) : context.state.color(\.speaking))
+                    .symbolEffect(.variableColor.iterative, isActive: !context.isStale && !context.state.speakers.isEmpty)
             } compactTrailing: {
-                if context.state.isMuted {
+                if context.isStale {
+                    Image(systemName: "pause.circle").foregroundStyle(context.state.color(\.muted))
+                } else if context.state.isReconnecting == true {
+                    Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(context.state.color(\.warn))
+                } else if context.state.isMuted {
                     Image(systemName: "mic.slash.fill").foregroundStyle(context.state.color(\.danger))
                 } else if let first = context.state.speakers.first {
                     Text(first).font(.caption2.weight(.semibold)).lineLimit(1).foregroundStyle(context.state.color(\.speaking))
@@ -46,8 +52,12 @@ struct VoiceLiveActivity: Widget {
                     Text("\(context.state.onlineCount)").font(.caption2.weight(.semibold)).foregroundStyle(context.state.color(\.muted))
                 }
             } minimal: {
-                Image(systemName: context.state.isMuted ? "mic.slash.fill" : "waveform")
-                    .foregroundStyle(context.state.isMuted ? context.state.color(\.danger) : context.state.color(\.speaking))
+                if context.isStale {
+                    Image(systemName: "waveform.slash").foregroundStyle(context.state.color(\.muted))
+                } else {
+                    Image(systemName: context.state.isMuted ? "mic.slash.fill" : "waveform")
+                        .foregroundStyle(context.state.isMuted ? context.state.color(\.danger) : context.state.color(\.speaking))
+                }
             }
         }
     }
@@ -59,11 +69,11 @@ private struct LockScreenView: View {
     var body: some View {
         HStack(spacing: 12) {
             ZStack {
-                Circle().fill(context.state.color(\.accent).opacity(0.18))
-                Image(systemName: context.state.speakers.isEmpty ? "waveform" : "waveform.circle.fill")
+                Circle().fill((context.isStale ? context.state.color(\.muted) : context.state.color(\.accent)).opacity(0.18))
+                Image(systemName: context.isStale ? "waveform.slash" : (context.state.speakers.isEmpty ? "waveform" : "waveform.circle.fill"))
                     .font(.icon(20, .semibold))
-                    .foregroundStyle(context.state.speakers.isEmpty ? context.state.color(\.accent) : context.state.color(\.speaking))
-                    .symbolEffect(.variableColor.iterative, isActive: !context.state.speakers.isEmpty)
+                    .foregroundStyle(context.isStale ? context.state.color(\.muted) : (context.state.speakers.isEmpty ? context.state.color(\.accent) : context.state.color(\.speaking)))
+                    .symbolEffect(.variableColor.iterative, isActive: !context.isStale && !context.state.speakers.isEmpty)
             }
             .frame(width: 44, height: 44)
 
@@ -76,11 +86,13 @@ private struct LockScreenView: View {
                     .font(.caption)
                     .foregroundStyle(context.state.color(\.muted))
                     .lineLimit(1)
-                SpeakersLine(state: context.state)
+                SpeakersLine(state: context.state, isStale: context.isStale)
             }
             Spacer(minLength: 6)
-            MuteButton(state: context.state)
-            TalkButton(state: context.state)
+            if !context.isStale {
+                MuteButton(state: context.state)
+                TalkButton(state: context.state)
+            }
         }
         .padding(14)
     }
@@ -88,10 +100,15 @@ private struct LockScreenView: View {
 
 private struct SpeakersLine: View {
     let state: VoiceActivityAttributes.ContentState
+    var isStale = false
 
     var body: some View {
         HStack(spacing: 6) {
-            if state.isDeafened {
+            if isStale {
+                Label("Not updating · open Mutter", systemImage: "pause.circle").foregroundStyle(state.color(\.muted))
+            } else if state.isReconnecting == true {
+                Label("Reconnecting…", systemImage: "arrow.triangle.2.circlepath").foregroundStyle(state.color(\.warn))
+            } else if state.isDeafened {
                 Label("Deafened", systemImage: "speaker.slash.fill").foregroundStyle(state.color(\.danger))
             } else if state.isTransmitting {
                 Label(state.isWhispering ? "You're whispering" : "You're talking", systemImage: "mic.fill").foregroundStyle(state.color(state.isWhispering ? \.whisper : \.speaking))
