@@ -14,17 +14,34 @@ export class MessageList {
     this.previous = null;
     this.pendingUnread = false;
     this.atBottom = true;
+    this.settledLayout = '';
     this.box.addEventListener(
       'scroll',
       () => {
+        if (this.currentLayout() !== this.settledLayout) {
+          return;
+        }
         const distance = this.box.scrollHeight - this.box.scrollTop - this.box.clientHeight;
         this.atBottom = distance < BOTTOM_THRESHOLD_PX;
       },
       { passive: true }
     );
+    this.sizeWatcher = new ResizeObserver(() => {
+      if (this.atBottom) {
+        this.box.scrollTop = this.box.scrollHeight;
+      }
+      this.settledLayout = this.currentLayout();
+    });
+    this.sizeWatcher.observe(this.box);
+  }
+
+  currentLayout() {
+    return `${this.box.scrollHeight}x${this.box.clientHeight}`;
   }
 
   reset() {
+    this.sizeWatcher.disconnect();
+    this.sizeWatcher.observe(this.box);
     this.box.replaceChildren();
     this.previous = null;
     this.pendingUnread = false;
@@ -55,13 +72,17 @@ export class MessageList {
       row.classList.add('fresh');
     }
     this.box.append(row);
+    this.sizeWatcher.observe(row);
     this.previous = message;
     while (this.box.children.length > MAX_ROWS) {
-      this.box.firstChild.remove();
+      const oldest = this.box.firstChild;
+      this.sizeWatcher.unobserve(oldest);
+      oldest.remove();
     }
     if (stick) {
       this.box.scrollTop = this.box.scrollHeight;
     }
+    this.settledLayout = this.currentLayout();
   }
 
   row(message, previous) {

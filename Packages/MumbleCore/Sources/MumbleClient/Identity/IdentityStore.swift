@@ -126,14 +126,6 @@ public final class IdentityStore {
         return identity
     }
 
-    public func rename(_ identity: ClientIdentity, to name: String) {
-        lock.lock()
-        defer { lock.unlock() }
-        guard let index = cache.firstIndex(where: { $0.id == identity.id }) else { return }
-        cache[index].name = name
-        save()
-    }
-
     public func delete(_ identity: ClientIdentity) {
         if let sec = secIdentity(for: identity) {
             var cert: SecCertificate?
@@ -166,14 +158,6 @@ public final class IdentityStore {
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         guard status == errSecSuccess, let result, CFGetTypeID(result) == SecIdentityGetTypeID() else { return nil }
         return (result as! SecIdentity)
-    }
-
-    public func certificateDER(for identity: ClientIdentity) -> Data? {
-        guard let sec = secIdentity(for: identity) else { return nil }
-        var cert: SecCertificate?
-        SecIdentityCopyCertificate(sec, &cert)
-        guard let cert else { return nil }
-        return SecCertificateCopyData(cert) as Data
     }
 
     static func sha1Hex(_ data: Data) -> String {

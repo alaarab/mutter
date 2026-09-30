@@ -11,23 +11,9 @@ final class ChatKeyboardTests: XCTestCase {
             Self.serverIsListening(),
             "Start node web/test/fake-server.mjs on port \(Self.serverPort) on the test machine to run this test"
         )
-        let app = XCUIApplication()
-        app.launchArguments = ["-defaultUsername", "KeyboardTest\(Int.random(in: 1000...9999))", "-rememberedSelfMute", "NO", "-rememberedSelfDeaf", "NO"]
-        app.launch()
-
-        app.buttons["Add"].tap()
-        app.buttons["Quick connect"].tap()
-        let address = app.textFields["host or host:port"]
-        XCTAssertTrue(address.waitForExistence(timeout: 5))
-        address.tap()
-        address.typeText("\(Self.serverHost):\(Self.serverPort)")
-        app.buttons["Connect"].tap()
-        let trust = app.buttons["Trust & connect"]
-        if trust.waitForExistence(timeout: 10) { trust.tap() }
-
+        let app = launchConnectedToFakeServer()
         let chatTab = app.buttons["tab-chat"]
         let channelsTab = app.buttons["tab-channels"]
-        XCTAssertTrue(waitForSession(chatTab))
         chatTab.tap()
 
         let composer = app.descendants(matching: .any)["chat-composer"]
@@ -60,6 +46,69 @@ final class ChatKeyboardTests: XCTestCase {
         chatTab.tap()
         XCTAssertTrue(composer.waitForExistence(timeout: 5))
         XCTAssertEqual(composer.value as? String, "Half written", "The draft must survive switching tabs")
+    }
+
+    func testOpeningTheKeyboardKeepsTheLatestMessageInView() throws {
+        continueAfterFailure = false
+        try XCTSkipUnless(
+            Self.serverIsListening(),
+            "Start node web/test/fake-server.mjs on port \(Self.serverPort) on the test machine to run this test"
+        )
+        let app = launchConnectedToFakeServer()
+        app.buttons["tab-chat"].tap()
+
+        let composer = app.descendants(matching: .any)["chat-composer"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 5))
+        composer.tap()
+        let messageCount = 18
+        let send = app.buttons["chat-send"]
+        for line in 1...messageCount {
+            app.typeText("Follow check \(line)")
+            send.tap()
+        }
+        let composerTop = composer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
+        composerTop.press(forDuration: 0.05, thenDragTo: composerTop.withOffset(CGVector(dx: 0, dy: 160)))
+        XCTAssertTrue(waitForKeyboard(in: app, visible: false))
+
+        let latestMessage = app.staticTexts["Follow check \(messageCount)"]
+        XCTAssertTrue(latestMessage.waitForExistence(timeout: 5))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+        attachScreenshot(of: app, named: "chat-keyboard-down-before-follow")
+        XCTAssertTrue(
+            isShownAbove(latestMessage, composer),
+            "The latest message is in view before the keyboard opens (message \(latestMessage.frame), composer \(composer.frame))"
+        )
+
+        composer.tap()
+        XCTAssertTrue(waitForKeyboard(in: app, visible: true))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+        attachScreenshot(of: app, named: "chat-keyboard-follows-latest-message")
+        XCTAssertTrue(
+            isShownAbove(latestMessage, composer),
+            "Opening the keyboard must keep the latest message above the composer (message \(latestMessage.frame), composer \(composer.frame))"
+        )
+    }
+
+    private func launchConnectedToFakeServer() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["-defaultUsername", "KeyboardTest\(Int.random(in: 1000...9999))", "-rememberedSelfMute", "NO", "-rememberedSelfDeaf", "NO"]
+        app.launch()
+
+        app.buttons["Add"].tap()
+        app.buttons["Quick connect"].tap()
+        let address = app.textFields["host or host:port"]
+        XCTAssertTrue(address.waitForExistence(timeout: 5))
+        address.tap()
+        address.typeText("\(Self.serverHost):\(Self.serverPort)")
+        app.buttons["Connect"].tap()
+        let trust = app.buttons["Trust & connect"]
+        if trust.waitForExistence(timeout: 10) { trust.tap() }
+        XCTAssertTrue(waitForSession(app.buttons["tab-chat"]))
+        return app
+    }
+
+    private func isShownAbove(_ message: XCUIElement, _ composer: XCUIElement) -> Bool {
+        message.exists && message.frame.height > 0 && message.frame.maxY <= composer.frame.minY + 1 && message.frame.minY >= 0
     }
 
     private func waitForSession(_ chatTab: XCUIElement) -> Bool {
