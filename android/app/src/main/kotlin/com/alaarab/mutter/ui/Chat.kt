@@ -11,6 +11,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -33,6 +34,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -99,13 +102,39 @@ fun ChatScreen(
                     }
                 }
         }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    var followsLatestMessage by remember { mutableStateOf(true) }
     LaunchedEffect(messages.size) {
+        val newestIsOwn = messages.lastOrNull()?.own == true
         if (
             messages.isNotEmpty() &&
-                (list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: messages.lastIndex) >=
-                    messages.lastIndex - 2
+                (newestIsOwn ||
+                    (list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: messages.lastIndex) >=
+                        messages.lastIndex - 2)
         )
             list.animateScrollToItem(messages.lastIndex)
+    }
+    LaunchedEffect(list) {
+        var previousViewportHeight = 0
+        snapshotFlow { list.layoutInfo.viewportSize.height to list.canScrollForward }
+            .collect { (viewportHeight, canScrollForward) ->
+                val viewportResized =
+                    previousViewportHeight != 0 && viewportHeight != previousViewportHeight
+                previousViewportHeight = viewportHeight
+                val itemCount = list.layoutInfo.totalItemsCount
+                if (viewportResized && followsLatestMessage && itemCount > 0)
+                    list.requestScrollToItem(itemCount - 1)
+                else if (!viewportResized) followsLatestMessage = !canScrollForward
+            }
+    }
+    LaunchedEffect(list) {
+        list.interactionSource.interactions.collect { interaction ->
+            if (interaction is DragInteraction.Start) {
+                keyboard?.hide()
+                focusManager.clearFocus()
+            }
+        }
     }
     Column(Modifier.fillMaxSize()) {
         if (messages.isEmpty())

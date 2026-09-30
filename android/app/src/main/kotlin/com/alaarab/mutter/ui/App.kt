@@ -32,7 +32,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -155,17 +154,12 @@ fun MutterApp(app: MutterApplication, deepLink: Server? = null, consumed: () -> 
         val p = LocalPalette.current
         val motion = LocalCatalog.current
         val keyboardVisible = WindowInsets.isImeVisible
-        val density = LocalDensity.current
-        val availableHeight =
-            LocalConfiguration.current.screenHeightDp -
-                with(density) { WindowInsets.ime.getBottom(this).toDp().value }
-        val compactKeyboard = keyboardVisible && availableHeight < 440 * density.fontScale
         val compactContent = keyboardVisible && LocalConfiguration.current.screenHeightDp < 500
         Scaffold(
             modifier = Modifier.imePadding(),
             containerColor = p.background,
             bottomBar = {
-                if (session.connected && page != "servers" && !compactKeyboard)
+                if (session.connected && page != "servers" && !keyboardVisible)
                     Column(
                         Modifier.navigationBarsPadding()
                             .background(

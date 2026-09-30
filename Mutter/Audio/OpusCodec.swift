@@ -80,12 +80,4 @@ final class OpusDecoderWrapper {
         guard samples >= 0 else { throw OpusError.decodeFailed(samples) }
         return Array(scratch[0..<Int(samples)])
     }
-
-    static func sampleCount(of packet: Data) -> Int {
-        packet.withUnsafeBytes { raw -> Int in
-            guard let bytes = raw.bindMemory(to: UInt8.self).baseAddress else { return 0 }
-            let count = opus_packet_get_nb_samples(bytes, Int32(packet.count), OpusEncoderWrapper.sampleRate)
-            return count > 0 ? Int(count) : 0
-        }
-    }
 }

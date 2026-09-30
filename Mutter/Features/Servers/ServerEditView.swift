@@ -15,7 +15,6 @@ struct ServerEditView: View {
     @State private var identityID: UUID?
     @State private var isFavorite: Bool
     @State private var accentIndex: Int
-    @State private var connectAfterSave = false
     @State private var saveError: String?
 
     init(server: SavedServer?, prefillHost: String? = nil, prefillPort: UInt16? = nil, prefillName: String? = nil) {
