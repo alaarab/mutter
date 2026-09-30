@@ -24,6 +24,10 @@ final class ReconnectBannerTests: XCTestCase {
         XCTAssertTrue(app.buttons["tab-channels"].exists || app.keyboards.count > 0, "The session stays on screen while reconnecting")
         XCTAssertTrue(earlierMessage.exists, "The chat stays readable while reconnecting")
         XCTAssertFalse(app.staticTexts["Lost the connection. Hang tight."].exists, "The old full-screen reconnecting state is gone")
+        XCTAssertFalse(
+            app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Disconnected'")).firstMatch.exists,
+            "The banner replaces the disconnected toast, which would cover the composer"
+        )
 
         XCTAssertTrue(waitForDisappearance(of: reconnectingBanner, timeout: 20), "The banner clears once the connection is back")
         XCTAssertTrue(earlierMessage.exists, "The chat survives the reconnect")
