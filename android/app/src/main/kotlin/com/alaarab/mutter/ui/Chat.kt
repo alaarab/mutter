@@ -124,7 +124,7 @@ fun ChatScreen(
                 previousViewportHeight = viewportHeight
                 val itemCount = list.layoutInfo.totalItemsCount
                 if (viewportResized && followsLatestMessage && itemCount > 0)
-                    list.scrollToItem(itemCount - 1)
+                    list.requestScrollToItem(itemCount - 1)
                 else if (!viewportResized) followsLatestMessage = !canScrollForward
             }
     }
