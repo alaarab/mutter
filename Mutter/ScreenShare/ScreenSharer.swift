@@ -82,7 +82,10 @@ final class ScreenSharer: NSObject {
     nonisolated private func capture(_ frame: RTCVideoFrame) {
         Task { @MainActor in
             guard let source = self.videoSource, let capturer = self.videoCapturer else {
-                self.beginSharing(width: Int(frame.rotatedWidth), height: Int(frame.rotatedHeight))
+                let quarterTurn = frame.rotation == ._90 || frame.rotation == ._270
+                let width = Int(quarterTurn ? frame.height : frame.width)
+                let height = Int(quarterTurn ? frame.width : frame.height)
+                self.beginSharing(width: width, height: height)
                 return
             }
             source.capturer(capturer, didCapture: frame)
