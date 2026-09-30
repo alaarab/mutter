@@ -24,6 +24,7 @@ enum SignalKind: String, Codable {
 struct SignalMessage: Codable {
     var kind: SignalKind
     var id: String
+    var shareKind: String?
     var title: String?
     var width: Int?
     var height: Int?
@@ -34,6 +35,7 @@ struct SignalMessage: Codable {
     enum CodingKeys: String, CodingKey {
         case kind = "t"
         case id
+        case shareKind = "kind"
         case title
         case width = "w"
         case height = "h"
@@ -172,22 +174,39 @@ final class SignalSender {
     private static let burst = 12.0
     private static let ratePerSecond = 3.0
     private static let retryDelayNanoseconds: UInt64 = 350_000_000
+    private static let maximumQueuedFragments = 60
+
+    private struct QueuedFragment {
+        let receivers: [UInt32]
+        let data: Data
+        let messageNumber: Int
+        let replaces: String?
+    }
 
     private let client: MumbleClient
     private var fragmenter = SignalFragmenter()
     private var tokens = SignalSender.burst
     private var lastRefill = Date()
-    private var queue: [(receivers: [UInt32], data: Data)] = []
+    private var queue: [QueuedFragment] = []
+    private var nextMessageNumber = 0
     private var drainTask: Task<Void, Never>?
 
     init(client: MumbleClient) {
         self.client = client
     }
 
-    func send(_ message: SignalMessage, to receivers: [UInt32]) {
+    func send(_ message: SignalMessage, to receivers: [UInt32], replacing replaces: String? = nil) {
         guard !receivers.isEmpty, let fragments = try? fragmenter.fragments(for: message) else { return }
+        let messageNumber = nextMessageNumber
+        nextMessageNumber += 1
+        if let replaces {
+            queue.removeAll { $0.replaces == replaces }
+        }
         for fragment in fragments {
-            queue.append((receivers, fragment))
+            queue.append(QueuedFragment(receivers: receivers, data: fragment, messageNumber: messageNumber, replaces: replaces))
+        }
+        while queue.count > Self.maximumQueuedFragments, let oldest = queue.first?.messageNumber {
+            queue.removeAll { $0.messageNumber == oldest }
         }
         drain()
     }

@@ -12,6 +12,19 @@ struct SignalProbe {
         for part in parts.reversed() { result = decoder.receive(from: 1, data: part) ?? result }
         precondition(result?.sdp == message.sdp)
 
+        var announce = SignalMessage(kind: .announce, id: "phone")
+        announce.shareKind = "screen"
+        announce.title = "iPhone screen"
+        announce.width = 590
+        announce.height = 1280
+        announce.audio = false
+        let announceJSON = String(decoding: try JSONEncoder().encode(announce), as: UTF8.self)
+        precondition(announceJSON.contains("\"kind\":\"screen\"") && announceJSON.contains("\"t\":\"announce\""))
+        precondition(announceJSON.contains("\"w\":590") && announceJSON.contains("\"h\":1280"))
+        let webAnnounce = Data(#"{"t":"announce","id":"web","kind":"camera","title":"Screen","w":640,"h":360,"audio":true}"#.utf8)
+        let decodedAnnounce = try JSONDecoder().decode(SignalMessage.self, from: webAnnounce)
+        precondition(decodedAnnounce.shareKind == "camera" && decodedAnnounce.width == 640)
+
         let bad = SignalReassembler()
         precondition(bad.receive(from: 1, data: Data([1, 1, 0, 1, 0]) + Data(repeating: 0, count: 1000)) == nil)
         precondition(bad.receive(from: 1, data: Data([1, 1, 0, 1, 2, 123, 125])) == nil)

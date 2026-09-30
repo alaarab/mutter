@@ -1,7 +1,7 @@
 # Mutter for iOS
 
 The SwiftUI client connects directly to Mumble servers and uses libopus, Apple audio processing,
-and WebRTC screen viewing. It also provides Live Activities, Dynamic Island, and App Intents.
+and WebRTC screen viewing and sharing. It also provides Live Activities, Dynamic Island, and App Intents.
 
 Commands below run from the repository root. Shared fonts and themes live in `design/`.
 
@@ -21,6 +21,12 @@ Signing reads your Team ID from `Local.xcconfig`, which is gitignored so it stay
 public repo. Copy `Local.xcconfig.example` to `Local.xcconfig`, put your 10-character Team ID in
 it, and re-run `xcodegen generate`. Setting the team in Xcode's Signing & Capabilities tab instead
 works until the next regenerate, which throws it away.
+
+Screen sharing uses a Broadcast Upload Extension (`MutterBroadcast`, bundle id
+`com.alaarab.mutter.broadcast`) and the App Group `group.com.alaarab.mutter`, shared with the app.
+With automatic signing, Xcode registers both the first time it provisions them. If it can't, create
+the App Group in the Apple Developer portal and enable it for `com.alaarab.mutter` and
+`com.alaarab.mutter.broadcast`, then build again.
 
 Then build the `Mutter` scheme. Run the package tests with `swift test` from `Packages/MumbleCore`
 (macOS) or via the scheme's Test action.

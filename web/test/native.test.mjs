@@ -38,6 +38,7 @@ if (process.platform !== 'darwin') {
   const client = compile('ClientProbe', objects('MumbleClient'));
   const signal = compile('SignalProbe', [path.join(root, 'Mutter/ScreenShare/RTCSignaling.swift'), ...objects('MumbleClient')]);
   const credentials = compile('CredentialProbe', [path.join(root, 'Mutter/App/ServerStore.swift'), ...objects('MumbleClient')]);
+  const broadcast = compile('BroadcastProbe', [path.join(root, 'Mutter/ScreenShare/BroadcastFrames.swift')]);
 
   test('native credentials migrate without plaintext persistence or loss on storage failure', () => {
     assert.match(execFileSync(credentials, { encoding: 'utf8' }), /PASS/);
@@ -45,6 +46,10 @@ if (process.platform !== 'darwin') {
 
   test('native screen-sharing messages reject malformed packets and resource exhaustion', () => {
     assert.match(execFileSync(signal, { encoding: 'utf8' }), /PASS/);
+  });
+
+  test('native screen broadcast frames, capture size and watch limits', () => {
+    assert.match(execFileSync(broadcast, { encoding: 'utf8' }), /PASS/);
   });
 
   test('native playout inserts exactly the missing audio duration', () => {

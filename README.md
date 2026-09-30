@@ -15,7 +15,8 @@ Join a server, see who’s around, and talk.
   someone’s volume without changing it for everyone else.
 - Save your favourite servers, browse channels, and find people by name.
 - Send messages and images to your channel or directly to someone.
-- Share a screen or camera from the browser or Electron app, and watch from any Mutter client.
+- Share a screen or camera from the browser or Electron app, or your phone's screen from iOS or
+  Android, and watch from any Mutter client.
 - Pick a theme you like and follow your device’s light or dark appearance.
 
 Mutter connects to regular Mumble servers. Screen sharing is a Mutter extension, so viewers
