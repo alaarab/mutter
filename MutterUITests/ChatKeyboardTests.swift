@@ -61,9 +61,10 @@ final class ChatKeyboardTests: XCTestCase {
         XCTAssertTrue(composer.waitForExistence(timeout: 5))
         composer.tap()
         let messageCount = 18
+        let send = app.buttons["chat-send"]
         for line in 1...messageCount {
-            composer.typeText("Follow check \(line)")
-            app.buttons["chat-send"].tap()
+            app.typeText("Follow check \(line)")
+            send.tap()
         }
         let composerTop = composer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
         composerTop.press(forDuration: 0.05, thenDragTo: composerTop.withOffset(CGVector(dx: 0, dy: 160)))
