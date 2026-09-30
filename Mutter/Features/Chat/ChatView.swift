@@ -27,7 +27,6 @@ struct ChatView: View {
     @FocusState private var composerFocused: Bool
     @State private var isAtBottom = true
     @State private var unseenBelow = 0
-    @State private var followsBottomThroughKeyboard = false
     @State private var transcriptEndOffset: CGFloat = 0
     @State private var transcriptViewportHeight: CGFloat = 0
 
@@ -82,8 +81,17 @@ struct ChatView: View {
                     Color.clear.preference(key: TranscriptViewportHeightKey.self, value: viewport.size.height)
                 })
                 .onPreferenceChange(TranscriptViewportHeightKey.self) { height in
+                    let followsLatestMessage = isAtBottom
+                    let resized = transcriptViewportHeight > 0 && height != transcriptViewportHeight
                     transcriptViewportHeight = height
-                    updateIsAtBottom()
+                    if resized && followsLatestMessage {
+                        DispatchQueue.main.async {
+                            unseenBelow = 0
+                            proxy.scrollTo("bottom", anchor: .bottom)
+                        }
+                    } else {
+                        updateIsAtBottom()
+                    }
                 }
                 .onPreferenceChange(TranscriptEndOffsetKey.self) { offset in
                     transcriptEndOffset = offset
@@ -111,17 +119,6 @@ struct ChatView: View {
                 }
                 .onChange(of: composerFocused) { _, focused in
                     if focused && isAtBottom { scrollToBottom(proxy) }
-                }
-                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-                    followsBottomThroughKeyboard = isAtBottom
-                    guard followsBottomThroughKeyboard else { return }
-                    DispatchQueue.main.async { scrollToBottom(proxy) }
-                }
-                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
-                    guard followsBottomThroughKeyboard else { return }
-                    followsBottomThroughKeyboard = false
-                    unseenBelow = 0
-                    proxy.scrollTo("bottom", anchor: .bottom)
                 }
             }
             composer
