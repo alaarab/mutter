@@ -25,6 +25,9 @@ enum Theme {
     static var accent: Color { color(\.accent) }
     static var accentActive: Color { color(\.accentActive) }
     static var onAccent: Color { color(\.onAccent) }
+    static var ownBubble: Color { color(\.ownBubble) }
+    static var onOwnBubble: Color { color(\.onOwnBubble) }
+    static var onOwnBubbleMuted: Color { color(\.onOwnBubbleMuted) }
     static var secondary: Color { color(\.secondary) }
     static var speaking: Color { color(\.speaking) }
     static var warning: Color { color(\.warn) }

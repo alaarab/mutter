@@ -15,6 +15,25 @@ const luminance = (color) => rgb(color).map((value) => {
 const contrast = (a, b) => (Math.max(luminance(a), luminance(b)) + 0.05) / (Math.min(luminance(a), luminance(b)) + 0.05);
 
 
+function ownBubbleColors(colors, light) {
+  if (light) {
+    return { fill: colors.accent, text: colors.onAccent };
+  }
+  for (let accentShare = 34; accentShare >= 8; accentShare -= 2) {
+    const fill = mix(colors.accent, colors.elevated, accentShare / 100);
+    if (contrast(colors.ink, fill) >= 7) return { fill, text: colors.ink };
+  }
+  throw new Error(`No calm own bubble for accent ${colors.accent}`);
+}
+
+function softenedForeground(text, fill) {
+  for (let textShare = 78; textShare <= 100; textShare += 2) {
+    const candidate = mix(text, fill, textShare / 100);
+    if (contrast(candidate, fill) >= 4.5) return candidate;
+  }
+  return text;
+}
+
 function readable(color, surfaces, target, light) {
   for (let step = 0; step <= 100; step++) {
     const candidate = mix(light ? '#000000' : '#FFFFFF', color, step / 100);
@@ -33,6 +52,10 @@ const themes = Object.fromEntries(Object.entries(source.themes).map(([name, them
     }
     colors.accentActive = mix(colors.accent, colors.ink, 0.84);
     colors.onAccent = colors.onStatus;
+    const ownBubble = ownBubbleColors(colors, light);
+    colors.ownBubble = ownBubble.fill;
+    colors.onOwnBubble = ownBubble.text;
+    colors.onOwnBubbleMuted = softenedForeground(ownBubble.text, ownBubble.fill);
     colors.online = colors.speaking;
     colors.away = colors.warn;
     colors.busy = colors.danger;
@@ -53,6 +76,9 @@ const themes = Object.fromEntries(Object.entries(source.themes).map(([name, them
     for (let index = 0; index < 6; index++) {
       if (contrast(colors.onAvatar, colors[`avatar${index}`]) < 4.5) throw new Error(`${name}/${mode}: avatar contrast`);
     }
+    if (contrast(colors.onOwnBubble, colors.ownBubble) < (light ? 4.5 : 7)) throw new Error(`${name}/${mode}: own bubble text contrast`);
+    if (contrast(colors.onOwnBubbleMuted, colors.ownBubble) < 4.5) throw new Error(`${name}/${mode}: own bubble secondary text contrast`);
+    if (!light && contrast(colors.ownBubble, colors.surface) < 1.8) throw new Error(`${name}/${mode}: own bubble must stand apart from other messages`);
     return [mode, colors];
   }));
   return [name, { title: theme.title, description: theme.description, ...variants }];
@@ -181,4 +207,4 @@ for (const [relative, contents] of Object.entries(outputs)) {
     fs.writeFileSync(file, contents);
   }
 }
-console.log(`${checking ? 'Checked' : 'Generated'} ${Object.keys(themes).length} themes, both appearances; text, status and button contrast pass.`);
+console.log(`${checking ? 'Checked' : 'Generated'} ${Object.keys(themes).length} themes, both appearances; text, status, button and chat bubble contrast pass.`);
