@@ -18,6 +18,7 @@ import { Writer } from '../src/protobuf.js';
 import { CryptState } from '../src/ocb2.js';
 import { decodeVoice, encodePing } from '../src/voice.js';
 
+console.log = (...values) => console.error(...values);
 process.env.PORT = '0';
 process.env.NO_OPEN = '1';
 const { server, listeners, ready } = await import('../bridge/server.mjs');
