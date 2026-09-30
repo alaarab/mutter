@@ -983,6 +983,7 @@ function refreshMe() {
 }
 
 audio.addEventListener('state', refreshMe);
+audio.addEventListener('selfstate', () => saveSettings());
 audio.addEventListener('transmit', refreshMe);
 
 const meterPercent = (db) => Math.max(0, Math.min(100, ((db - METER_FLOOR_DB) / METER_RANGE_DB) * 100));

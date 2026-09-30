@@ -119,6 +119,8 @@ export class AudioEngine extends EventTarget {
       settings[key] ??= typeof value === 'object' ? { ...value } : value;
     }
     this.settings = settings;
+    this.deafened = settings.selfDeaf === true;
+    this.muted = settings.selfMute === true || this.deafened;
     client.addEventListener('voice', (event) => this.#onVoice(event.detail));
     client.addEventListener('users', () => this.#pruneDecoders());
   }
@@ -300,6 +302,7 @@ export class AudioEngine extends EventTarget {
     } else {
       this.setDeafened(false, false);
     }
+    this.#rememberSelfState();
     this.#emit('state');
   }
 
@@ -313,7 +316,17 @@ export class AudioEngine extends EventTarget {
       this.muted = true;
       this.#closeGate();
     }
+    this.#rememberSelfState();
     this.#emit('state');
+  }
+
+  #rememberSelfState() {
+    if (this.settings.selfMute === this.muted && this.settings.selfDeaf === this.deafened) {
+      return;
+    }
+    this.settings.selfMute = this.muted;
+    this.settings.selfDeaf = this.deafened;
+    this.#emit('selfstate');
   }
 
   setPTT(pressed) {

@@ -51,7 +51,7 @@ if (process.platform !== 'darwin') {
     assert.match(execFileSync(audio, { encoding: 'utf8' }), /PASS/);
   });
 
-  for (const scenario of ['recovery', 'username', 'cancel', 'no-retry']) {
+  for (const scenario of ['recovery', 'username', 'mute', 'cancel', 'no-retry']) {
     test(`native reconnect: ${scenario}`, { timeout: 30_000 }, async t => {
       let server = await startFakeServer({ port: 0, quiet: true });
       const port = server.port;
@@ -74,6 +74,8 @@ if (process.platform !== 'darwin') {
                 if (rejections++ < 2) server.reject(user, 5, 'Username is still in use');
                 else authenticate(user, message);
               };
+              for (const user of server.users.values()) user.socket.destroy();
+            } else if (scenario === 'mute') {
               for (const user of server.users.values()) user.socket.destroy();
             } else {
               await server.close();

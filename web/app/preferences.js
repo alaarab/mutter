@@ -19,6 +19,8 @@ const DEFAULTS = {
   textSize: 14,
   shareAudio: true,
   stun: 'stun:stun.l.google.com:19302',
+  selfMute: false,
+  selfDeaf: false,
 };
 
 export function appearanceForSettings(settings) {

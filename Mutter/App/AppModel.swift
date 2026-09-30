@@ -36,6 +36,8 @@ final class AppModel {
     var trustPrompt: TrustPrompt?
     var toast: SessionNotice?
     var pendingChatScope: MessageScope?
+    var chatDraft = ""
+    var chatScope: MessageScope?
     var collapsedChannels: [UUID: Set<UInt32>] = [:]
     var connectionProblem: String?
 
@@ -117,6 +119,8 @@ final class AppModel {
         options.expectedFingerprint = target.certificateFingerprint ?? servers.pinnedFingerprint(for: target.endpoint)
         options.osVersion = UIDevice.current.systemVersion
         options.clientRelease = "Mutter \(Bundle.main.shortVersion ?? "0.1")"
+        options.selfDeaf = settings.rememberedSelfDeaf
+        options.selfMute = settings.rememberedSelfMute || settings.rememberedSelfDeaf
         if let identityID = target.identityID ?? settings.defaultIdentityID,
            let identity = identities.first(where: { $0.id == identityID }) {
             guard let secIdentity = IdentityStore.shared.secIdentity(for: identity) else {
@@ -125,6 +129,10 @@ final class AppModel {
                 return
             }
             options.identity = secIdentity
+        }
+        if activeServer?.id != target.id {
+            chatDraft = ""
+            chatScope = nil
         }
         activeServer = target
         collapsedChannels[target.id] = collapsedChannels[target.id] ?? []
@@ -194,25 +202,33 @@ final class AppModel {
         audio.noiseSuppression = settings.noiseSuppression
         audio.autoSensitivity = settings.autoSensitivity
         audio.useVoiceProcessing = settings.voiceProcessing
+        applyRememberedSelfState()
     }
 
-    var isMuted: Bool { session.me?.isSelfMuted ?? false }
-    var isDeafened: Bool { session.me?.isSelfDeafened ?? false }
+    var isMuted: Bool { settings.rememberedSelfMute || settings.rememberedSelfDeaf }
+    var isDeafened: Bool { settings.rememberedSelfDeaf }
 
     func toggleMute() {
         let next = !isMuted
+        settings.rememberedSelfMute = next
+        if !next { settings.rememberedSelfDeaf = false }
         client.setSelfMute(next)
-        audio.isMuted = next
-        if !next { audio.isDeafened = false }
+        applyRememberedSelfState()
         Haptics.impact(.medium)
     }
 
     func toggleDeafen() {
         let next = !isDeafened
+        settings.rememberedSelfDeaf = next
+        if next { settings.rememberedSelfMute = true }
         client.setSelfDeaf(next)
-        audio.isDeafened = next
-        if next { audio.isMuted = true }
+        applyRememberedSelfState()
         Haptics.impact(.medium)
+    }
+
+    private func applyRememberedSelfState() {
+        audio.isMuted = isMuted
+        audio.isDeafened = isDeafened
     }
 
     func toggleTalk() {
@@ -239,12 +255,14 @@ final class AppModel {
     func beginHoldToTalk() {
         isHoldingToTalk = true
         audio.isPushToTalkPressed = true
+        if settings.hapticsOnTransmit { Haptics.impact(.rigid) }
     }
 
     func endHoldToTalk() {
         guard isHoldingToTalk else { return }
         isHoldingToTalk = false
         audio.isPushToTalkPressed = false
+        if settings.hapticsOnTransmit { Haptics.impact(.soft) }
     }
 
     func releaseHeldControls() {

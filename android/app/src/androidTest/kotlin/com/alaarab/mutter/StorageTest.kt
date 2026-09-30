@@ -6,6 +6,7 @@ import com.alaarab.mutter.data.AppStore
 import com.alaarab.mutter.data.Identities
 import com.alaarab.mutter.data.IdentityInfo
 import com.alaarab.mutter.data.Server
+import com.alaarab.mutter.protocol.MumbleConnection
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.security.KeyStore
@@ -63,6 +64,22 @@ class StorageTest {
         val reopened = AppStore(context)
         assertEquals(server, reopened.servers.value.single())
         assertNull(reopened.recoveryNotice.value)
+    }
+
+    @Test
+    fun selfMuteAndDeafenSurviveARelaunch() {
+        val store = AppStore(context)
+        assertFalse(store.settings.value.selfMute)
+        store.updateSettings { it.copy(selfMute = true, selfDeaf = true) }
+        val reopened = AppStore(context)
+        assertTrue(reopened.settings.value.selfMute)
+        assertTrue(reopened.settings.value.selfDeaf)
+        val client = MumbleConnection(reopened, Identities(reopened))
+        client.mute(false)
+        val deadline = System.currentTimeMillis() + 5000
+        while (AppStore(context).settings.value.selfMute && System.currentTimeMillis() < deadline) Thread.sleep(50)
+        assertFalse(AppStore(context).settings.value.selfMute)
+        assertFalse(AppStore(context).settings.value.selfDeaf)
     }
 
     @Test

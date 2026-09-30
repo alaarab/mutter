@@ -351,6 +351,39 @@ extension View {
     func onHold(onPress: @escaping () -> Void, onRelease: @escaping () -> Void) -> some View {
         modifier(HoldGesture(onPress: onPress, onRelease: onRelease))
     }
+
+    func dismissKeyboardOnDownwardDrag(_ dismiss: @escaping () -> Void) -> some View {
+        simultaneousGesture(
+            DragGesture(minimumDistance: 8, coordinateSpace: .global)
+                .onChanged { value in
+                    let drag = value.translation
+                    if drag.height > 12 && drag.height > abs(drag.width) * 1.3 { dismiss() }
+                }
+        )
+    }
+
+    func onSoftwareKeyboardChange(_ perform: @escaping (Bool) -> Void) -> some View {
+        onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
+            perform(SoftwareKeyboard.isShowing(notification))
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            perform(false)
+        }
+    }
+}
+
+enum SoftwareKeyboard {
+    static let minimumVisibleHeight: CGFloat = 120
+
+    static func isShowing(_ notification: Notification) -> Bool {
+        guard let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return false }
+        let screenHeight = (notification.object as? UIScreen)?.bounds.height ?? frame.maxY
+        return screenHeight - frame.minY >= minimumVisibleHeight
+    }
+
+    static func dismiss() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
 }
 
 extension Binding where Value == Bool {

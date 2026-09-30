@@ -99,6 +99,7 @@ struct ServerEditView: View {
                     .themedRows()
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .themedList()
             .navigationTitle(original == nil ? "Add server" : "Edit server")
             .navigationBarTitleDisplayMode(.inline)

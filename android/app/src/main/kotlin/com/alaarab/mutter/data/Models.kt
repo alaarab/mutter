@@ -33,6 +33,8 @@ data class Settings(
     val turnUser: String = "",
     val turnPassword: String = "",
     val defaultUsername: String = "",
+    val selfMute: Boolean = false,
+    val selfDeaf: Boolean = false,
 )
 
 data class Channel(

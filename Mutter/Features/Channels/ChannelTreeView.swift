@@ -23,12 +23,15 @@ struct ChannelTreeView: View {
                 if !search.isEmpty {
                     Button { search = ""; searchFocused = false } label: {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.muted)
+                            .contentShape(Rectangle().inset(by: -11))
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Clear search")
                 } else {
                     Button { model.settings.hideEmptyChannels.toggle() } label: {
                         Image(systemName: model.settings.hideEmptyChannels ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                             .foregroundStyle(model.settings.hideEmptyChannels ? Theme.accent : Theme.muted)
+                            .contentShape(Rectangle().inset(by: -11))
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(model.settings.hideEmptyChannels ? "Show empty channels" : "Hide empty channels")
@@ -51,7 +54,7 @@ struct ChannelTreeView: View {
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .scrollDismissesKeyboard(.immediately)
+            .scrollDismissesKeyboard(.interactively)
             .environment(\.defaultMinListRowHeight, 40)
         }
         .background(Theme.background)

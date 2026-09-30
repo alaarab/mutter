@@ -80,6 +80,7 @@ struct IdentitiesView: View {
                 .themedRows()
             }
         }
+        .scrollDismissesKeyboard(.interactively)
         .themedList()
         .navigationTitle("Certificates")
         .navigationBarTitleDisplayMode(.inline)
@@ -155,6 +156,7 @@ struct CreateIdentitySheet: View {
                 .themedRows()
                 if let errorText { Section { Text(errorText).foregroundStyle(Theme.danger) } }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("New certificate")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

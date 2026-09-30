@@ -33,11 +33,22 @@ import Darwin
                 if state == .connected {
                     connections += 1
                     if connections == 2 {
+                        if scenario == "mute" {
+                            precondition(highestAttempt >= 1)
+                            try await waitUntilSelfMuted(client)
+                            client.disconnect()
+                            print("PASS mute restored")
+                            return
+                        }
                         precondition(highestAttempt >= 2)
                         if scenario == "username" { precondition(client.session.me?.name == "NativeReview2") }
                         client.disconnect()
                         print("PASS recovery")
                         return
+                    }
+                    if scenario == "mute" {
+                        client.setSelfMute(true)
+                        try await waitUntilSelfMuted(client)
                     }
                     print("CONNECTED")
                 }
@@ -51,5 +62,14 @@ import Darwin
             try await Task.sleep(nanoseconds: 25_000_000)
         }
         fatalError("Timed out waiting for native reconnect")
+    }
+
+    @MainActor static func waitUntilSelfMuted(_ client: MumbleClient) async throws {
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            if client.session.me?.isSelfMuted == true { return }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        fatalError("The server never saw this client as self-muted")
     }
 }

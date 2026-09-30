@@ -32,6 +32,7 @@ struct SessionView: View {
     @State private var tab: SessionTab = .channels
     @State private var userSheet: SheetID?
     @State private var channelSheet: SheetID?
+    @State private var isKeyboardShowing = false
 
     private var session: ServerSession { model.session }
 
@@ -48,9 +49,15 @@ struct SessionView: View {
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                 }
-            dock
+            if !isKeyboardShowing {
+                dock.transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
         .background(Theme.background.ignoresSafeArea())
+        .onSoftwareKeyboardChange { showing in
+            guard showing != isKeyboardShowing else { return }
+            withAnimation(.easeOut(duration: 0.2)) { isKeyboardShowing = showing }
+        }
         .animation(ThemeMotion.animation(DesignMotion.panel), value: model.toast)
         .sheet(item: $userSheet) { id in UserSheet(sessionID: id.id) }
         .sheet(item: $channelSheet) { id in ChannelSheet(channelID: id.id) }
@@ -74,6 +81,7 @@ struct SessionView: View {
                     .font(.icon(17, .semibold))
                     .frame(width: 36, height: 36)
                     .background(Theme.surfaceElevated, in: Circle())
+                    .contentShape(Rectangle().inset(by: -4))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Back to servers")

@@ -44,6 +44,7 @@ struct PublicServersView: View {
                             .themedRows()
                         }
                     }
+                    .scrollDismissesKeyboard(.interactively)
                     .listStyle(.insetGrouped)
                     .themedList()
                     .searchable(text: $search, prompt: "Search by name, country or host")
