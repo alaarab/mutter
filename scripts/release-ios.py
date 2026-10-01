@@ -98,7 +98,7 @@ def main():
             "xcodebuild", "-project", "Mutter.xcodeproj", "-scheme", "Mutter", "-configuration", "Release",
             "archive", "-destination", "generic/platform=iOS", "-archivePath", str(archive),
             "-allowProvisioningUpdates", "-skipPackagePluginValidation",
-            *authentication, *build_settings, *signing_settings,
+            *build_settings, *signing_settings,
         )
         run(
             "xcodebuild", "-exportArchive", "-archivePath", str(archive),
