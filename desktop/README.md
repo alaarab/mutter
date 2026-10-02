@@ -64,7 +64,7 @@ The capture test needs Chromium (`CHROME` can select its executable). On Linux X
 private, local-only display without an Xauthority file:
 
 ```sh
-Xvfb :198 -screen 0 1280x800x24 -extension MIT-SHM -nolisten tcp -ac > /tmp/mutter-xvfb.log 2>&1 &
+Xvfb :198 -screen 0 1280x800x24 -extension MIT-SHM -nolisten tcp -noreset -ac > /tmp/mutter-xvfb.log 2>&1 &
 mutter_xvfb_pid=$!
 trap 'kill "$mutter_xvfb_pid" 2>/dev/null || true' EXIT
 export DISPLAY=:198
