@@ -32,8 +32,9 @@ its Keystore key to decrypt the stored server passwords, tokens and certificates
 
 ## Included
 
-- TLS connections with explicit first-contact and changed-certificate prompts, saved pins
-  shared by every entry for the same host and port, generated RSA identities, PKCS#12 import, per-server identity selection, and access tokens.
+- TLS connections that accept certificates the system trusts for the host and pin the rest per
+  host and port, with first-contact and changed-certificate prompts for self-signed servers,
+  generated RSA identities, PKCS#12 import, per-server identity selection, and access tokens.
 - Opus microphone capture and playback, encrypted OCB2 UDP, TCP fallback and UDP recovery,
   Mumble 1.2–1.5 wire formats, reconnect, push to talk, voice activity, open mic, and whisper.
 - Android foreground call service, notification mute/deafen/disconnect actions, headset

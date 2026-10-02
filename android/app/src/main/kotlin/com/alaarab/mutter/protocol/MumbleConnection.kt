@@ -8,6 +8,7 @@ import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.security.KeyStore
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import java.util.concurrent.ConcurrentHashMap
@@ -128,6 +129,17 @@ class MumbleConnection(private val store: AppStore, private val identities: Iden
 
     private fun publish(link: Link, transform: (SessionState) -> SessionState) {
         synchronized(stateLock) { if (active === link) mutableState.update(transform) }
+    }
+
+    private fun updateRoster(link: Link, transform: (SessionState) -> SessionState) {
+        synchronized(stateLock) {
+            if (active !== link) return
+            if (link.synced) {
+                mutableState.update(transform)
+            } else {
+                link.roster = transform(link.roster)
+            }
+        }
     }
 
     private fun CoroutineScope.ensureCurrent(link: Link) {
@@ -294,9 +306,6 @@ class MumbleConnection(private val store: AppStore, private val identities: Iden
         publish(link) {
             it.copy(
                 status = if (it.reconnectAttempt > 0) "reconnecting" else "connecting",
-                channels = emptyMap(),
-                users = emptyMap(),
-                me = null,
                 certificate = null,
             )
         }
@@ -310,6 +319,7 @@ class MumbleConnection(private val store: AppStore, private val identities: Iden
                 override fun checkServerTrusted(chain: Array<X509Certificate>, type: String) {
                     require(chain.isNotEmpty())
                     link.chain = chain
+                    link.authType = type
                 }
             }
         val keyManagers = identities.keyManagers(server.identity)
@@ -334,8 +344,11 @@ class MumbleConnection(private val store: AppStore, private val identities: Iden
         val cert = chain[0]
         val fingerprint = Identities.fingerprint(cert)
         val knownFingerprints = trustedFingerprints(server, store.servers.value)
-        when (certificateDecision(fingerprint, knownFingerprints)) {
-            CertificateDecision.Pinned ->
+        val trustedByAuthority =
+            isTrustedByAuthority(chain, link.authType.orEmpty(), server.host, socket.session)
+        when (certificateDecision(fingerprint, trustedByAuthority, knownFingerprints)) {
+            CertificateDecision.Pinned,
+            CertificateDecision.TrustedByAuthority ->
                 if (fingerprint != server.fingerprint) store.trustFingerprint(server, fingerprint)
             CertificateDecision.FirstContact,
             CertificateDecision.Changed -> {
@@ -475,10 +488,30 @@ class MumbleConnection(private val store: AppStore, private val identities: Iden
         }
     }
 
+    private fun isTrustedByAuthority(
+        chain: Array<X509Certificate>,
+        authType: String,
+        host: String,
+        session: SSLSession,
+    ): Boolean =
+        runCatching {
+                val platform =
+                    TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
+                        .apply { init(null as KeyStore?) }
+                        .trustManagers
+                        .filterIsInstance<X509TrustManager>()
+                        .first()
+                android.net.http.X509TrustManagerExtensions(platform)
+                    .checkServerTrusted(chain, authType, host)
+                HttpsURLConnection.getDefaultHostnameVerifier().verify(host, session)
+            }
+            .getOrDefault(false)
+
     private fun fromServer(packet: DatagramPacket, address: InetAddress, port: Int) =
         packet.address == address && packet.port == port && packet.length <= MAX_DATAGRAM
 
     private fun voice(link: Link, data: ByteArray) {
+        if (!link.synced || active !== link) return
         val packet = VoiceWire.decode(data, link.modern) ?: return
         if (packet.session !in state.value.users) return
         if (packet.end) {
@@ -537,25 +570,28 @@ class MumbleConnection(private val store: AppStore, private val identities: Iden
                     }
             4 -> error(f.text(2, "The server rejected the connection").take(2000))
             5 -> {
-                link.synced = true
                 val session = f.int(1)
-                mutableState.update {
-                    val user = it.users[session]
+                val freshRoster = link.roster
+                publish(link) {
+                    link.synced = true
+                    val user = freshRoster.users[session]
                     it.copy(
                         status = "connected",
                         me = session,
+                        channels = freshRoster.channels,
                         permissions = f.long(4),
                         welcome = SessionLimits.messageHtml(f.text(3)),
                         reconnectAttempt = 0,
                         error = null,
                         users =
-                            if (user == null) it.users
+                            if (user == null) freshRoster.users
                             else
-                                it.users +
+                                freshRoster.users +
                                     (session to
                                         user.copy(selfMute = desiredMute, selfDeaf = desiredDeaf)),
                     )
                 }
+                link.roster = SessionState()
                 if (desiredMute || desiredDeaf)
                     link.send(
                         9,
@@ -577,11 +613,11 @@ class MumbleConnection(private val store: AppStore, private val identities: Iden
                 whisperTarget?.let { link.send(19, it) }
                 link.send(20, Proto().number(1, 0).build())
             }
-            6 -> mutableState.update { it.copy(channels = it.channels - f.int(1)) }
+            6 -> updateRoster(link) { it.copy(channels = it.channels - f.int(1)) }
             7 ->
-                mutableState.update { s ->
+                updateRoster(link) { s ->
                     if (f.int(1) !in s.channels && s.channels.size >= SessionLimits.CHANNELS)
-                        return@update s
+                        return@updateRoster s
                     val old = s.channels[f.int(1)] ?: Channel(f.int(1))
                     s.copy(
                         channels =
@@ -599,17 +635,17 @@ class MumbleConnection(private val store: AppStore, private val identities: Iden
                     )
                 }
             8 -> {
-                if (f.int(1) == state.value.me)
+                if (link.synced && f.int(1) == state.value.me)
                     throw UntrustedCertificate(
                         f.text(3, "You were removed from the server").take(2000)
                     )
                 lastVoiceAt.remove(f.int(1))
-                mutableState.update { it.copy(users = it.users - f.int(1)) }
+                updateRoster(link) { it.copy(users = it.users - f.int(1)) }
             }
             9 ->
-                mutableState.update { s ->
+                updateRoster(link) { s ->
                     if (f.int(1) !in s.users && s.users.size >= SessionLimits.USERS)
-                        return@update s
+                        return@updateRoster s
                     val old = s.users[f.int(1)] ?: User(f.int(1))
                     fun boolean(field: Int, previous: Boolean) =
                         if (f.has(field)) f.bool(field) else previous
@@ -698,7 +734,7 @@ class MumbleConnection(private val store: AppStore, private val identities: Iden
                 mutableState.update {
                     it.copy(maxText = f.int(4, it.maxText), maxImage = f.int(5, it.maxImage))
                 }
-            26 -> onPlugin(f.int(1), f.text(4), f.bytes(3))
+            26 -> if (link.synced) onPlugin(f.int(1), f.text(4), f.bytes(3))
         }
     }
 
@@ -708,6 +744,7 @@ class MumbleConnection(private val store: AppStore, private val identities: Iden
     private class CertificateAccepted : Exception("The certificate was accepted; connecting again")
 
     private class Link {
+        var roster = SessionState()
         @Volatile
         var closed = false
             private set
@@ -718,6 +755,7 @@ class MumbleConnection(private val store: AppStore, private val identities: Iden
         @Volatile private var udp: DatagramSocket? = null
         @Volatile private var udpTarget: InetSocketAddress? = null
         @Volatile var chain: Array<X509Certificate>? = null
+        @Volatile var authType: String? = null
         @Volatile var modern = true
         @Volatile var synced = false
         @Volatile var lastUdp = 0L

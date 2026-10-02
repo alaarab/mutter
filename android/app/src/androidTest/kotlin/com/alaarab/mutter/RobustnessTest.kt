@@ -12,6 +12,14 @@ import com.alaarab.mutter.protocol.VoicePacket
 import java.net.Socket
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.dropWhile
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.*
@@ -127,16 +135,32 @@ class RobustnessTest {
         connect()
         ui.runOnIdle { app.client.deafen(true) }
         repeat(2) {
-            val previous = app.client.state.value.me
-            control("drop")
-            ui.waitUntil(10000) { app.client.state.value.status == "reconnecting" }
-            assertEquals(1, app.client.state.value.reconnectAttempt)
-            ui.waitUntil(15000) {
-                app.client.state.value.connected && app.client.state.value.me != previous
+            val previous = requireNotNull(app.client.state.value.me)
+            val previousChannels = app.client.state.value.channels
+            val previousUsers = app.client.state.value.users.keys
+            runBlocking {
+                val reconnected = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
+                    withTimeout(15000) {
+                        app.client.state
+                            .dropWhile { it.connected && it.me == previous }
+                            .onEach {
+                                if (!it.connected) {
+                                    assertEquals(previousChannels, it.channels)
+                                    assertEquals(previousUsers, it.users.keys)
+                                }
+                            }
+                            .first { it.connected && it.me != previous }
+                    }
+                }
+                control("drop")
+                ui.waitUntil(10000) { app.client.state.value.status == "reconnecting" }
+                assertEquals(1, app.client.state.value.reconnectAttempt)
+                reconnected.await()
             }
             assertNull(app.client.state.value.certificate)
             assertTrue(app.client.state.value.self?.selfMute == true)
             assertTrue(app.client.state.value.self?.selfDeaf == true)
+            assertFalse(app.client.state.value.users.containsKey(previous))
         }
         assertEquals(3, control("stats").getInt("authentications"))
         ui.runOnIdle { app.client.mute(false) }

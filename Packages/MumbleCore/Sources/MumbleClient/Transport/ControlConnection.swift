@@ -121,6 +121,15 @@ final class ControlConnection {
 }
 
 enum CertificateInspector {
+    static func trustQuestion(for info: ServerCertificateInfo, expectedFingerprint: Data?, systemTrusted: Bool) -> CertificateTrustQuestion? {
+        if systemTrusted { return nil }
+        if let expectedFingerprint {
+            if expectedFingerprint == info.sha256Fingerprint { return nil }
+            return .changed(expected: expectedFingerprint, actual: info)
+        }
+        return .firstContact(info)
+    }
+
     static func info(from trust: SecTrust) -> ServerCertificateInfo {
         let chain = (SecTrustCopyCertificateChain(trust) as? [SecCertificate]) ?? []
         let ders = chain.map { SecCertificateCopyData($0) as Data }
