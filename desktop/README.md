@@ -60,13 +60,28 @@ npm run dist:win     # portable + per-user installer into desktop/dist (run this
 
 Windows targets can only be built on Windows without `wine`; macOS targets only on macOS.
 
-The capture test needs Chromium (`CHROME` can select its executable). On Linux, run it on an
-isolated display: `xvfb-run -a -s '-screen 0 1280x800x24 -extension MIT-SHM' npm run test:share`. It opens the real
-picker, shares the virtual desktop, verifies changing pixel colors in a separate viewer process,
-and checks that stopping releases capture and removes the remote stream. CI runs this test on
-Linux and Windows for desktop and shared web-client changes. macOS capture and Linux Wayland
-portal selection still need platform-specific checks. `MUTTER_TEST_OZONE=wayland` selects the
-Wayland backend for a portal-enabled test session; complete its system screen-selection prompt.
+The capture test needs Chromium (`CHROME` can select its executable). On Linux X11, use a
+private, local-only display without an Xauthority file:
+
+```sh
+Xvfb :198 -screen 0 1280x800x24 -extension MIT-SHM -nolisten tcp -ac > /tmp/mutter-xvfb.log 2>&1 &
+mutter_xvfb_pid=$!
+trap 'kill "$mutter_xvfb_pid" 2>/dev/null || true' EXIT
+export DISPLAY=:198
+unset XAUTHORITY
+npm run test:share
+```
+
+It opens the real picker, checks cancellation followed by a fresh attempt, verifies changing
+pixel colors in a separate viewer process, and checks that stopping releases capture and
+removes the remote stream. CI runs this test on Linux X11 and Windows for desktop and shared
+web-client changes.
+
+On macOS 15+, run the test in an unlocked desktop session and select only the Mutter window
+in the native sharing picker. Accept macOS capture permission when requested. For Linux
+Wayland, `MUTTER_TEST_OZONE=wayland` selects the Wayland backend; the test session needs
+PipeWire and a working screen-cast portal. Select its isolated monitor in the system picker.
+Mutter uses the source selected there directly instead of opening a second picker.
 
 ## How it fits together
 
@@ -118,7 +133,8 @@ Platform notes:
 - **macOS**: the first press prompts for the Input Monitoring permission in System Settings →
   Privacy & Security. Until it is granted, push to talk only works with Mutter focused.
 - **Linux**: works on X11 and for XWayland apps. Native Wayland apps do not expose key events to
-  other programs, so there push to talk only works with Mutter focused.
+  other programs, so there push to talk only works with Mutter focused. A Wayland session
+  without an X11 `DISPLAY` skips the native hook, which otherwise can terminate the app.
 
 If the hook cannot load, the app logs one line and carries on without it.
 

@@ -14,6 +14,8 @@ import { openClient, sleep } from '../../web/test/harness.mjs';
 
 const electron = createRequire(import.meta.url)('electron');
 const desktop = fileURLToPath(new URL('../', import.meta.url));
+const macSystemPicker = process.platform === 'darwin' && Number(os.release().split('.')[0]) >= 24;
+const waylandPicker = process.platform === 'linux' && process.env.MUTTER_TEST_OZONE === 'wayland';
 
 async function unusedPort() {
   const socket = net.createServer();
@@ -24,8 +26,8 @@ async function unusedPort() {
   return port;
 }
 
-// Use an isolated display (xvfb-run on Linux), or a desktop test runner. No capture API is mocked.
-test('Electron desktop capture reaches an independent viewer, changes pixels, and stops cleanly', { timeout: 120_000 }, async t => {
+// Use a private display on Linux, or select the test window on macOS. No capture API is mocked.
+test('Electron desktop capture reaches an independent viewer, changes pixels, and stops cleanly', { timeout: macSystemPicker || waylandPicker ? 180_000 : 120_000 }, async t => {
   const server = await startFakeServer({ port: 0, quiet: true });
   t.after(() => server.close());
   const bridge = await startBridge();
@@ -37,7 +39,9 @@ test('Electron desktop capture reaches an independent viewer, changes pixels, an
   const env = { ...process.env, PORT: String(port), PORTABLE_EXECUTABLE_DIR: directory };
   delete env.ELECTRON_RUN_AS_NODE;
   const ozone = process.env.MUTTER_TEST_OZONE || 'x11';
-  const child = spawn(electron, ['.', '--no-sandbox', '--disable-gpu',
+  // PipeWire may supply GPU buffers; a software-only Electron renderer cannot
+  // import their DMA-BUF modifiers. Keep the normal GPU path on Wayland.
+  const child = spawn(electron, ['.', '--no-sandbox', ...(ozone === 'wayland' ? [] : ['--disable-gpu']),
     ...(process.platform === 'linux' ? [`--ozone-platform=${ozone}`] : []),
     '--password-store=basic',
     '--autoplay-policy=no-user-gesture-required', '--remote-debugging-port=0'], { cwd: desktop, env });
@@ -120,24 +124,44 @@ test('Electron desktop capture reaches an independent viewer, changes pixels, an
       throw error;
     });
   })()`);
+  if (!macSystemPicker && ozone !== 'wayland') {
+    await sharer.send('Runtime.evaluate', { expression: `document.getElementById('shareBtn').click()`, userGesture: true });
+    const canceledPicker = await findPage('/app/picker.html');
+    await canceledPicker.eval(`setTimeout(() => document.getElementById('cancel').click(), 50); true`);
+    await sharer.waitFor('!!window.captureError', { label: 'canceled capture rejects instead of hanging' });
+    assert.equal(await sharer.eval('!!mutter.share.sharing'), false);
+    assert.equal(await viewer.eval('mutter.share.available.size'), 0);
+    await sharer.eval('delete window.captureError');
+    console.log('Canceling the picker settled capture; a fresh attempt can start');
+  }
   await sharer.send('Runtime.evaluate', { expression: `document.getElementById('shareBtn').click()`, userGesture: true });
-  const picker = await findPage('/app/picker.html');
-  console.log('Desktop capture picker opened');
-  await picker.waitFor(`!!document.querySelector('.src[data-source^="screen:"]')`).catch(async error => {
-    throw new Error(`${error.message}\n${diagnostics}\n${JSON.stringify(picker.errors())}\n${await picker.eval('document.body.innerText')}`);
-  });
-  await picker.click('.src[data-source^="screen:"]');
-  // Return the CDP result before the selection closes the picker target.
-  await picker.eval(`setTimeout(() => document.getElementById('share').click(), 50); true`);
-  await sharer.waitFor('!!mutter.share.sharing || !!window.captureError').catch(async error => {
+  if (macSystemPicker) {
+    console.log('Select only the Mutter window in the macOS system sharing picker');
+  } else if (ozone === 'wayland') {
+    console.log('Select the isolated test monitor in the Wayland system sharing picker');
+  } else {
+    const picker = await findPage('/app/picker.html');
+    console.log('Desktop capture picker opened');
+    await picker.waitFor(`!!document.querySelector('.src[data-source^="screen:"]')`).catch(async error => {
+      throw new Error(`${error.message}\n${diagnostics}\n${JSON.stringify(picker.errors())}\n${await picker.eval('document.body.innerText')}`);
+    });
+    await picker.click('.src[data-source^="screen:"]');
+    // Return the CDP result before the selection closes the picker target.
+    await picker.eval(`setTimeout(() => document.getElementById('share').click(), 50); true`);
+  }
+  await sharer.waitFor('!!mutter.share.sharing || !!window.captureError', { timeout: macSystemPicker || ozone === 'wayland' ? 120_000 : 10_000 }).catch(async error => {
     throw new Error(`${error.message}\n${diagnostics}\n${JSON.stringify(sharer.logs)}\n${JSON.stringify(await sharer.eval('mutter.client.log'))}`);
   });
   assert.equal(await sharer.eval('window.captureError'), undefined, diagnostics);
   console.log('Native desktop capture started');
-  await sharer.send('Runtime.evaluate', {
-    expression: 'document.documentElement.requestFullscreen()', awaitPromise: true, userGesture: true,
-  });
-  await sharer.waitFor('!!document.fullscreenElement');
+  const captureSettings = await sharer.eval('mutter.share.sharing.stream.getVideoTracks()[0].getSettings()');
+  console.log(`Capture settings: ${JSON.stringify(captureSettings)}`);
+  if (!macSystemPicker) {
+    await sharer.send('Runtime.evaluate', {
+      expression: 'document.documentElement.requestFullscreen()', awaitPromise: true, userGesture: true,
+    });
+    await sharer.waitFor('!!document.fullscreenElement');
+  }
   await sharer.eval(`(() => {
     const pattern = document.createElement('div');
     pattern.id = 'capturePattern';
@@ -160,7 +184,12 @@ test('Electron desktop capture reaches an independent viewer, changes pixels, an
     }
     return count > 32 * 20 * 0.5;
   })()`;
-  await viewer.waitFor(hasColor(0), { timeout: 15_000, label: 'real desktop red pixels decoded' });
+  await viewer.waitFor(hasColor(0), { timeout: 15_000, label: 'real desktop red pixels decoded' }).catch(async error => {
+    throw new Error(`${error.message}; viewer: ${JSON.stringify(await viewer.eval(`(() => {
+      const video = document.querySelector('#stage video.remote');
+      return { width: video?.videoWidth, height: video?.videoHeight, frames: video?.getVideoPlaybackQuality().totalVideoFrames };
+    })()`))}; capture: ${JSON.stringify(captureSettings)}`);
+  });
   await sharer.eval(`document.getElementById('capturePattern').style.background = 'rgb(20, 20, 220)'`);
   await viewer.waitFor(hasColor(2), { timeout: 10_000, label: 'updated desktop blue pixels decoded' });
   await sharer.waitFor('mutter.share.viewerCount === 1');
