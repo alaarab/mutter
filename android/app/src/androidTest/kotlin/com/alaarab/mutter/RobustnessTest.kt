@@ -3,7 +3,7 @@ package com.alaarab.mutter
 import android.app.NotificationManager
 import android.os.Build
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.lifecycle.Lifecycle
 import androidx.test.platform.app.InstrumentationRegistry
 import com.alaarab.mutter.data.Server
@@ -33,6 +33,7 @@ class RobustnessTest {
 
     @Before
     fun setup() {
+        grantLocalNetworkPermission()
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
         automation.grantRuntimePermission("com.alaarab.mutter", "android.permission.RECORD_AUDIO")
         if (Build.VERSION.SDK_INT >= 33)

@@ -2,6 +2,8 @@
 
 package com.alaarab.mutter.ui
 
+import androidx.core.graphics.scale
+import androidx.core.text.htmlEncode
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
@@ -32,7 +34,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -62,7 +63,7 @@ fun ChatScreen(
     onUser: (Int) -> Unit,
 ) {
     val p = LocalPalette.current
-    val landscape = LocalConfiguration.current.screenHeightDp < 500
+    val landscape = windowSizeDp().height < 500.dp
     val compact = WindowInsets.isImeVisible && landscape
     var draft by rememberSaveable(direct) { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
@@ -70,7 +71,7 @@ fun ChatScreen(
     fun send() {
         val text = draft.trim()
         if (text.isEmpty()) return
-        val html = android.text.TextUtils.htmlEncode(text).replace("\n", "<br>")
+        val html = text.htmlEncode().replace("\n", "<br>")
         if (state.maxText > 0 && html.toByteArray().size > state.maxText)
             error = "This message is longer than the server allows."
         else if (app.client.sendText(html, direct = direct)) {
@@ -402,8 +403,7 @@ private fun imageMessage(context: android.content.Context, uri: Uri, maxSize: In
             if (bitmap.width < 80 || bitmap.height < 80)
                 error("The server's image limit is too small for this photo.")
             val smaller =
-                Bitmap.createScaledBitmap(
-                    bitmap,
+                bitmap.scale(
                     (bitmap.width * .75f).toInt().coerceAtLeast(1),
                     (bitmap.height * .75f).toInt().coerceAtLeast(1),
                     true,

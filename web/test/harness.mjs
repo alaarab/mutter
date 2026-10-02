@@ -69,6 +69,7 @@ export function createReporter() {
 
 export async function openClient(environment, name, { beforeConnect } = {}) {
   const page = await environment.browser.newPage(`${environment.bridge.url}/?source=tone`);
+  await page.waitFor('!!globalThis.mutter', { label: 'app initialized' });
   await page.type('#host', '127.0.0.1');
   await page.type('#port', String(environment.server.port));
   await page.type('#username', name);

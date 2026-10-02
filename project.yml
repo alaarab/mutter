@@ -31,6 +31,8 @@ settings:
     CODE_SIGN_STYLE: Automatic
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
+    # Only the app and widgets define intents; other targets have no metadata.
+    LM_SKIP_METADATA_EXTRACTION: YES
 
 targets:
   Mutter:
@@ -97,6 +99,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.alaarab.mutter
+        LM_SKIP_METADATA_EXTRACTION: NO
         SWIFT_OBJC_BRIDGING_HEADER: Mutter/Mutter-Bridging-Header.h
         HEADER_SEARCH_PATHS: "$(inherited) $(SRCROOT)/Mutter/Audio/OpusShim"
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
@@ -140,6 +143,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.alaarab.mutter.widgets
+        LM_SKIP_METADATA_EXTRACTION: NO
         SWIFT_VERSION: "5.0"
         INFOPLIST_KEY_CFBundleDisplayName: Mutter
 

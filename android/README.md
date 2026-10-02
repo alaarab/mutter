@@ -5,8 +5,8 @@ Mumble servers; a desktop computer, web bridge, or hosted backend is not require
 
 ## Build and install
 
-Open this directory in Android Studio, or use JDK 21 and an Android SDK with platform 36.
-The checked-in Gradle wrapper pins the build tool version. Set `ANDROID_HOME` to your SDK,
+Open this directory in Android Studio, or use JDK 21 and an Android SDK with platform 37.
+The checked-in Gradle wrapper pins the Android plugin’s supported Gradle 9.6 line. Set `ANDROID_HOME` to your SDK,
 or set `sdk.dir` in the ignored `local.properties` file.
 
 From the repository root:
@@ -63,11 +63,19 @@ quality still need testing on real Android hardware.
 
 ## Validation
 
-Run unit tests, lint, and a debug build with JDK 21 and the Android SDK:
+Run unit tests, lint, and app/device-test builds with JDK 21 and the Android SDK. Kotlin
+and lint warnings fail the build. `lint.xml` documents the single, version-specific Gradle update exception:
+Gradle 9.8 triggers a deprecated API call inside AGP 9.4.1, so the wrapper stays on 9.6.1.
+
+Android 17 requires Nearby devices permission for LAN servers, discovery and direct local
+screen sharing. Connecting requests it alongside the existing optional permissions; the
+local directory also provides an explicit permission button. Public internet connections
+remain available when local access is denied. `LocalNetworkPermissionTest` exercises the
+system prompt on a fresh install (or after revoking Nearby devices before instrumentation).
 
 ```bash
 cd android
-./gradlew testDebugUnitTest lintDebug assembleDebug
+./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --warning-mode=fail
 ```
 
 For emulator integration tests, start the shared protocol test servers from the repository

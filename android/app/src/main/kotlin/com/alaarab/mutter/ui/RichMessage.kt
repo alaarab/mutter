@@ -3,7 +3,7 @@ package com.alaarab.mutter.ui
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.net.Uri
+import androidx.core.net.toUri
 import android.text.Html
 import android.text.style.StyleSpan
 import android.text.style.URLSpan
@@ -43,7 +43,7 @@ private fun annotatedMessage(html: String, color: Color): AnnotatedString {
                 )
         }
         text.getSpans(0, text.length, URLSpan::class.java).forEach { span ->
-            val uri = Uri.parse(span.url)
+            val uri = span.url.toUri()
             if (uri.scheme in listOf("https", "http", "mumble")) {
                 addLink(
                     LinkAnnotation.Url(
@@ -109,11 +109,11 @@ fun RichMessage(
                     Modifier.fillMaxWidth().heightIn(max = 260.dp).clip(MaterialTheme.shapes.small),
                 )
             }
-        } else if (Uri.parse(src).scheme in listOf("http", "https")) {
+        } else if (src.toUri().scheme in listOf("http", "https")) {
             TextButton(
                 onClick = {
                     runCatching {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(src)))
+                        context.startActivity(Intent(Intent.ACTION_VIEW, src.toUri()))
                     }
                 }
             ) {

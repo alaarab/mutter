@@ -12,6 +12,7 @@
     "start": "electron .",
     "smoke": "electron . --smoke",
     "test:persistence": "node --test test/persistence.test.mjs",
+    "test:share": "node --test test/share.test.mjs",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win",
     "dist:mac": "electron-builder --mac",

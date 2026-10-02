@@ -87,6 +87,13 @@ try {
       throw new Error('opaque track label leaked into the title');
     }
     await alpha.waitFor(`mutter.share.viewerCount === 1`, { timeout: 5000 });
+    const encoding = await alpha.eval(`(() => {
+      const peer = [...mutter.share.sharing.peers.values()][0];
+      return peer.getSenders().find(sender => sender.track?.kind === 'video').getParameters().encodings[0];
+    })()`);
+    if (encoding.maxBitrate !== 6_000_000 || encoding.maxFramerate !== 60) {
+      throw new Error(`screen-share encoding limits were not applied: ${JSON.stringify(encoding)}`);
+    }
     if (shots) {
       await bravo.send('Page.bringToFront');
       await bravo.screenshot(`${shots}/04-watching.png`);

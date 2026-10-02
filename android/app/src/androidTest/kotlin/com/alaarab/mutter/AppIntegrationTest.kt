@@ -1,7 +1,7 @@
 package com.alaarab.mutter
 
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import com.alaarab.mutter.data.Server
 import com.alaarab.mutter.protocol.VoicePacket
@@ -24,6 +24,7 @@ class AppIntegrationTest {
 
     @Before
     fun setup() {
+        grantLocalNetworkPermission()
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
         for (permission in
             buildList {

@@ -1,0 +1,43 @@
+name: desktop tests
+
+on:
+  push:
+    branches: [main]
+    paths: ['desktop/**', 'web/**', 'design/**', '.github/workflows/desktop-tests.yml']
+  pull_request:
+    paths: ['desktop/**', 'web/**', 'design/**', '.github/workflows/desktop-tests.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends xvfb libx11-dev libxrandr-dev libxtst-dev libxt-dev
+        if: runner.os == 'Linux'
+      - run: npm ci
+        working-directory: desktop
+      - run: node --test desktop/test/security.test.mjs desktop/test/credentials.test.mjs
+      - run: xvfb-run -a -s '-screen 0 1280x800x24' node --test desktop/test/share.test.mjs
+        if: runner.os == 'Linux'
+        env:
+          CHROME: google-chrome
+      - run: node --test desktop/test/share.test.mjs
+        if: runner.os == 'Windows'
+        env:
+          CHROME: 'C:\Program Files\Google\Chrome\Application\chrome.exe'

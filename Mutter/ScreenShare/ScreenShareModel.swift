@@ -53,6 +53,7 @@ final class ScreenShareModel: NSObject {
     @ObservationIgnored private var lastBytes: UInt64 = 0
     @ObservationIgnored private var pendingCandidates: [ICECandidateInit] = []
     @ObservationIgnored private var remoteDescriptionSet = false
+    @ObservationIgnored private var localCandidates = ICECandidateBatcher()
     @ObservationIgnored private var lastStatsAt = Date()
 
     private static let gatheringDeadline: TimeInterval = 1.5
@@ -158,6 +159,8 @@ final class ScreenShareModel: NSObject {
     }
 
     func stopWatching(sendLeave: Bool = true) {
+        sender.cancel(scope: localCandidates.scope)
+        localCandidates.cancel()
         pendingCandidates.removeAll()
         remoteDescriptionSet = false
         if let current = watching, sendLeave { sender.send(.leave(current.id), to: [current.sender]) }
@@ -201,6 +204,10 @@ final class ScreenShareModel: NSObject {
     }
 
     private func accept(offer sdp: String, from sharer: UInt32, id: String) async {
+        guard watching?.id == id, watching?.sender == sharer else { return }
+        sender.cancel(scope: localCandidates.scope)
+        localCandidates.cancel()
+        localCandidates = ICECandidateBatcher()
         peerConnection?.close()
         remoteDescriptionSet = false
         let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
@@ -227,7 +234,12 @@ final class ScreenShareModel: NSObject {
             guard isCurrent(connection) else { return }
             await waitForGathering(connection)
             guard isCurrent(connection), let local = connection.localDescription, watching?.id == id else { return }
-            sender.send(.answer(id, sdp: local.sdp), to: [sharer], replacing: "answer:\(sharer):\(id)")
+            sender.send(.answer(id, sdp: local.sdp), to: [sharer], replacing: "answer:\(sharer):\(id)", scope: localCandidates.scope)
+            localCandidates.activate(localSDP: local.sdp) { [weak self, weak connection] candidates in
+                guard let self, let connection, self.isCurrent(connection), self.watching?.id == id else { return }
+                self.sender.send(SignalMessage(kind: .ice, id: id, candidates: candidates),
+                                 to: [sharer], scope: self.localCandidates.scope)
+            }
             startStats()
         } catch {
             guard isCurrent(connection) else { return }
@@ -330,7 +342,13 @@ extension ScreenShareModel: RTCPeerConnectionDelegate {
 
     nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {}
 
-    nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {}
+    nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
+        let value = ICECandidateInit(candidate: candidate.sdp, sdpMid: candidate.sdpMid, sdpMLineIndex: candidate.sdpMLineIndex)
+        Task { @MainActor in
+            guard self.isCurrent(peerConnection) else { return }
+            self.localCandidates.add(value)
+        }
+    }
 
     nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}
 

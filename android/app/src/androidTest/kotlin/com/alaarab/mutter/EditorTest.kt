@@ -1,7 +1,7 @@
 package com.alaarab.mutter
 
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import com.alaarab.mutter.data.Server
 import java.util.UUID
 import org.junit.After

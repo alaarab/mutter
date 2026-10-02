@@ -1,20 +1,12 @@
 package com.alaarab.mutter.data
 
 import java.io.ByteArrayOutputStream
-import java.math.BigInteger
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.MessageDigest
-import java.security.SecureRandom
 import java.security.cert.X509Certificate
-import java.util.Date
 import java.util.UUID
 import javax.net.ssl.KeyManagerFactory
-import org.bouncycastle.asn1.x500.X500Name
-import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter
-import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder
-import org.bouncycastle.jce.provider.BouncyCastleProvider
-import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
 
 class Identities(private val store: AppStore) {
     @Synchronized
@@ -37,34 +29,7 @@ class Identities(private val store: AppStore) {
     @Synchronized
     fun create(name: String, id: String = UUID.randomUUID().toString()) {
         val pair = KeyPairGenerator.getInstance("RSA").apply { initialize(2048) }.generateKeyPair()
-        val subject =
-            X500Name(
-                "CN=" +
-                    org.bouncycastle.asn1.x500.style.IETFUtils.valueToString(
-                        org.bouncycastle.asn1.DERUTF8String(name)
-                    )
-            )
-        val now = System.currentTimeMillis()
-        val builder =
-            JcaX509v3CertificateBuilder(
-                subject,
-                BigInteger(128, SecureRandom()),
-                Date(now - 86400000),
-                Date(now + 20L * 365 * 86400000),
-                subject,
-                pair.public,
-            )
-        val provider = BouncyCastleProvider()
-        val cert =
-            JcaX509CertificateConverter()
-                .setProvider(provider)
-                .getCertificate(
-                    builder.build(
-                        JcaContentSignerBuilder("SHA256withRSA")
-                            .setProvider(provider)
-                            .build(pair.private)
-                    )
-                )
+        val cert = identityCertificate(pair, name)
         val keys =
             KeyStore.getInstance("PKCS12").apply {
                 load(null, null)

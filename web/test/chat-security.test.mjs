@@ -81,6 +81,8 @@ test('share controls reject forged senders and bound candidates before an offer'
       users: new Map([[1, { session: 1, channelId: 0 }], [2, { session: 2, channelId: 0 }], [3, { session: 3, channelId: 0 }]]),
       me: 3,
       myUser: { session: 3, channelId: 0 },
+      isConnected: true,
+      sendPlugin() {},
       diag() {},
     });
     const share = new ScreenShare(client, {});

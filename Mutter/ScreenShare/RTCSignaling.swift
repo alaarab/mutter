@@ -49,12 +49,6 @@ struct SignalMessage: Codable {
     static func answer(_ id: String, sdp: String) -> SignalMessage { SignalMessage(kind: .answer, id: id, sdp: sdp) }
 }
 
-struct ICECandidateInit: Codable {
-    var candidate: String
-    var sdpMid: String?
-    var sdpMLineIndex: Int32?
-}
-
 enum SignalError: Error {
     case tooLarge
 }
@@ -181,6 +175,7 @@ final class SignalSender {
         let data: Data
         let messageNumber: Int
         let replaces: String?
+        let scope: String?
     }
 
     private let client: MumbleClient
@@ -195,7 +190,7 @@ final class SignalSender {
         self.client = client
     }
 
-    func send(_ message: SignalMessage, to receivers: [UInt32], replacing replaces: String? = nil) {
+    func send(_ message: SignalMessage, to receivers: [UInt32], replacing replaces: String? = nil, scope: String? = nil) {
         guard !receivers.isEmpty, let fragments = try? fragmenter.fragments(for: message) else { return }
         let messageNumber = nextMessageNumber
         nextMessageNumber += 1
@@ -203,12 +198,16 @@ final class SignalSender {
             queue.removeAll { $0.replaces == replaces }
         }
         for fragment in fragments {
-            queue.append(QueuedFragment(receivers: receivers, data: fragment, messageNumber: messageNumber, replaces: replaces))
+            queue.append(QueuedFragment(receivers: receivers, data: fragment, messageNumber: messageNumber, replaces: replaces, scope: scope))
         }
         while queue.count > Self.maximumQueuedFragments, let oldest = queue.first?.messageNumber {
             queue.removeAll { $0.messageNumber == oldest }
         }
         drain()
+    }
+
+    func cancel(scope: String) {
+        queue.removeAll { $0.scope == scope }
     }
 
     func reset() {

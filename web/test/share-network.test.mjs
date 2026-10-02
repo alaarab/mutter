@@ -53,6 +53,7 @@ async function connectComputer(computer, name) {
   const page = await computer.browser.newPage();
   await page.send('Page.addScriptToEvaluateOnNewDocument', { source: UNRESOLVABLE_MDNS_NETWORK });
   await page.goto(`${computer.bridge.url}/`);
+  await page.waitFor('!!globalThis.mutter', { label: 'app initialized' });
   await page.eval(`mutter.settings.stun = ''`);
   await page.type('#host', '127.0.0.1');
   await page.type('#port', String(computer.server.port));
@@ -87,6 +88,10 @@ async function watchFromSecondComputer({ sharerExposes, viewerExposes }) {
       ? await viewer.waitFor(`mutter.share.watching?.stats.w === 640`, { timeout: 10_000, label: 'frames arrive' }).then(() => 640)
       : 0;
     const failure = await viewer.eval(`mutter.share.watching?.failure ?? null`);
+    if (state === 'failed') {
+      await viewer.waitFor(`mutter.share.watching?.pc.connectionState === 'closed'`, { label: 'failed viewer released its peer' });
+      await sharer.waitFor('mutter.share.sharing.peers.size === 0', { label: 'failed viewer released the sender peer' });
+    }
     return { state, frameWidth, failure };
   } finally {
     await viewerComputer.close();

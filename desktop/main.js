@@ -65,6 +65,7 @@ function installScreenPicker(url) {
         callback({});
         return;
       }
+      let streams = {};
       try {
         const sources = await desktopCapturer.getSources({
           types: ['screen', 'window'],
@@ -72,15 +73,16 @@ function installScreenPicker(url) {
           fetchWindowIcons: true,
         });
         const chosen = await pickSource(sources);
-        if (!chosen) {
-          callback({});
-          return;
+        if (chosen) {
+          streams = { video: chosen };
+          if (request.audioRequested && process.platform === 'win32') streams.audio = 'loopback';
         }
-        const audio = request.audioRequested && process.platform === 'win32' ? 'loopback' : undefined;
-        callback({ video: chosen, audio });
-      } catch {
-        callback({});
+      } catch (error) {
+        console.warn(`Screen capture unavailable: ${error.message}`);
       }
+      // Electron's callback is single-use, even when argument conversion throws.
+      // Omit unsupported audio entirely instead of passing audio: undefined.
+      callback(streams);
     },
     { useSystemPicker: true }
   );

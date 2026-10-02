@@ -2,8 +2,6 @@ package com.alaarab.mutter.ui
 
 import android.content.ClipData
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
-import androidx.activity.findViewTreeOnBackPressedDispatcherOwner
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -21,7 +19,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -30,6 +27,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
+import androidx.navigationevent.findViewTreeNavigationEventDispatcherOwner
 import com.alaarab.mutter.MutterApplication
 import com.alaarab.mutter.data.Settings
 import kotlinx.coroutines.launch
@@ -45,7 +44,7 @@ fun SettingsScreen(app: MutterApplication, settings: Settings, dismiss: () -> Un
         page = destination
     }
     val columns =
-        ((LocalConfiguration.current.screenWidthDp - 64) / (100 * LocalDensity.current.fontScale))
+        ((windowSizeDp().width.value - 64) / (100 * LocalDensity.current.fontScale))
             .toInt()
             .coerceIn(1, 3)
     val themeRows = LocalCatalog.current.themes.chunked(columns)
@@ -58,9 +57,9 @@ fun SettingsScreen(app: MutterApplication, settings: Settings, dismiss: () -> Un
     fun save(value: Settings) {
         app.store.saveSettings(value)
     }
-    val backOwner = LocalView.current.findViewTreeOnBackPressedDispatcherOwner()
+    val backOwner = LocalView.current.findViewTreeNavigationEventDispatcherOwner()
     if (backOwner != null)
-        CompositionLocalProvider(LocalOnBackPressedDispatcherOwner provides backOwner) {
+        CompositionLocalProvider(LocalNavigationEventDispatcherOwner provides backOwner) {
             BackHandler(page != "main") { navigate("main") }
         }
     AnimatedContent(

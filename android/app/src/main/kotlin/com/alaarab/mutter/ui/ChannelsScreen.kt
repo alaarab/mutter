@@ -14,7 +14,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -95,7 +94,7 @@ fun ChannelsScreen(
             }
             result
         }
-    val shortWindow = LocalConfiguration.current.screenHeightDp < 500
+    val shortWindow = windowSizeDp().height < 500.dp
     val search: @Composable () -> Unit = {
         Row(
             Modifier.fillMaxWidth()

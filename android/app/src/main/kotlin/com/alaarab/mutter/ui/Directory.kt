@@ -1,5 +1,10 @@
 package com.alaarab.mutter.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -12,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.alaarab.mutter.data.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -38,6 +44,16 @@ fun DirectoryScreen(select: (Server) -> Unit) {
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var retry by remember { mutableIntStateOf(0) }
+    fun canDiscover() = Build.VERSION.SDK_INT < 37 ||
+        context.checkSelfPermission(Manifest.permission.ACCESS_LOCAL_NETWORK) == PackageManager.PERMISSION_GRANTED
+    var localAccess by remember { mutableStateOf(canDiscover()) }
+    val localPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        localAccess = it
+    }
+    LifecycleResumeEffect(Unit) {
+        localAccess = canDiscover()
+        onPauseOrDispose { }
+    }
     LaunchedEffect(retry) {
         loading = true
         try {
@@ -49,9 +65,14 @@ fun DirectoryScreen(select: (Server) -> Unit) {
             loading = false
         }
     }
-    LaunchedEffect(Unit) {
-        Discovery.local(context).collect { server ->
-            local = local.filterNot { it.id == server.id } + server
+    LaunchedEffect(tab, localAccess) {
+        if (tab != "local" || !localAccess) return@LaunchedEffect
+        try {
+            Discovery.local(context).collect { server ->
+                local = local.filterNot { it.id == server.id } + server
+            }
+        } catch (_: SecurityException) {
+            localAccess = false
         }
     }
     LazyColumn(
@@ -87,7 +108,17 @@ fun DirectoryScreen(select: (Server) -> Unit) {
                     TextButton({ retry++ }) { Text("Try again") }
                 }
             }
-        if (tab == "local" && local.isEmpty())
+        if (tab == "local" && !localAccess)
+            item {
+                AppCard(Modifier.fillMaxWidth()) {
+                    Text("Find nearby servers", style = MaterialTheme.typography.titleMedium)
+                    Hint("Allow nearby devices access to find and connect to Mumble servers on this network.")
+                    Button({
+                        if (Build.VERSION.SDK_INT >= 37) localPermission.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
+                    }) { Text("Allow local network") }
+                }
+            }
+        if (tab == "local" && localAccess && local.isEmpty())
             item {
                 EmptyState(
                     Icons.Rounded.Wifi,
@@ -96,7 +127,7 @@ fun DirectoryScreen(select: (Server) -> Unit) {
                 )
             }
         val filtered =
-            (if (tab == "public") directory else local).filter {
+            (if (tab == "public") directory else if (localAccess) local else emptyList()).filter {
                 "${it.name} ${it.host}".contains(query, true)
             }
         if (query.isNotBlank() && filtered.isEmpty() && !(tab == "public" && loading))

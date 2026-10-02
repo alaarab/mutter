@@ -26,10 +26,12 @@ jobs:
       - run: node web/test/ocb2.test.mjs
       - run: node web/test/voice.test.mjs
       - run: node web/test/signal.test.mjs
+      - run: node --test web/test/share-lifecycle.test.mjs web/test/signal-security.test.mjs
       - run: node web/test/jitter.test.mjs
       - run: node web/test/dsp.test.mjs
       - run: node web/test/rnnoise.test.mjs
       - run: node web/test/roster.test.mjs
+      - run: node --test web/test/backpressure.test.mjs web/test/bridge.test.mjs
 
   browser:
     runs-on: ubuntu-latest
@@ -52,5 +54,7 @@ jobs:
         env:
           FAKE_UDP: '0'
       - run: node web/test/share.test.mjs
+      - run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends coturn
+      - run: node --test web/test/share-turn.test.mjs
       - run: node --test --test-concurrency=1 web/test/share-network.test.mjs
       - run: node --test --test-concurrency=1 web/test/lifecycle.test.mjs web/test/chat-scroll.test.mjs web/test/appearance.test.mjs web/test/persistence.test.mjs

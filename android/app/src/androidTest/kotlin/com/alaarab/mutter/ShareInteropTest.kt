@@ -1,6 +1,6 @@
 package com.alaarab.mutter
 
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import com.alaarab.mutter.data.Server
 import java.util.concurrent.atomic.AtomicInteger
@@ -18,6 +18,7 @@ class ShareInteropTest {
         val port =
             InstrumentationRegistry.getArguments().getString("mumbleSharePort")?.toIntOrNull()
         assumeTrue("Run using node android/test-share.mjs", port != null)
+        grantLocalNetworkPermission()
         val app = ui.activity.application as MutterApplication
         InstrumentationRegistry.getInstrumentation()
             .uiAutomation

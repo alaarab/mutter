@@ -1,19 +1,22 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
     namespace = "com.alaarab.mutter"
-    compileSdk = 36
+    compileSdk = 37
     defaultConfig {
         applicationId = "com.alaarab.mutter"
         minSdk = 29
-        targetSdk = 36
+        targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+    lint {
+        warningsAsErrors = true
+        lintConfig = rootProject.file("lint.xml")
     }
     buildFeatures {
         compose = true
@@ -32,19 +35,27 @@ android {
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
         resources.merges += "META-INF/LICENSE.md"
+        // These upstream binaries already contain no debug sections or symbol
+        // table on any ABI. Avoid a redundant strip pass and NDK requirement.
+        jniLibs.keepDebugSymbols += setOf("**/libandroidx.graphics.path.so", "**/libjingle_peerconnection_so.so")
     }
-    sourceSets["main"].assets.srcDir("../../design/fonts")
+    sourceSets["main"].assets.directories.add("../../design/fonts")
 }
 
-kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        allWarningsAsErrors.set(true)
+    }
+}
 
-val generateBrand by tasks.registering {
-    val source = rootProject.file("../docs/brand/icon.svg")
-    val output = layout.buildDirectory.dir("generated/brand/res")
-    inputs.file(source)
-    outputs.dir(output)
-    doLast {
-        val svg = source.readText()
+abstract class GenerateBrand : DefaultTask() {
+    @get:InputFile abstract val source: RegularFileProperty
+    @get:OutputDirectory abstract val output: DirectoryProperty
+
+    @TaskAction
+    fun generate() {
+        val svg = source.get().asFile.readText()
         val path = Regex("<path d=\"([^\"]+)\"").find(svg)!!.groupValues[1]
         val ink = Regex("stroke=\"(#[A-Fa-f0-9]{6})\"/>").find(svg)!!.groupValues[1]
         val background =
@@ -74,23 +85,28 @@ val generateBrand by tasks.registering {
     }
 }
 
-android.sourceSets["main"].res.srcDir(layout.buildDirectory.dir("generated/brand/res"))
+val generateBrand = tasks.register<GenerateBrand>("generateBrand") {
+    source.set(rootProject.file("../docs/brand/icon.svg"))
+    output.set(layout.buildDirectory.dir("generated/brand/res"))
+}
 
-tasks.named("preBuild").configure { dependsOn(generateBrand) }
+androidComponents.onVariants { variant ->
+    variant.sources.res?.addGeneratedSourceDirectory(generateBrand, GenerateBrand::output)
+}
 
 dependencies {
-    implementation(platform("androidx.compose:compose-bom:2025.09.01"))
-    implementation("androidx.activity:activity-compose:1.11.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
+    implementation(platform("androidx.compose:compose-bom:2026.09.00"))
+    implementation("androidx.activity:activity-compose:1.13.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
-    implementation("org.bouncycastle:bcpkix-jdk18on:1.85")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.86")
     implementation("io.github.webrtc-sdk:android:150.7871.01")
     testImplementation("junit:junit:4.13.2")
-    androidTestImplementation(platform("androidx.compose:compose-bom:2025.09.01"))
+    androidTestImplementation(platform("androidx.compose:compose-bom:2026.09.00"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
