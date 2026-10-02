@@ -33,7 +33,8 @@ test('vault encrypts credentials and preserves them when encryption or decryptio
   const encrypted = fs.readFileSync(file);
   assert.ok(!encrypted.includes('private-server-password'));
   assert.ok(!encrypted.includes('private-turn-password'));
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  // Windows uses ACLs and does not expose Unix owner/group permission bits.
+  if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   assert.deepEqual(new CredentialVault(file, encryption).read().value, value);
   encryption.encrypt = () => { throw new Error('locked'); };
   assert.throws(() => vault.write({ servers: {}, turn: '' }), /locked/);
