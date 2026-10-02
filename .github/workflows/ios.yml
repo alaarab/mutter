@@ -31,3 +31,23 @@ jobs:
           -destination 'generic/platform=iOS Simulator'
           -skipPackagePluginValidation
           CODE_SIGNING_ALLOWED=NO
+      - name: Run protocol and client tests on iOS
+        shell: bash
+        run: |
+          mutter_simulator=$(xcrun simctl list devices available -j | node -e '
+            let input = "";
+            process.stdin.on("data", bytes => input += bytes);
+            process.stdin.on("end", () => {
+              const device = Object.values(JSON.parse(input).devices).flat()
+                .find(device => device.name.startsWith("iPhone"));
+              if (!device) throw new Error("No available iPhone simulator");
+              console.log(device.udid);
+            });
+          ')
+          xcodebuild test-without-building \
+            -project Mutter.xcodeproj \
+            -scheme Mutter \
+            -destination "id=$mutter_simulator" \
+            -only-testing:MutterProtocolTests \
+            -only-testing:MutterClientTests \
+            CODE_SIGNING_ALLOWED=NO
