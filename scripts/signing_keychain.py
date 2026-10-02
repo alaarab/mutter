@@ -1,7 +1,32 @@
+import ctypes
+import os
 import shlex
 import subprocess
 from contextlib import contextmanager
 from pathlib import Path
+
+
+def unlock_keychain(keychain, password):
+    security = ctypes.CDLL("/System/Library/Frameworks/Security.framework/Security")
+    core_foundation = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+    security.SecKeychainOpen.argtypes = [ctypes.c_char_p, ctypes.POINTER(ctypes.c_void_p)]
+    security.SecKeychainOpen.restype = ctypes.c_int32
+    security.SecKeychainUnlock.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_ubyte]
+    security.SecKeychainUnlock.restype = ctypes.c_int32
+    core_foundation.CFRelease.argtypes = [ctypes.c_void_p]
+    core_foundation.CFRelease.restype = None
+
+    reference = ctypes.c_void_p()
+    status = security.SecKeychainOpen(os.fsencode(keychain), ctypes.byref(reference))
+    if status:
+        raise RuntimeError(f"Cannot open the configured signing keychain (OSStatus {status}).")
+    try:
+        password_bytes = password.encode("utf-8")
+        status = security.SecKeychainUnlock(reference, len(password_bytes), password_bytes, True)
+        if status:
+            raise RuntimeError(f"Cannot unlock the configured signing keychain (OSStatus {status}); check its password file.")
+    finally:
+        core_foundation.CFRelease(reference)
 
 
 def list_user_keychains(root):
@@ -30,13 +55,7 @@ def signing_keychain(config, root):
     if not password:
         raise ValueError("The signing keychain password file is empty.")
 
-    unlocked = subprocess.run(
-        ["security", "unlock-keychain", "-p", password, keychain],
-        capture_output=True,
-        check=False,
-    )
-    if unlocked.returncode:
-        raise RuntimeError("Cannot unlock the configured signing keychain; check its password file.")
+    unlock_keychain(keychain, password)
 
     previous_keychains = list_user_keychains(root)
     set_user_keychains(root, [keychain, *[item for item in previous_keychains if item != keychain]])

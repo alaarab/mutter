@@ -51,8 +51,8 @@ Omit the keychain fields when using Xcode's ordinary interactive signing setup.
 
 TestFlight builds need an app record for `com.alaarab.mutter` in App Store Connect, and a Mac
 that can sign for your team. Put an App Store Connect API key in `~/.config/ios-release.json`
-(`key_id`, `issuer_id`, `key_path` pointing at the `.p8` file) so Xcode can create the App Group
-and extension profiles without an Apple ID signed into Xcode. If `Local.deploy.json` names a
+(`key_id`, `issuer_id`, `key_path` pointing at the `.p8` file) for export and upload. Archive
+signing and App Group provisioning use the Apple account signed into Xcode. If `Local.deploy.json` names a
 build keychain, the release uses it the same way the phone deploy does. Then run:
 
 ```bash

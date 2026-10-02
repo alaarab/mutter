@@ -168,20 +168,15 @@ public final class MumbleClient {
             if accepted { self?.options?.expectedFingerprint = info.sha256Fingerprint }
             complete(accepted)
         }
-        let expected = options?.expectedFingerprint
-        if let expected {
-            if expected == info.sha256Fingerprint {
-                complete(true)
-                return
-            }
-            ask(.changed(expected: expected, actual: info), complete: pinIfAccepted)
-            return
+        if let question = CertificateInspector.trustQuestion(
+            for: info,
+            expectedFingerprint: options?.expectedFingerprint,
+            systemTrusted: CertificateInspector.isSystemTrusted(trust)
+        ) {
+            ask(question, complete: pinIfAccepted)
+        } else {
+            pinIfAccepted(true)
         }
-        if CertificateInspector.isSystemTrusted(trust) {
-            complete(true)
-            return
-        }
-        ask(.firstContact(info), complete: pinIfAccepted)
     }
 
     private func ask(_ question: CertificateTrustQuestion, complete: @escaping (Bool) -> Void) {
