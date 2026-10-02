@@ -73,8 +73,18 @@ test('Electron desktop capture reaches an independent viewer, changes pixels, an
       if (target) {
         const { sessionId } = await devtools.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
         const page = new Page({ devtools, verbose: !!process.env.VERBOSE }, sessionId, target.targetId);
-        await page.send('Runtime.enable');
         await page.send('Page.enable');
+        // Runtime.enable can execute Electron's preload bootstrap in the initial
+        // empty document before startup data arrives (electron/electron#54149).
+        // Target URLs may change before navigation commits; use the frame URL.
+        let committed = false;
+        for (let poll = 0; poll < 150; poll++) {
+          const { frameTree } = await page.send('Page.getFrameTree');
+          if (frameTree.frame.url === target.url) { committed = true; break; }
+          await sleep(100);
+        }
+        assert.ok(committed, `Electron navigation did not commit: ${target.url}`);
+        await page.send('Runtime.enable');
         return page;
       }
       await sleep(100);
@@ -86,6 +96,7 @@ test('Electron desktop capture reaches an independent viewer, changes pixels, an
   await sharer.waitFor('!!globalThis.mutter', { timeout: 30_000, label: 'Electron app initialized' }).catch(error => {
     throw new Error(`${error.message}\n${diagnostics}\n${JSON.stringify(sharer.logs)}`);
   });
+  assert.equal(await sharer.eval('typeof mutterCredentials?.read'), 'function', 'credential preload loaded');
   await sharer.eval(`history.replaceState(null, '', '/?source=tone')`);
   await sharer.eval(`mutter.settings.stun = ''; mutter.settings.transmitMode = 'ptt'`);
   await sharer.type('#host', '127.0.0.1');
@@ -101,6 +112,14 @@ test('Electron desktop capture reaches an independent viewer, changes pixels, an
   });
   await sharer.waitFor('mutter.client.users.size === 2');
   console.log('Both clients connected to the local Mumble test server');
+  // Record capture rejection before the UI dismisses its temporary toast.
+  await sharer.eval(`(() => {
+    const start = mutter.share.start.bind(mutter.share);
+    mutter.share.start = (...args) => start(...args).catch(error => {
+      window.captureError = error.name + ': ' + error.message;
+      throw error;
+    });
+  })()`);
   await sharer.send('Runtime.evaluate', { expression: `document.getElementById('shareBtn').click()`, userGesture: true });
   const picker = await findPage('/app/picker.html');
   console.log('Desktop capture picker opened');
@@ -110,9 +129,10 @@ test('Electron desktop capture reaches an independent viewer, changes pixels, an
   await picker.click('.src[data-source^="screen:"]');
   // Return the CDP result before the selection closes the picker target.
   await picker.eval(`setTimeout(() => document.getElementById('share').click(), 50); true`);
-  await sharer.waitFor('!!mutter.share.sharing').catch(async error => {
+  await sharer.waitFor('!!mutter.share.sharing || !!window.captureError').catch(async error => {
     throw new Error(`${error.message}\n${diagnostics}\n${JSON.stringify(sharer.logs)}\n${JSON.stringify(await sharer.eval('mutter.client.log'))}`);
   });
+  assert.equal(await sharer.eval('window.captureError'), undefined, diagnostics);
   console.log('Native desktop capture started');
   await sharer.send('Runtime.evaluate', {
     expression: 'document.documentElement.requestFullscreen()', awaitPromise: true, userGesture: true,
