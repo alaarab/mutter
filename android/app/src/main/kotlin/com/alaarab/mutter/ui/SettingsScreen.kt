@@ -27,6 +27,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
 import androidx.navigationevent.findViewTreeNavigationEventDispatcherOwner
 import com.alaarab.mutter.MutterApplication
@@ -57,7 +58,13 @@ fun SettingsScreen(app: MutterApplication, settings: Settings, dismiss: () -> Un
     fun save(value: Settings) {
         app.store.saveSettings(value)
     }
-    val backOwner = LocalView.current.findViewTreeNavigationEventDispatcherOwner()
+    // The sheet's content view can compose before it is attached to the dialog.
+    // Read the owner from its window so recreation still registers the handler.
+    val view = LocalView.current
+    val backOwner =
+        (view.parent as? DialogWindowProvider)?.window?.decorView
+            ?.findViewTreeNavigationEventDispatcherOwner()
+            ?: view.findViewTreeNavigationEventDispatcherOwner()
     if (backOwner != null)
         CompositionLocalProvider(LocalNavigationEventDispatcherOwner provides backOwner) {
             BackHandler(page != "main") { navigate("main") }
