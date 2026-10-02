@@ -102,6 +102,12 @@ targets:
         LM_SKIP_METADATA_EXTRACTION: NO
         SWIFT_OBJC_BRIDGING_HEADER: Mutter/Mutter-Bridging-Header.h
         HEADER_SEARCH_PATHS: "$(inherited) $(SRCROOT)/Mutter/Audio/OpusShim"
+        # Binary package frameworks contain upstream headers with vendor-only
+        # packaging diagnostics. Mark their search path as system headers;
+        # application and shim source warnings remain enabled.
+        SYSTEM_FRAMEWORK_SEARCH_PATHS: "$(inherited) $(BUILT_PRODUCTS_DIR)"
+        # Swift's Clang importer does not inherit the C search-path setting.
+        OTHER_SWIFT_FLAGS: '$(inherited) -Fsystem "$(BUILT_PRODUCTS_DIR)"'
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
