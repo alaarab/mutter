@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lint>
+    <!-- AGP 9.4.1 still calls Configuration.setVisible, deprecated in Gradle 9.8.
+         Stay on its documented Gradle 9.6 line until AGP fixes that call. This
+         exact exception expires when either version changes; other plugin and
+         dependency update checks remain enabled. -->
+    <issue id="AndroidGradlePluginVersion">
+        <ignore regexp="A newer version of Gradle than 9\.6\.1 is available: 9\.8\.0" />
+    </issue>
+</lint>

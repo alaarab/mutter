@@ -1131,7 +1131,6 @@ $('shareBtn').onclick = async () => {
   }
   try {
     await share.start();
-    showTab('screen');
   } catch (error) {
     if (error.name !== 'NotAllowedError') {
       toast(`Can't share: ${error.message}`, 'warn');

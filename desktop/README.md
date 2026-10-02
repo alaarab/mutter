@@ -53,10 +53,19 @@ cd desktop
 npm install
 npm start            # run from source, with the bridge on localhost:8789
 npm run test:persistence # two Electron launches with an isolated profile (needs a GUI session)
+npm run test:share       # actual desktop picker/capture → independent Chromium viewer
 npm run dist:win     # portable + per-user installer into desktop/dist (run this on Windows)
 ```
 
 Windows targets can only be built on Windows without `wine`; macOS targets only on macOS.
+
+The capture test needs Chromium (`CHROME` can select its executable). On Linux, run it on an
+isolated display: `xvfb-run -a -s '-screen 0 1280x800x24' npm run test:share`. It opens the real
+picker, shares the virtual desktop, verifies changing pixel colors in a separate viewer process,
+and checks that stopping releases capture and removes the remote stream. CI runs this test on
+Linux and Windows for desktop and shared web-client changes. macOS capture and Linux Wayland
+portal selection still need platform-specific checks. `MUTTER_TEST_OZONE=wayland` selects the
+Wayland backend for a portal-enabled test session; complete its system screen-selection prompt.
 
 ## How it fits together
 

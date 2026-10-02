@@ -3,10 +3,24 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { once } from 'node:events';
 import { after, test } from 'node:test';
 import { startFakeServer } from './fake-server.mjs';
+
+test('native ICE candidates follow SDP and stop with their peer', { skip: spawnSync('swiftc', ['--version']).status !== 0 }, () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'mutter-ice-tests-'));
+  try {
+    const output = path.join(temporary, 'ice');
+    execFileSync('swiftc', ['-parse-as-library',
+      fileURLToPath(new URL('native/ICECandidateProbe.swift', import.meta.url)),
+      fileURLToPath(new URL('../../Mutter/ScreenShare/ICECandidateBatcher.swift', import.meta.url)),
+      '-o', output], { stdio: 'pipe' });
+    assert.match(execFileSync(output, { encoding: 'utf8' }), /PASS/);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
 
 if (process.platform !== 'darwin') {
   test('native transport and audio regressions (requires macOS)', { skip: true }, () => {});
@@ -37,7 +51,8 @@ if (process.platform !== 'darwin') {
   const audio = compile('AudioProbe', [path.join(root, 'Mutter/Audio/UserStream.swift')]);
   const liveActivity = compile('LiveActivityProbe', [path.join(root, 'Mutter/LiveActivity/LiveActivityFreshness.swift')]);
   const client = compile('ClientProbe', objects('MumbleClient'));
-  const signal = compile('SignalProbe', [path.join(root, 'Mutter/ScreenShare/RTCSignaling.swift'), ...objects('MumbleClient')]);
+  const signal = compile('SignalProbe', [path.join(root, 'Mutter/ScreenShare/RTCSignaling.swift'),
+    path.join(root, 'Mutter/ScreenShare/ICECandidateBatcher.swift'), ...objects('MumbleClient')]);
   const credentials = compile('CredentialProbe', [path.join(root, 'Mutter/App/ServerStore.swift'), ...objects('MumbleClient')]);
   const broadcast = compile('BroadcastProbe', [path.join(root, 'Mutter/ScreenShare/BroadcastFrames.swift')]);
 

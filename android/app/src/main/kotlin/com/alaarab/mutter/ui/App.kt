@@ -10,6 +10,7 @@ import android.app.Activity
 import android.content.pm.PackageManager
 import android.os.Build
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,7 +31,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -86,7 +86,17 @@ fun MutterApp(app: MutterApplication, deepLink: Server? = null, consumed: () -> 
     var direct by rememberSaveable { mutableStateOf<Int?>(null) }
     var pendingServer by remember { mutableStateOf<Server?>(null) }
     val permission =
-        rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+            if (
+                Build.VERSION.SDK_INT >= 37 &&
+                    result[Manifest.permission.ACCESS_LOCAL_NETWORK] == false
+            ) {
+                Toast.makeText(
+                    context,
+                    "Nearby devices permission is needed for local servers and screen sharing on your network.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
             pendingServer?.let { app.connect(it) }
             pendingServer = null
         }
@@ -98,6 +108,11 @@ fun MutterApp(app: MutterApplication, deepLink: Server? = null, consumed: () -> 
     }
     fun connect(server: Server) {
         val permissions = buildList {
+            if (
+                Build.VERSION.SDK_INT >= 37 &&
+                    context.checkSelfPermission(Manifest.permission.ACCESS_LOCAL_NETWORK) !=
+                        PackageManager.PERMISSION_GRANTED
+            ) add(Manifest.permission.ACCESS_LOCAL_NETWORK)
             if (
                 context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) !=
                     PackageManager.PERMISSION_GRANTED
@@ -154,7 +169,7 @@ fun MutterApp(app: MutterApplication, deepLink: Server? = null, consumed: () -> 
         val p = LocalPalette.current
         val motion = LocalCatalog.current
         val keyboardVisible = WindowInsets.isImeVisible
-        val compactContent = keyboardVisible && LocalConfiguration.current.screenHeightDp < 500
+        val compactContent = keyboardVisible && windowSizeDp().height < 500.dp
         Scaffold(
             modifier = Modifier.imePadding(),
             containerColor = p.background,
@@ -300,7 +315,7 @@ fun MutterApp(app: MutterApplication, deepLink: Server? = null, consumed: () -> 
                 dragHandle = {
                     if (
                         !(WindowInsets.isImeVisible &&
-                            LocalConfiguration.current.screenHeightDp < 500)
+                            windowSizeDp().height < 500.dp)
                     )
                         BottomSheetDefaults.DragHandle(
                             modifier = Modifier.testTag("sheetHandle"),

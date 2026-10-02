@@ -12,6 +12,7 @@ import { ByteQueue, Writer, isWellFormedMessage } from '../src/protobuf.js';
 import { CryptState } from '../src/ocb2.js';
 import { decodeVoice, encodePing, isPingPacket, wireFormatFor } from '../src/voice.js';
 import { inspectPeer, isFingerprint } from './peer-certificate.mjs';
+import { BoundedWriter } from './bounded-writer.mjs';
 
 const PORT = Number(process.env.PORT ?? 8788);
 const OPEN_WINDOW = !process.argv.includes('--no-open') && !process.env.NO_OPEN;
@@ -173,6 +174,7 @@ class BridgeSession {
   constructor(connection) {
     this.connection = connection;
     this.upstream = null;
+    this.upstreamWriter = null;
     this.udp = null;
     this.port = DEFAULT_PORT;
     this.label = '';
@@ -196,6 +198,11 @@ class BridgeSession {
       catch { this.fail('Invalid client message.'); }
     };
     connection.onClose = () => this.close();
+    connection.onBackpressure = (blocked) => {
+      if (!this.trusted || this.closed) return;
+      if (blocked) this.upstream.pause();
+      else this.upstream.resume();
+    };
   }
 
   onBrowserMessage(data, isText) {
@@ -230,6 +237,7 @@ class BridgeSession {
       return;
     }
     for (const { type, payload } of frames) {
+      if (this.closed) return;
       if (type === MessageType.udpTunnel && this.udpUp && this.udpConnected) {
         const encrypted = this.crypt.encrypt(payload);
         if (encrypted) {
@@ -237,7 +245,7 @@ class BridgeSession {
           continue;
         }
       }
-      this.upstream.write(frame(type, payload));
+      this.upstreamWriter.write(frame(type, payload));
     }
   }
 
@@ -265,6 +273,11 @@ class BridgeSession {
         this.fail(error.message);
       }
     });
+    this.upstreamWriter = new BoundedWriter(this.upstream, {
+      pause: () => this.connection.pause(),
+      resume: () => this.connection.resume(),
+      overflow: () => this.connection.abort(),
+    });
     this.upstream.pause();
     this.upstream.on('data', (chunk) => this.onServerData(chunk));
     this.upstream.on('error', (error) => {
@@ -279,7 +292,7 @@ class BridgeSession {
     this.trusted = true;
     console.log(`  connected ${this.label}`);
     this.connection.send(JSON.stringify({ event: 'open', fingerprint: this.certificate.fingerprint }), true);
-    this.upstream.resume();
+    if (!this.connection.writer.blocked) this.upstream.resume();
   }
 
   fail(message) {
@@ -300,6 +313,7 @@ class BridgeSession {
     }
     try {
       for (const { type, payload } of frames) {
+        if (this.closed) return;
         if (type !== MessageType.udpTunnel && !isWellFormedMessage(payload)) {
           continue;
         }
@@ -327,7 +341,7 @@ class BridgeSession {
       this.crypt.setDecryptIV(message.serverNonce);
     } else {
       const ourNonce = new Writer().bytes(2, this.crypt.encryptIV).finish();
-      this.upstream.write(frame(MessageType.cryptSetup, ourNonce));
+      this.upstreamWriter.write(frame(MessageType.cryptSetup, ourNonce));
     }
   }
 
@@ -375,7 +389,11 @@ class BridgeSession {
       }
       return;
     }
-    this.connection.send(frame(MessageType.udpTunnel, plain), false);
+    // UDP has no upstream flow control. Discard voice while the browser is
+    // stalled instead of retaining stale audio or growing its write queue.
+    if (!this.connection.writer.blocked) {
+      this.connection.send(frame(MessageType.udpTunnel, plain), false);
+    }
   }
 
   requestResyncIfStalled() {
@@ -383,7 +401,7 @@ class BridgeSession {
     const lastGood = this.crypt.lastGood || this.cryptKeyedAt;
     if (now - lastGood > RESYNC_MS && now - this.lastResyncAsk > RESYNC_MS) {
       this.lastResyncAsk = now;
-      this.upstream.write(frame(MessageType.cryptSetup, new Uint8Array(0)));
+      this.upstreamWriter.write(frame(MessageType.cryptSetup, new Uint8Array(0)));
     }
   }
 
@@ -432,6 +450,8 @@ class BridgeSession {
     this.udp?.close();
     this.udp = null;
     this.udpConnected = false;
+    this.upstreamWriter?.dispose();
+    this.upstreamWriter = null;
     this.upstream?.destroy();
     this.upstream = null;
   }
@@ -441,23 +461,29 @@ class WebSocketConnection {
   constructor(socket) {
     this.socket = socket;
     this.closed = false;
+    this.readingPaused = false;
     this.pending = new ByteQueue();
     this.fragments = null;
     this.onMessage = () => {};
     this.onClose = () => {};
+    this.onBackpressure = () => {};
+    this.writer = new BoundedWriter(socket, {
+      pause: () => this.onBackpressure(true),
+      resume: () => this.onBackpressure(false),
+      overflow: () => this.abort(),
+    });
     socket.on('data', (chunk) => this.read(chunk));
-    socket.on('close', () => this.onClose());
+    socket.on('close', () => this.abort());
     socket.on('end', () => this.close());
     socket.on('error', () => {
-      this.onClose();
-      socket.destroy();
+      this.abort();
     });
   }
 
   read(chunk) {
     if (this.closed) return;
     this.pending.push(chunk);
-    while (this.pending.length >= 2) {
+    while (!this.readingPaused && this.pending.length >= 2) {
       const header = Buffer.from(this.pending.peek(Math.min(this.pending.length, MAX_WS_HEADER_BYTES)));
       const first = header[0];
       const second = header[1];
@@ -535,7 +561,8 @@ class WebSocketConnection {
   }
 
   send(data, isText = false) {
-    this.writeFrame(Buffer.from(data), isText ? Opcode.text : Opcode.binary);
+    if (this.closed) return false;
+    return this.writeFrame(Buffer.from(data), isText ? Opcode.text : Opcode.binary);
   }
 
   writeFrame(payload, opcode) {
@@ -557,7 +584,30 @@ class WebSocketConnection {
       header.writeBigUInt64BE(BigInt(length), 2);
     }
     header[0] = 0x80 | opcode;
-    this.socket.write(Buffer.concat([header, payload]));
+    return this.writer.write(Buffer.concat([header, payload]));
+  }
+
+  pause() {
+    this.readingPaused = true;
+    this.socket.pause();
+  }
+
+  resume() {
+    if (this.closed) return;
+    this.readingPaused = false;
+    this.read(Buffer.alloc(0));
+    if (!this.readingPaused && !this.closed) this.socket.resume();
+  }
+
+  abort() {
+    this.writer.dispose();
+    this.pending = new ByteQueue();
+    this.fragments = null;
+    if (!this.closed) {
+      this.closed = true;
+      this.onClose();
+    }
+    this.socket.destroy();
   }
 
   close() {
@@ -569,6 +619,7 @@ class WebSocketConnection {
     this.fragments = null;
     this.onClose();
     this.writeFrame(Buffer.alloc(0), Opcode.close);
+    this.writer.dispose();
     this.socket.end();
     this.socket.setTimeout(1000, () => this.socket.destroy());
   }

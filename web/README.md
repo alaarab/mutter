@@ -136,7 +136,7 @@ right. Under 880px it becomes the phone layout — one pane at a time behind a t
   the browser's picker (screen, window or tab, with audio where the browser offers it). People
   in your channel see a card and a green badge on your name; Watch opens the video in a third
   column with live resolution / fps / bitrate / codec, full screen and picture-in-picture.
-  Video goes peer to peer over WebRTC (AV1 › VP9 › H.264 › VP8, up to 1080p); only the
+  Video goes peer to peer over WebRTC (H.264 › VP9 › AV1 › VP8, up to 1080p); only the
   signaling crosses the Mumble server, in `PluginDataTransmission`. A TURN server can be set in
   Settings for networks that block direct connections. Protocol: `docs/screen-share.md`.
 
@@ -182,6 +182,7 @@ FAKE_VERSION=1.4.287 node web/test/e2e.test.mjs     # same, legacy voice format
 FAKE_UDP=0 node web/test/e2e.test.mjs               # same with UDP blocked: voice must stay on the TCP tunnel
 node web/test/ocb2.test.mjs                         # the cipher against Mumble's test vectors, loss/replay/resync rules
 node web/test/share.test.mjs                        # screen share between two tabs, WebRTC + signaling
+node --test web/test/share-lifecycle.test.mjs        # capture cancellation, duplicate starts, ordered signaling
 node --test web/test/share-network.test.mjs         # two computers whose mDNS names don't resolve: who can still connect
 node web/test/signal.test.mjs                       # the plugin-message fragment codec, in Node
 node web/test/roster.test.mjs                       # the channel tree index: counts, parent loops, speed on a large server
@@ -199,3 +200,13 @@ node web/probe.mjs <host> [port] [username]         # handshake against any serv
 
 Run timing-sensitive audio quality checks without concurrent emulator builds or other audio
 benchmarks. Host scheduling delays can change the adaptive jitter buffer even on loopback.
+
+The bridge pauses TCP reads when a destination stalls and caps each socket’s queued output
+at 16 MiB plus framing overhead. Incoming UDP voice is dropped during browser backpressure
+so stale audio cannot accumulate. `node --test web/test/backpressure.test.mjs web/test/bridge.test.mjs`
+checks both transfer directions, byte ordering, buffer limits, and teardown.
+
+With coturn installed (or `TURN_SERVER=/path/to/turnserver`),
+`node --test web/test/share-turn.test.mjs` runs two independent browsers through a real local
+relay. It delays TURN allocation past the SDP deadline and verifies that late ICE candidates
+connect and deliver video with relay candidates at both ends.

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ScreenShare
+import androidx.compose.material.icons.automirrored.rounded.StopScreenShare
 import androidx.compose.material.icons.automirrored.rounded.VolumeOff
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.*
@@ -27,7 +28,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
@@ -106,7 +106,7 @@ fun VoiceControls(
             label = "microphone state",
         )
     val compact =
-        LocalConfiguration.current.let { it.screenHeightDp < 500 && it.screenWidthDp >= 500 }
+        windowSizeDp().let { it.height < 500.dp && it.width >= 500.dp }
     val controls: @Composable (Modifier) -> Unit = { modifier ->
         Row(
             modifier,
@@ -232,7 +232,7 @@ fun VoiceControls(
                         leadingIcon = {
                             Icon(
                                 if (ownShare == null) Icons.AutoMirrored.Rounded.ScreenShare
-                                else Icons.Rounded.StopScreenShare,
+                                else Icons.AutoMirrored.Rounded.StopScreenShare,
                                 null,
                             )
                         },

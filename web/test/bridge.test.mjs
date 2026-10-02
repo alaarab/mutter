@@ -10,6 +10,7 @@ import tls from 'node:tls';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
+import { ByteQueue } from '../src/protobuf.js';
 import { after, test } from 'node:test';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { startFakeServer } from './fake-server.mjs';
@@ -182,6 +183,99 @@ async function connect(t) {
     },
   };
 }
+
+function maskedFrame(payload, opcode = 2) {
+  const bytes = Buffer.from(payload);
+  const header = Buffer.alloc(14);
+  header[0] = 0x80 | opcode;
+  header[1] = 0xff;
+  header.writeBigUInt64BE(BigInt(bytes.length), 2);
+  const mask = randomBytes(4);
+  mask.copy(header, 10);
+  for (let i = 0; i < bytes.length; i++) bytes[i] ^= mask[i & 3];
+  return Buffer.concat([header, bytes]);
+}
+
+async function slowPeer(t, hostile) {
+  const { socket } = await upgrade();
+  t.after(() => socket.destroy());
+  socket.on('error', () => {});
+  const messages = [];
+  const pending = new ByteQueue();
+  socket.on('data', chunk => {
+    pending.push(chunk);
+    while (pending.length >= 2) {
+      const header = Buffer.from(pending.peek(Math.min(pending.length, 10)));
+      let length = header[1] & 127, offset = 2;
+      if (length === 126) {
+        if (header.length < 4) return;
+        length = header.readUInt16BE(2); offset = 4;
+      } else if (length === 127) {
+        if (header.length < 10) return;
+        length = Number(header.readBigUInt64BE(2)); offset = 10;
+      }
+      if (pending.length < offset + length) return;
+      pending.skip(offset);
+      messages.push({ opcode: header[0] & 15, data: Buffer.from(pending.take(length)) });
+    }
+  });
+  socket.write(maskedFrame(JSON.stringify({ host: '127.0.0.1', port: hostile.port, fingerprint: hostileIdentity.fingerprint }), 1));
+  await until(() => messages.some(m => m.opcode === 1 && JSON.parse(m.data).event === 'open'), 'pinned connection');
+  hostile.control.write(frame(MessageType.serverSync, new Uint8Array()));
+  await until(() => messages.some(m => m.opcode === 2), 'server sync');
+  messages.length = 0;
+  return { socket, messages };
+}
+
+test('slow browser backpressures TLS and resumes without losing or reordering frames', { timeout: 20_000 }, async t => {
+  const hostile = await startHostileServer(t);
+  const peer = await slowPeer(t, hostile);
+  peer.socket.pause();
+  let sent = 0;
+  const count = 64;
+  const pump = (async () => {
+    for (; sent < count; sent++) {
+      const payload = new Writer().bytes(1, new Uint8Array(512 * 1024).fill(sent)).finish();
+      if (!hostile.control.write(frame(MessageType.textMessage, payload))) await once(hostile.control, 'drain');
+    }
+  })();
+  await sleep(500);
+  assert.ok(sent < count, 'TLS producer must stall while the browser is not reading');
+  assert.equal((await fetch(url)).status, 200, 'other bridge requests stay responsive');
+  peer.socket.resume();
+  await pump;
+  await until(() => peer.messages.filter(m => m.opcode === 2).length === count, 'all queued frames', 10_000);
+  const messages = peer.messages.filter(m => m.opcode === 2);
+  for (let index = 0; index < count; index++) {
+    const payload = new Writer().bytes(1, new Uint8Array(512 * 1024).fill(index)).finish();
+    assert.deepEqual(messages[index].data, Buffer.from(frame(MessageType.textMessage, payload)));
+  }
+});
+
+test('slow TLS peer backpressures browser input and resumes all messages in order', { timeout: 20_000 }, async t => {
+  const received = [];
+  const hostile = await startHostileServer(t, { onControl(type, payload) {
+    if (type === MessageType.textMessage) received.push(Buffer.from(payload));
+  } });
+  const peer = await slowPeer(t, hostile);
+  hostile.control.pause();
+  let sent = 0;
+  const count = 64;
+  const pump = (async () => {
+    for (; sent < count; sent++) {
+      const payload = new Writer().bytes(1, new Uint8Array(512 * 1024).fill(sent)).finish();
+      if (!peer.socket.write(maskedFrame(frame(MessageType.textMessage, payload)))) await once(peer.socket, 'drain');
+    }
+  })();
+  await sleep(500);
+  assert.ok(sent < count, 'browser producer must stall while TLS is not reading');
+  hostile.control.resume();
+  await pump;
+  await until(() => received.length === count, 'all browser messages', 10_000);
+  for (let index = 0; index < count; index++) {
+    assert.deepEqual(received[index], Buffer.from(new Writer().bytes(1, new Uint8Array(512 * 1024).fill(index)).finish()));
+  }
+});
 
 test('bridge is loopback-only and rejects foreign hosts, origins, and missing tokens', async () => {
   assert.equal(server.address().address, '127.0.0.1');

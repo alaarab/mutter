@@ -71,13 +71,17 @@ with local `core.sshCommand`. Keep machine paths and credentials out of committe
 Build notes:
 
 1. **Opus headers.** `Mutter/Audio/OpusShim/opus_shim.h` includes `<opus/opus.h>` with fallbacks.
-   If the OnBeep `Opus` xcframework lays out headers differently, adjust the include or swap the
-   package in `project.yml` (sbooth/opus-binary-xcframework also works; it needs the ogg package).
-   The shim exists because `opus_encoder_ctl` is variadic and Swift cannot call it.
+   The shim exists because `opus_encoder_ctl` is variadic and Swift cannot call it. Opus-iOS
+   1.9.0 retains quoted includes and an incomplete framework umbrella; only those two vendor
+   packaging diagnostics are suppressed around its import. Warnings in app code stay enabled.
 2. **Swift concurrency warnings.** The project currently uses Swift 5 language mode with minimal
    checking; moving to Swift 6 requires a separate concurrency pass.
 3. **Keychain entitlement.** Certificates live in the keychain; the entitlements file is generated
    by XcodeGen from `project.yml`.
+4. **App Intents metadata.** Extraction stays enabled for the app and widgets and is skipped
+   for the broadcast extension and UI tests. Xcode 27 still emits "Metadata extraction skipped,
+   no AppIntents.framework dependency found" for generated Swift package test bundles, which
+   define no intents. This is a build-tool notice; compiler warnings are not globally disabled.
 
 
 ## Tests
@@ -86,8 +90,8 @@ Build notes:
 - The scheme's Test action runs those plus the UI tests. The chat keyboard tests connect to the
   fake server, so start `node web/test/fake-server.mjs 64740` on the Mac first; without it they skip.
 - `node --test web/test/native.test.mjs` (macOS) compiles the app's audio playout, credential
-  storage and reconnect code into small probes. It is the only test of those files, so run it after
-  changing `Mutter/Audio/UserStream.swift`, `Mutter/App/ServerStore.swift` or the client package.
+  storage, reconnect, screen-signaling and ICE batching code into small probes. Run it after
+  changing those files, including `Mutter/ScreenShare/ICECandidateBatcher.swift`.
 
 ## Source layout
 

@@ -3,6 +3,7 @@ package com.alaarab.mutter.data
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
+import android.os.Build
 import android.util.Xml
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -23,6 +24,11 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.xmlpull.v1.XmlPullParser
 
 data class Probe(val users: Int, val capacity: Int, val ping: Long)
+
+// Android 10–13 expose only the legacy single-address API.
+@Suppress("DEPRECATION")
+private fun NsdServiceInfo.addresses() =
+    if (Build.VERSION.SDK_INT >= 34) hostAddresses else listOfNotNull(host)
 
 object Discovery {
     suspend fun directory(): List<Server> =
@@ -114,7 +120,7 @@ object Discovery {
             launch {
                 for (info in found) {
                     val service = resolve(manager, info) ?: continue
-                    service.host?.hostAddress?.let { host ->
+                    service.addresses().firstOrNull()?.hostAddress?.let { host ->
                         send(
                             Server(
                                 id = "$host:${service.port}",

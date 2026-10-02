@@ -31,6 +31,7 @@ async function openInstrumented(environment, query = '') {
   const page = await environment.browser.newPage();
   await page.send('Page.addScriptToEvaluateOnNewDocument', { source: INSTRUMENT });
   await page.goto(`${environment.bridge.url}/${query}`);
+  await page.waitFor('!!globalThis.mutter', { label: 'app initialized' });
   return page;
 }
 

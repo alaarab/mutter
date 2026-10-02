@@ -40,6 +40,7 @@ export async function probeIce(settings, timeoutMs = PROBE_MS) {
   const startedAt = performance.now();
   const hasTurn = !!settings.turn?.url;
   let error = null;
+  let timer;
   try {
     connection.createDataChannel('probe');
     const finished = new Promise((resolve) => {
@@ -57,7 +58,7 @@ export async function probeIce(settings, timeoutMs = PROBE_MS) {
           error = `${event.url ?? 'server'} said ${event.errorCode} ${event.errorText ?? ''}`.trim();
         }
       };
-      setTimeout(() => resolve('timed out'), timeoutMs);
+      timer = setTimeout(() => resolve('timed out'), timeoutMs);
     });
     await connection.setLocalDescription(await connection.createOffer());
     const how = await finished;
@@ -66,6 +67,7 @@ export async function probeIce(settings, timeoutMs = PROBE_MS) {
   } catch (caught) {
     return { how: 'failed', seconds: '0', types: {}, error: caught.message, turn: hasTurn };
   } finally {
+    clearTimeout(timer);
     connection.close();
   }
 }
@@ -164,6 +166,11 @@ export class ScreenShare extends EventTarget {
   #pump = null;
   #ownSample = { bytes: 0, at: 0, lastLimit: null };
   #viewerSample = { bytes: 0, at: 0 };
+  #screenGeneration = 0;
+  #screenStart = null;
+  #sessionGeneration = 0;
+  #sendChain = Promise.resolve();
+  #receiveChain = Promise.resolve();
   #cameraGeneration = 0;
   #cameraStart = null;
   #flipping = null;
@@ -198,10 +205,21 @@ export class ScreenShare extends EventTarget {
     return [...this.sharing.peers.values()].filter((peer) => peer.connectionState === 'connected').length;
   }
 
-  async start({ stream, contentHint = 'detail' } = {}) {
+  start(options = {}) {
     if (this.sharing) {
-      return;
+      return Promise.resolve();
     }
+    if (!this.#screenStart) {
+      const starting = this.#openScreen(options).finally(() => {
+        if (this.#screenStart === starting) this.#screenStart = null;
+      });
+      this.#screenStart = starting;
+    }
+    return this.#screenStart;
+  }
+
+  async #openScreen({ stream, contentHint = 'detail' }) {
+    const generation = this.#screenGeneration;
     if (!stream) {
       stream = await navigator.mediaDevices.getDisplayMedia({
         video: { frameRate: { ideal: 30, max: 60 }, width: { max: 1920 }, height: { max: 1080 } },
@@ -212,8 +230,10 @@ export class ScreenShare extends EventTarget {
       });
     }
     const track = stream.getVideoTracks()[0];
-    if (!track) {
-      throw new Error('No video track');
+    if (generation !== this.#screenGeneration || !track || track.readyState === 'ended') {
+      stream.getTracks().forEach((unused) => unused.stop());
+      if (!track) throw new Error('No video track');
+      return;
     }
     track.contentHint = contentHint;
     const trackSettings = track.getSettings();
@@ -232,7 +252,10 @@ export class ScreenShare extends EventTarget {
       stats: null,
     };
     this.#ownSample = { bytes: 0, at: 0, lastLimit: null };
-    track.addEventListener('ended', () => this.stop());
+    const share = this.sharing;
+    track.addEventListener('ended', () => {
+      if (this.sharing === share) this.stop();
+    });
     const { title, w, h, audio } = this.sharing;
     this.#diag(`sharing ${title} ${w}×${h}${audio ? ' with audio' : ''}`);
     this.#announceSource(this.sharing);
@@ -382,7 +405,7 @@ export class ScreenShare extends EventTarget {
       return;
     }
     this.feeds.delete(sender);
-    feed.pc.close();
+    this.#closeConnection(feed.pc);
     if (notify) {
       this.#send([sender], { t: 'leave', id: feed.id });
     }
@@ -428,6 +451,8 @@ export class ScreenShare extends EventTarget {
   }
 
   stop() {
+    this.#screenGeneration++;
+    this.#screenStart = null;
     const share = this.sharing;
     if (!share) {
       return;
@@ -487,12 +512,17 @@ export class ScreenShare extends EventTarget {
       }
       viewer.state = connection.connectionState;
       this.#diag(`viewer connection ${viewer.state}`);
-      if (viewer.state === 'connected' || viewer.state === 'failed') {
+      if (viewer.state === 'failed') {
+        this.#failViewer(viewer);
+        return;
+      }
+      if (viewer.state === 'connected') {
+        clearTimeout(this.#stateOf(connection).connectTimer);
         this.#explainPath(connection, 'viewer');
       }
       this.#emit('state');
     };
-    setTimeout(() => this.#giveUpIfStillConnecting(viewer), VIEWER_CONNECT_TIMEOUT_MS);
+    this.#stateOf(connection).connectTimer = setTimeout(() => this.#giveUpIfStillConnecting(viewer), VIEWER_CONNECT_TIMEOUT_MS);
     this.#send([sender], { t: 'watch', id: offer.id });
     this.#emit('state');
   }
@@ -501,10 +531,17 @@ export class ScreenShare extends EventTarget {
     if (this.watching !== viewer || viewer.state === 'connected' || ENDED_CONNECTION_STATES.has(viewer.state)) {
       return;
     }
-    viewer.state = 'failed';
     this.#diag(`viewer gave up after ${VIEWER_CONNECT_TIMEOUT_MS / 1000} s without a connection`);
-    this.#explainPath(viewer.pc, 'viewer', { gaveUp: true });
+    this.#failViewer(viewer, true);
+  }
+
+  async #failViewer(viewer, gaveUp = false) {
+    viewer.state = 'failed';
     this.#emit('state');
+    await this.#explainPath(viewer.pc, 'viewer', { gaveUp });
+    if (this.watching !== viewer) return;
+    this.#closeConnection(viewer.pc);
+    this.#send([viewer.sender], { t: 'leave', id: viewer.id });
   }
 
   unwatch(emitState = true) {
@@ -513,7 +550,7 @@ export class ScreenShare extends EventTarget {
       return;
     }
     this.watching = null;
-    viewer.pc.close();
+    this.#closeConnection(viewer.pc);
     this.#send([viewer.sender], { t: 'leave', id: viewer.id });
     if (emitState) {
       this.#emit('state');
@@ -522,18 +559,20 @@ export class ScreenShare extends EventTarget {
 
   #endShare(share) {
     for (const peer of share.peers.values()) {
-      peer.close();
+      this.#closeConnection(peer);
     }
+    share.peers.clear();
     share.stream.getTracks().forEach((track) => track.stop());
   }
 
   #closePeer(share, viewer) {
-    share.peers.get(viewer)?.close();
+    const connection = share.peers.get(viewer);
     share.peers.delete(viewer);
+    if (connection) this.#closeConnection(connection);
   }
 
   #closeViewer() {
-    this.watching?.pc.close();
+    if (this.watching) this.#closeConnection(this.watching.pc);
     this.watching = null;
   }
 
@@ -555,19 +594,29 @@ export class ScreenShare extends EventTarget {
     return this.#peerState.get(connection);
   }
 
+  #closeConnection(connection) {
+    const state = this.#stateOf(connection);
+    clearTimeout(state?.connectTimer);
+    clearTimeout(state?.trickleTimer);
+    connection.onconnectionstatechange = null;
+    connection.onicecandidate = null;
+    connection.ontrack = null;
+    connection.close();
+  }
+
   #trickleCandidates(connection, peer, id) {
     let batch = [];
-    let timer = null;
+    const state = this.#stateOf(connection);
     connection.onicecandidate = (event) => {
       if (!event.candidate || !this.#stateOf(connection)?.sdpSent) {
         return;
       }
       batch.push(event.candidate.toJSON());
-      if (!timer) {
-        timer = setTimeout(() => {
+      if (!state.trickleTimer) {
+        state.trickleTimer = setTimeout(() => {
           const candidates = batch;
           batch = [];
-          timer = null;
+          state.trickleTimer = null;
           this.#send([peer], { t: 'ice', id, c: candidates });
         }, TRICKLE_MS);
       }
@@ -681,7 +730,7 @@ export class ScreenShare extends EventTarget {
         this.#explainPath(connection, `${source.kind}→${viewer}`);
       }
       if (state === 'failed' || state === 'closed') {
-        source.peers.delete(viewer);
+        this.#closePeer(source, viewer);
       }
       this.#emit('state');
     };
@@ -810,7 +859,13 @@ export class ScreenShare extends EventTarget {
     if (dataId !== DATA_ID || !this.client.users.has(sender)) {
       return;
     }
-    const message = await this.#assembler.push(sender, data);
+    const generation = this.#sessionGeneration;
+    const assembler = this.#assembler;
+    // Keep decompression in wire order: a small stop must not overtake an announce.
+    const decoded = this.#receiveChain.then(() => assembler.push(sender, data));
+    this.#receiveChain = decoded.catch(() => {});
+    const message = await decoded.catch(() => null);
+    if (generation !== this.#sessionGeneration || !this.client.isConnected) return;
     if (!message || typeof message.t !== 'string' || typeof message.id !== 'string' || !message.id || message.id.length > 256) {
       return;
     }
@@ -1044,21 +1099,26 @@ export class ScreenShare extends EventTarget {
     } catch {}
   }
 
-  async #send(receivers, message, replaces = null) {
-    const online = receivers.filter((session) => this.client.users.has(session));
-    if (!online.length || !this.client.isConnected) {
-      return;
-    }
-    const messageId = this.#nextMessageId++;
-    const fragments = await encodeSignal(message, messageId);
-    if (replaces) {
-      this.#queue = this.#queue.filter((item) => item.replaces !== replaces);
-    }
-    for (const data of fragments) {
-      this.#queue.push({ receivers: online, data, messageId, replaces });
-    }
-    this.#trimQueue();
-    this.#drain();
+  #send(receivers, message, replaces = null) {
+    if (!receivers.length || !this.client.isConnected) return;
+    const generation = this.#sessionGeneration;
+    this.#sendChain = this.#sendChain.then(async () => {
+      if (generation !== this.#sessionGeneration || !this.client.isConnected) return;
+      const messageId = this.#nextMessageId++;
+      const fragments = await encodeSignal(message, messageId);
+      if (generation !== this.#sessionGeneration || !this.client.isConnected) return;
+      const online = receivers.filter((session) => this.client.users.has(session));
+      if (!online.length) return;
+      if (replaces) {
+        this.#queue = this.#queue.filter((item) => item.replaces !== replaces);
+      }
+      for (const data of fragments) {
+        this.#queue.push({ receivers: online, data, messageId, replaces });
+      }
+      this.#trimQueue();
+      this.#drain();
+    }).catch((error) => this.#diag(`signalling failed: ${error.message}`));
+    return this.#sendChain;
   }
 
   #trimQueue() {
@@ -1087,6 +1147,16 @@ export class ScreenShare extends EventTarget {
   }
 
   #teardown() {
+    this.#sessionGeneration++;
+    this.#screenGeneration++;
+    this.#screenStart = null;
+    this.#assembler = new SignalAssembler();
+    this.#sendChain = Promise.resolve();
+    this.#receiveChain = Promise.resolve();
+    clearTimeout(this.#pump);
+    this.#pump = null;
+    this.#tokens = BUCKET.burst;
+    this.#tokensAt = Date.now();
     for (const source of this.#sources()) {
       this.#endShare(source);
     }
@@ -1097,7 +1167,7 @@ export class ScreenShare extends EventTarget {
     this.camera = null;
     this.#closeViewer();
     for (const feed of this.feeds.values()) {
-      feed.pc.close();
+      this.#closeConnection(feed.pc);
     }
     this.feeds.clear();
     this.available.clear();

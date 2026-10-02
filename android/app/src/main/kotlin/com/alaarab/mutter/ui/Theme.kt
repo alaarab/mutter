@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Brush
+import androidx.core.graphics.toColorInt
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
@@ -103,7 +104,7 @@ class ThemeCatalog(source: String) {
                         val colors = theme.getJSONObject(mode)
                         return Palette(
                             colors.keys().asSequence().associateWith {
-                                Color(android.graphics.Color.parseColor(colors.getString(it)))
+                                Color(colors.getString(it).toColorInt())
                             }
                         )
                     }

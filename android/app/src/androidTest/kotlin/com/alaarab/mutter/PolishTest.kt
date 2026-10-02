@@ -2,7 +2,7 @@ package com.alaarab.mutter
 
 import android.graphics.Bitmap
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import com.alaarab.mutter.data.Server
 import com.alaarab.mutter.data.Settings
@@ -24,6 +24,7 @@ class PolishTest {
 
     @Before
     fun setup() {
+        grantLocalNetworkPermission()
         original = app.store.settings.value
         ui.runOnIdle {
             app.disconnect()
@@ -112,8 +113,12 @@ class PolishTest {
         ui.activityRule.scenario.recreate()
         scrollTo(hasText("Voice activation threshold")).assertIsDisplayed()
         pressBack()
-        ui.waitUntil(5000) {
-            ui.onAllNodesWithText("Settings").fetchSemanticsNodes().isNotEmpty()
+        try {
+            ui.waitUntil(5000) {
+                ui.onAllNodesWithText("Settings").fetchSemanticsNodes().isNotEmpty()
+            }
+        } catch (failure: ComposeTimeoutException) {
+            throw AssertionError(describeActiveWindow(), failure)
         }
         ui.onNodeWithText("Settings").assertIsDisplayed()
         scrollTo(hasText("Certificates")).performClick()

@@ -51,10 +51,10 @@ the sharer when it starts, so late or stale signals for an earlier share can be 
 | `announce` | sharer → channel members | `id`, `title`, `w`, `h`, `audio` | Once on start to everyone in the channel, and once to each person who joins the channel afterwards. Never repeated: the control channel is reliable, and the plugin channel is someone else's server — nothing recurring rides on it. Viewers keep the offer until `stop`, or until either of them leaves the channel. |
 | `stop` | sharer → everyone announced to | `id` | Sharing ended, or that person left the sharer's channel. |
 | `watch` | viewer → sharer | `id` | Please send me an offer. |
-| `offer` | sharer → viewer | `id`, `sdp` | Complete SDP offer, candidates included (vanilla ICE: gather until complete or 1.5 s). |
-| `answer` | viewer → sharer | `id`, `sdp` | Complete SDP answer, same rule. |
+| `offer` | sharer → viewer | `id`, `sdp` | SDP offer with candidates gathered until complete or the platform deadline (2.5 s on web). |
+| `answer` | viewer → sharer | `id`, `sdp` | SDP answer, same gathering rule. |
 | `leave` | viewer → sharer | `id` | Stopped watching; sharer closes that connection. |
-| `ice` | either | `id`, `c: [RTCIceCandidateInit…]` | Reserved for trickle ICE; not sent today, accepted if received. |
+| `ice` | either | `id`, `c: [RTCIceCandidateInit…]` | Late ICE candidates; all clients send and accept them. Web batches them every 250 ms; iOS uses 100 ms. |
 
 Flow for one viewer:
 
@@ -88,15 +88,17 @@ Rules both sides follow:
   checks this.
 - A viewer sends `watch` only after it has an `announce` for that `id`; an `offer` for an
   unknown `id` is ignored. A viewer drops offers from anyone who is not in its channel.
+- Web compression/decompression preserves message order, and pending work is discarded on
+  disconnect. A canceled or disconnected screen picker releases any capture that arrives later.
 
 ## Media
 
 - Capture: `getDisplayMedia` with video up to 1920×1080 @ 30 (60 max) and system/tab audio when
   the browser offers it. `MediaStreamTrack.contentHint` is `detail` (text, code — keep
   resolution) or `motion` (video, games — keep frame rate), switchable while sharing.
-- Codec preference on the sender: AV1 › VP9 › H.264 › VP8, whatever the browser has.
+- Codec preference on the web sender: H.264 › VP9 › AV1 › VP8, whatever the browser has.
 - Sender parameters: `maxBitrate` 6 Mbit/s, `maxFramerate` 30/60 by hint,
-  `degradationPreference` `maintain-resolution` / `maintain-framerate` by hint.
+  `degradationPreference` `balanced` / `maintain-framerate` by hint.
 - ICE servers: `stun:stun.l.google.com:19302`, plus an optional TURN server from settings for
   networks that block direct connections (corporate NAT). `bundlePolicy: max-bundle`,
   `rtcpMuxPolicy: require` — keeps the SDP small.
@@ -138,6 +140,7 @@ A sharing user gets a green screen badge in the channel tree; clicking it watche
 A viewer that isn't connected 25 seconds after `watch` gives up and says why, naming hidden
 (mDNS-only) local addresses on both ends when that is the cause. A `disconnected` connection
 shows as reconnecting with a Retry button; only `failed` shows as couldn't connect.
+Failed or timed-out web viewers close their peer and tell the sharer to release its connection.
 
 ## Notes for the iOS port
 
@@ -146,5 +149,7 @@ shows as reconnecting with a Retry button; only `failed` shows as couldn't conne
   `deflate-raw`).
 - Receiving only (a viewer) needs `RTCPeerConnection` recvonly and the same vanilla-ICE
   rule: send the SDP after `iceGatheringState == complete` or 1.5 s, whichever is first.
+  The iOS sharer waits up to 2.5 s. Candidates missing from that SDP snapshot follow in
+  100 ms batches; closing or replacing the peer cancels its pending batches and queued signals.
 - Send `watch` only after receiving `announce` for that `id`; ignore `offer` for another id.
 - Keep receivers explicit and respect the rate limit — the server drops, it does not tell you.

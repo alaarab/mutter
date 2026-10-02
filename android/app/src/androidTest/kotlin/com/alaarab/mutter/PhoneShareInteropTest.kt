@@ -1,7 +1,7 @@
 package com.alaarab.mutter
 
 import android.content.Context
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import com.alaarab.mutter.data.Server
 import java.util.concurrent.Executors
@@ -83,6 +83,7 @@ class PhoneShareInteropTest {
         val port =
             InstrumentationRegistry.getArguments().getString("mumblePhoneSharePort")?.toIntOrNull()
         assumeTrue("Run using node android/test-phone-share.mjs", port != null)
+        grantLocalNetworkPermission()
         val app = ui.activity.application as MutterApplication
         InstrumentationRegistry.getInstrumentation()
             .uiAutomation

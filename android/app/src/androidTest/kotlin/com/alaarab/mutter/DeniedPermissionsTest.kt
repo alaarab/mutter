@@ -3,7 +3,7 @@ package com.alaarab.mutter
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.lifecycle.Lifecycle
 import androidx.test.platform.app.InstrumentationRegistry
 import com.alaarab.mutter.data.Server
@@ -21,6 +21,7 @@ class DeniedPermissionsTest {
             InstrumentationRegistry.getArguments().getString("mumbleDeniedPermissions") == "true"
         )
         val app = ui.activity.application as MutterApplication
+        grantLocalNetworkPermission()
         assertEquals(
             PackageManager.PERMISSION_DENIED,
             app.checkSelfPermission(Manifest.permission.RECORD_AUDIO),

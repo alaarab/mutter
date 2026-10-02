@@ -2,7 +2,7 @@ buildscript {
     configurations.classpath {
         resolutionStrategy.eachDependency {
             when (requested.group) {
-                "org.bouncycastle" -> useVersion("1.85")
+                "org.bouncycastle" -> useVersion("1.86")
                 "io.netty" -> useVersion("4.1.137.Final")
                 "org.apache.commons" -> if (requested.name == "commons-compress") useVersion("1.28.0")
                 "org.bitbucket.b_c" -> if (requested.name == "jose4j") useVersion("0.9.6")
@@ -13,8 +13,7 @@ buildscript {
 }
 
 plugins {
-    id("com.android.application") version "8.13.2" apply false
-    id("org.jetbrains.kotlin.android") version "2.4.20" apply false
+    id("com.android.application") version "9.4.1" apply false
     id("org.jetbrains.kotlin.plugin.compose") version "2.4.20" apply false
 }
 

@@ -41,7 +41,7 @@ For the other apps, start with the guide for your platform:
 | --- | --- | --- |
 | Browser | Node 18+ and Chrome or Edge for voice | [Run in a browser](web/README.md) |
 | iPhone | Xcode, XcodeGen, and an iOS 17+ device or simulator | [Build and install on iOS](docs/ios.md) |
-| Android | JDK 21, Android SDK 36, and an Android 10+ device or emulator | [Build and install on Android](android/README.md) |
+| Android | JDK 21, Android SDK 37, and an Android 10+ device or emulator | [Build and install on Android](android/README.md) |
 | Electron | Node 22+ to run from source on Windows, macOS, or Linux | [Run the desktop app](desktop/README.md) |
 
 The mobile apps connect directly to your server. The browser needs the local Node bridge

@@ -52,11 +52,12 @@ final class ScreenSharer: NSObject {
         return RTCPeerConnectionFactory(encoderFactory: VP8OnlyEncoderFactory(), decoderFactory: RTCDefaultVideoDecoderFactory())
     }()
 
-    final class ViewerConnection {
+    @MainActor final class ViewerConnection {
         let connection: RTCPeerConnection
         var answered = false
         var connected = false
         var waitingCandidates: [ICECandidateInit] = []
+        let localCandidates = ICECandidateBatcher()
 
         init(connection: RTCPeerConnection) {
             self.connection = connection
@@ -230,7 +231,7 @@ final class ScreenSharer: NSObject {
     }
 
     private func offer(to session: UInt32, shareId: String) async {
-        guard let track = videoTrack, isChannelMember(session), watchLimiter.allow(session) else { return }
+        guard sharing?.id == shareId, let track = videoTrack, isChannelMember(session), watchLimiter.allow(session) else { return }
         announced.insert(session)
         closeViewer(session)
         let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
@@ -256,7 +257,12 @@ final class ScreenSharer: NSObject {
             guard isCurrent(), let local = connection.localDescription else { return }
             var message = SignalMessage(kind: .offer, id: shareId)
             message.sdp = local.sdp
-            sender.send(message, to: [session], replacing: "offer:\(session):\(shareId)")
+            sender.send(message, to: [session], replacing: "offer:\(session):\(shareId)", scope: viewer.localCandidates.scope)
+            viewer.localCandidates.activate(localSDP: local.sdp) { [weak self, weak viewer] candidates in
+                guard let self, let viewer, self.sharing?.id == shareId, self.viewers[session] === viewer else { return }
+                self.sender.send(SignalMessage(kind: .ice, id: shareId, candidates: candidates),
+                                 to: [session], scope: viewer.localCandidates.scope)
+            }
         } catch {
             guard isCurrent() else { return }
             DiagnosticsLog.shared.add("share", "offer failed: \(error.localizedDescription)")
@@ -301,6 +307,8 @@ final class ScreenSharer: NSObject {
 
     private func closeViewer(_ session: UInt32) {
         guard let viewer = viewers.removeValue(forKey: session) else { return }
+        sender.cancel(scope: viewer.localCandidates.scope)
+        viewer.localCandidates.cancel()
         viewer.connection.close()
     }
 
@@ -336,7 +344,13 @@ extension ScreenSharer: RTCPeerConnectionDelegate {
     }
 
     nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {}
-    nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {}
+    nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
+        let value = ICECandidateInit(candidate: candidate.sdp, sdpMid: candidate.sdpMid, sdpMLineIndex: candidate.sdpMLineIndex)
+        Task { @MainActor in
+            guard let session = self.viewerSession(for: peerConnection), let viewer = self.viewers[session] else { return }
+            viewer.localCandidates.add(value)
+        }
+    }
     nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}
     nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {}
 }
