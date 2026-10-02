@@ -188,6 +188,32 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: Mutter
 
+  # Own these test bundles so Xcode's generated Swift package products do not
+  # run App Intents extraction for protocol tests that define no intents.
+  MutterProtocolTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Packages/MumbleCore/Tests/MumbleProtocolTests
+    dependencies:
+      - package: MumbleCore
+        product: MumbleProtocol
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
+  MutterClientTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Packages/MumbleCore/Tests/MumbleClientTests
+    dependencies:
+      - package: MumbleCore
+        product: MumbleClient
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
 schemes:
   Mutter:
     build:
@@ -198,8 +224,8 @@ schemes:
     test:
       config: Debug
       targets:
-        - package: MumbleCore/MumbleProtocolTests
-        - package: MumbleCore/MumbleClientTests
+        - MutterProtocolTests
+        - MutterClientTests
         - MutterUITests
     archive:
       config: Release

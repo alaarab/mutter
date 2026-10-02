@@ -79,9 +79,9 @@ Build notes:
 3. **Keychain entitlement.** Certificates live in the keychain; the entitlements file is generated
    by XcodeGen from `project.yml`.
 4. **App Intents metadata.** Extraction stays enabled for the app and widgets and is skipped
-   for the broadcast extension and UI tests. Xcode 27 still emits "Metadata extraction skipped,
-   no AppIntents.framework dependency found" for generated Swift package test bundles, which
-   define no intents. This is a build-tool notice; compiler warnings are not globally disabled.
+   for the broadcast extension and test targets, which define no intents. The scheme uses
+   project-owned unit test bundles with the same Swift package test sources so this setting
+   also applies to protocol and client tests. Compiler warnings stay enabled.
 
 
 ## Tests
