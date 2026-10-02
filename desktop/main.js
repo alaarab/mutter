@@ -62,17 +62,21 @@ function installScreenPicker(url) {
   session.defaultSession.setDisplayMediaRequestHandler(
     async (request, callback) => {
       if (!mainWindow || request.frame !== mainWindow.webContents.mainFrame || !isAppURL(request.frame?.url, url)) {
-        callback({});
+        callback(null);
         return;
       }
-      let streams = {};
+      let streams = null;
       try {
         const sources = await desktopCapturer.getSources({
           types: ['screen', 'window'],
           thumbnailSize: THUMBNAIL_SIZE,
           fetchWindowIcons: true,
         });
-        const chosen = await pickSource(sources);
+        // PipeWire returns the one source already selected in the system portal.
+        // Asking again can show an unnamed source classified as a window even
+        // when the user selected a monitor.
+        const portalSelection = process.platform === 'linux' && process.env.WAYLAND_DISPLAY && sources.length === 1;
+        const chosen = portalSelection ? sources[0] : await pickSource(sources);
         if (chosen) {
           streams = { video: chosen };
           if (request.audioRequested && process.platform === 'win32') {
@@ -96,6 +100,8 @@ function installScreenPicker(url) {
       }
       // Electron's callback is single-use, even when argument conversion throws.
       // Omit unsupported audio entirely instead of passing audio: undefined.
+      // A null response denies capture. An empty object throws in Electron and
+      // leaves the renderer waiting when the picker is canceled or unavailable.
       callback(streams);
     },
     { useSystemPicker: true }
@@ -171,6 +177,12 @@ function hookMouseButtonFor(code) {
 }
 
 async function installGlobalPushToTalk(window) {
+  // libuiohook can terminate the native process when XOpenDisplay fails;
+  // JavaScript's try/catch cannot recover from that in a Wayland-only session.
+  if (process.platform === 'linux' && !process.env.DISPLAY) {
+    console.log('push to talk from other windows unavailable: no X11 display');
+    return;
+  }
   let hook;
   try {
     hook = await import('uiohook-napi');

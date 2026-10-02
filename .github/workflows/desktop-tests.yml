@@ -32,7 +32,7 @@ jobs:
         if: runner.os == 'Linux'
       - run: npm ci
         working-directory: desktop
-      - run: node --test desktop/test/security.test.mjs desktop/test/credentials.test.mjs
+      - run: node --test desktop/test/security.test.mjs desktop/test/credentials.test.mjs desktop/test/picker.test.mjs
       # Use a private, local-only display without the runner's Xauthority file.
       # Ordinary X11 pixel reads still exercise real capture.
       - run: |
