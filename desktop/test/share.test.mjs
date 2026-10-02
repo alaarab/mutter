@@ -110,7 +110,9 @@ test('Electron desktop capture reaches an independent viewer, changes pixels, an
   await picker.click('.src[data-source^="screen:"]');
   // Return the CDP result before the selection closes the picker target.
   await picker.eval(`setTimeout(() => document.getElementById('share').click(), 50); true`);
-  await sharer.waitFor('!!mutter.share.sharing');
+  await sharer.waitFor('!!mutter.share.sharing').catch(async error => {
+    throw new Error(`${error.message}\n${diagnostics}\n${JSON.stringify(sharer.logs)}\n${JSON.stringify(await sharer.eval('mutter.client.log'))}`);
+  });
   console.log('Native desktop capture started');
   await sharer.send('Runtime.evaluate', {
     expression: 'document.documentElement.requestFullscreen()', awaitPromise: true, userGesture: true,

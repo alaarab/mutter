@@ -23,7 +23,13 @@ test('every theme renders in both appearances without resetting the session or o
     await page.click(`#appearance [data-value="${appearance}"]`);
     for (const [name, theme] of Object.entries(THEMES)) {
       await page.click(`#themes [data-theme="${name}"]`);
-      await sleep(300);
+      // A backgrounded renderer can start its transition after the click has
+      // returned. Wait for the exact final colors instead of wall-clock time.
+      await page.waitFor(`(() => {
+        const colors = getComputedStyle(document.documentElement);
+        return colors.getPropertyValue('--accent').trim() === ${JSON.stringify(rgb(theme[appearance].accent))}
+          && colors.getPropertyValue('--surface').trim() === ${JSON.stringify(rgb(theme[appearance].surface))};
+      })()`, { label: `${name}/${appearance}: theme transition completed` });
       const state = await page.eval(`(() => {
         const root = document.documentElement;
         const colors = getComputedStyle(root);
