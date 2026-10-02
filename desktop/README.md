@@ -9,7 +9,8 @@ common one disables WebRTC over UDP — voice keeps working because the bridge s
 Node, but a screen share from the browser process can never connect. Electron ships its own
 Chromium and reads no policy from the registry, so the same code connects. It also gives a real
 screen picker with **system audio on Windows** (loopback capture, which `getDisplayMedia` in a
-browser tab does not offer), one taskbar entry with our icon, and an install that asks for no
+browser tab does not offer). When Windows has no playback device, capture sends video alone
+instead of failing. The app also has one taskbar entry with our icon and an install that asks for no
 admin.
 
 ## Run it
