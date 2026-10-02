@@ -127,8 +127,19 @@ test('Electron desktop capture reaches an independent viewer, changes pixels, an
   if (!macSystemPicker && ozone !== 'wayland') {
     await sharer.send('Runtime.evaluate', { expression: `document.getElementById('shareBtn').click()`, userGesture: true });
     const canceledPicker = await findPage('/app/picker.html');
+    // Navigation can commit before the renderer's module attaches UI handlers.
+    await canceledPicker.waitFor(`typeof document.getElementById('cancel')?.onclick === 'function'`);
     await canceledPicker.eval(`setTimeout(() => document.getElementById('cancel').click(), 50); true`);
-    await sharer.waitFor('!!window.captureError', { label: 'canceled capture rejects instead of hanging' });
+    await sharer.waitFor('!!window.captureError', { label: 'canceled capture rejects instead of hanging' }).catch(async error => {
+      throw new Error(`${error.message}\n${diagnostics}\n${JSON.stringify(sharer.logs)}`);
+    });
+    let closed = false;
+    for (let poll = 0; poll < 100; poll++) {
+      const { targetInfos } = await devtools.send('Target.getTargets');
+      if (!targetInfos.some(target => target.targetId === canceledPicker.targetId)) { closed = true; break; }
+      await sleep(100);
+    }
+    assert.ok(closed, 'the canceled picker must close before the next attempt');
     assert.equal(await sharer.eval('!!mutter.share.sharing'), false);
     assert.equal(await viewer.eval('mutter.share.available.size'), 0);
     await sharer.eval('delete window.captureError');
