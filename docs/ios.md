@@ -72,8 +72,9 @@ Build notes:
 
 1. **Opus headers.** `Mutter/Audio/OpusShim/opus_shim.h` includes `<opus/opus.h>` with fallbacks.
    The shim exists because `opus_encoder_ctl` is variadic and Swift cannot call it. Opus-iOS
-   1.9.0 retains quoted includes and an incomplete framework umbrella; only those two vendor
-   packaging diagnostics are suppressed around its import. Warnings in app code stay enabled.
+   1.9.0 retains quoted includes and an incomplete framework umbrella. The app imports binary
+   package frameworks through a system framework search path so their headers are treated as
+   vendor code, including on a fresh Clang module build. Mutter's own warnings stay enabled.
 2. **Swift concurrency warnings.** The project currently uses Swift 5 language mode with minimal
    checking; moving to Swift 6 requires a separate concurrency pass.
 3. **Keychain entitlement.** Certificates live in the keychain; the entitlements file is generated
