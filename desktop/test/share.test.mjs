@@ -166,6 +166,8 @@ test('Electron desktop capture reaches an independent viewer, changes pixels, an
   await sharer.waitFor('mutter.share.viewerCount === 1');
   const settings = await sharer.eval('mutter.share.sharing.stream.getVideoTracks()[0].getSettings()');
   t.diagnostic(`Desktop capture decoded by a separate Chromium process: ${settings.width}×${settings.height}; red → blue pixels verified.`);
+  const audioTracks = await sharer.eval('mutter.share.sharing.stream.getAudioTracks().length');
+  t.diagnostic(`Optional system audio tracks: ${audioTracks}.`);
   await sharer.eval(`window.capturedTracks = mutter.share.sharing.stream.getTracks(); mutter.share.stop()`);
   await viewer.waitFor('!mutter.share.watching && mutter.share.available.size === 0');
   assert.equal(await sharer.eval(`capturedTracks.every(track => track.readyState === 'ended')`), true);

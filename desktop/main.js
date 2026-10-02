@@ -75,7 +75,21 @@ function installScreenPicker(url) {
         const chosen = await pickSource(sources);
         if (chosen) {
           streams = { video: chosen };
-          if (request.audioRequested && process.platform === 'win32') streams.audio = 'loopback';
+          if (request.audioRequested && process.platform === 'win32') {
+            // Windows loopback capture fails the entire request when there is
+            // no playback device (for example a VM or a disconnected headset).
+            // Audio is optional: preserve screen video on those machines.
+            const hasOutput = await mainWindow.webContents.executeJavaScript(`
+              new Promise(resolve => {
+                const timer = setTimeout(() => resolve(false), 1500);
+                navigator.mediaDevices.enumerateDevices().then(devices => {
+                  clearTimeout(timer);
+                  resolve(devices.some(device => device.kind === 'audiooutput'));
+                }, () => { clearTimeout(timer); resolve(false); });
+              })
+            `).catch(() => false);
+            if (hasOutput) streams.audio = 'loopback';
+          }
         }
       } catch (error) {
         console.warn(`Screen capture unavailable: ${error.message}`);
