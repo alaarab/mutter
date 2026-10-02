@@ -64,8 +64,9 @@ only hears datagrams from the server's own address and port.
 
 Server certificates are checked before any Mumble credentials or voice are sent. A
 self-signed certificate needs explicit approval; its SHA-256 fingerprint is remembered for
-that server. A changed certificate prompts again, even if its new certificate is publicly
-trusted. Check unfamiliar fingerprints with the server owner before accepting them.
+that server. Certificates validated by the system trust store and for the server hostname
+are accepted and their pins refreshed. Other changed certificates prompt again. Check
+unfamiliar fingerprints with the server owner before accepting them.
 
 The browser remembers server details and certificate pins. Passwords and TURN secrets stay
 in memory for the current session and clear on reload. External chat images load only after
@@ -171,7 +172,7 @@ node scripts/generate-themes.mjs --check           # shared palette freshness + 
 node --test web/test/appearance.test.mjs            # all themes, persistence, reduced motion, responsive layouts, picker
 node web/test/webcodecs.test.mjs                    # does this Chromium do Opus the way we assume?
 node --test web/test/bridge.test.mjs                # bridge access controls, malformed input, certificate trust
-node --test web/test/peer-certificate.test.mjs      # CA/hostname validation and certificate pin precedence
+node --test web/test/peer-certificate.test.mjs      # CA/hostname validation and certificate renewal
 node --test web/test/certificate.test.mjs           # browser certificate approval, decline, and changed pins
 node --test web/test/persistence.test.mjs           # settings survive browser + bridge restarts on a fixed port
 node --test web/test/lifecycle.test.mjs             # audio released on failed connects, handshake timeout, comment blobs, stall counting

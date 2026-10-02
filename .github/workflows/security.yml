@@ -25,6 +25,7 @@ jobs:
       - run: node --test --test-concurrency=1 web/test/bridge.test.mjs web/test/peer-certificate.test.mjs web/test/certificate.test.mjs web/test/chat-security.test.mjs web/test/credentials.test.mjs web/test/preferences.test.mjs web/test/signal-security.test.mjs desktop/test/security.test.mjs desktop/test/credentials.test.mjs
         env:
           CHROME: google-chrome
+      - run: python3 -m unittest discover -s scripts -p 'test_signing_keychain.py' -v
   swift:
     runs-on: macos-latest
     timeout-minutes: 10

@@ -2,13 +2,19 @@ package com.alaarab.mutter.data
 
 enum class CertificateDecision {
     Pinned,
+    TrustedByAuthority,
     FirstContact,
     Changed,
 }
 
-fun certificateDecision(fingerprint: String, knownFingerprints: List<String>): CertificateDecision =
+fun certificateDecision(
+    fingerprint: String,
+    trustedByAuthority: Boolean,
+    knownFingerprints: List<String>,
+): CertificateDecision =
     when {
         fingerprint in knownFingerprints -> CertificateDecision.Pinned
+        trustedByAuthority -> CertificateDecision.TrustedByAuthority
         knownFingerprints.isEmpty() -> CertificateDecision.FirstContact
         else -> CertificateDecision.Changed
     }
