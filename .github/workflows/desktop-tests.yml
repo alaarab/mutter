@@ -33,7 +33,9 @@ jobs:
       - run: npm ci
         working-directory: desktop
       - run: node --test desktop/test/security.test.mjs desktop/test/credentials.test.mjs
-      - run: xvfb-run -a -s '-screen 0 1280x800x24' node --test desktop/test/share.test.mjs
+      # Chromium's X11 capturer cannot initialize Xvfb's shared-memory buffers
+      # on the runner; ordinary X11 pixel reads still exercise real capture.
+      - run: xvfb-run -a -s '-screen 0 1280x800x24 -extension MIT-SHM' node --test desktop/test/share.test.mjs
         if: runner.os == 'Linux'
         env:
           CHROME: google-chrome
