@@ -200,6 +200,11 @@ node web/probe.mjs <host> [port] [username]         # handshake against any serv
 
 Run timing-sensitive audio quality checks without concurrent emulator builds or other audio
 benchmarks. Host scheduling delays can change the adaptive jitter buffer even on loopback.
+The quality test waits for audio and transport startup, then measures underruns over the
+captured waveform's window. It rejects underruns across quiet spurts and reports buffer
+changes, since real delivery gaps during speech should adapt latency. The deterministic
+jitter tests separately prove that silence and lost terminators never grow the buffer,
+while delivery gaps within speech still do.
 
 The bridge pauses TCP reads when a destination stalls and caps each socket’s queued output
 at 16 MiB plus framing overhead. Incoming UDP voice is dropped during browser backpressure
