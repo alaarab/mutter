@@ -19,6 +19,6 @@ export function inspectPeer(socket, host, expectedFingerprint) {
     expectedFingerprint: expectedFingerprint ?? null,
     subject: certificate.subject?.CN ?? host,
     validTo: certificate.valid_to,
-    trusted: expectedFingerprint ? fingerprint === expectedFingerprint : authorized,
+    trusted: authorized || fingerprint === expectedFingerprint,
   };
 }

@@ -15,10 +15,31 @@ class CertificatePinsTest {
         )
 
     @Test
-    fun certificatesAreComparedWithThePins() {
-        assertEquals(CertificateDecision.Pinned, certificateDecision("AA", listOf("BB", "AA")))
-        assertEquals(CertificateDecision.FirstContact, certificateDecision("AA", emptyList()))
-        assertEquals(CertificateDecision.Changed, certificateDecision("CC", listOf("AA")))
+    fun authorityTrustedCertificatesAreAcceptedEvenWhenThePinDiffers() {
+        assertEquals(
+            CertificateDecision.TrustedByAuthority,
+            certificateDecision("RENEWED", trustedByAuthority = true, listOf("AA")),
+        )
+        assertEquals(
+            CertificateDecision.TrustedByAuthority,
+            certificateDecision("FIRST", trustedByAuthority = true, emptyList()),
+        )
+    }
+
+    @Test
+    fun selfSignedCertificatesAreComparedWithThePins() {
+        assertEquals(
+            CertificateDecision.Pinned,
+            certificateDecision("AA", trustedByAuthority = false, listOf("BB", "AA")),
+        )
+        assertEquals(
+            CertificateDecision.FirstContact,
+            certificateDecision("AA", trustedByAuthority = false, emptyList()),
+        )
+        assertEquals(
+            CertificateDecision.Changed,
+            certificateDecision("CC", trustedByAuthority = false, listOf("AA")),
+        )
     }
 
     @Test

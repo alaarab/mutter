@@ -8,7 +8,7 @@ import { once } from 'node:events';
 import { test } from 'node:test';
 import { inspectPeer } from '../bridge/peer-certificate.mjs';
 
-test('CA validation also checks hostname and never overrides an existing pin', async t => {
+test('CA validation checks hostname and accepts a renewed certificate over an existing pin', async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mutter-certificates-'));
   const keyFile = path.join(directory, 'key.pem');
   const certFile = path.join(directory, 'cert.pem');
@@ -35,7 +35,19 @@ test('CA validation also checks hostname and never overrides an existing pin', a
   const verified = inspectPeer(socket, 'localhost');
   assert.equal(verified.trusted, true);
   assert.equal(inspectPeer(socket, 'wrong.example').trusted, false);
-  assert.equal(inspectPeer(socket, 'localhost', '0'.repeat(64)).trusted, false);
+  assert.equal(inspectPeer(socket, 'localhost', '0'.repeat(64)).trusted, true);
+  assert.equal(inspectPeer(socket, 'wrong.example', '0'.repeat(64)).trusted, false);
   assert.equal(inspectPeer(socket, 'localhost', verified.fingerprint).trusted, true);
   socket.destroy();
+});
+
+test('certificates outside the system trust policy still require a matching pin', () => {
+  const socket = {
+    authorized: false,
+    getPeerCertificate: () => ({ raw: Buffer.from('untrusted certificate') }),
+  };
+  const firstContact = inspectPeer(socket, 'localhost');
+  assert.equal(firstContact.trusted, false);
+  assert.equal(inspectPeer(socket, 'localhost', '0'.repeat(64)).trusted, false);
+  assert.equal(inspectPeer(socket, 'localhost', firstContact.fingerprint).trusted, true);
 });
