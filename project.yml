@@ -105,8 +105,8 @@ targets:
         # Binary package frameworks contain upstream headers with vendor-only
         # packaging diagnostics. Mark their search path as system headers;
         # application and shim source warnings remain enabled.
-        SYSTEM_FRAMEWORK_SEARCH_PATHS: "$(inherited) $(BUILT_PRODUCTS_DIR)"
-        # Swift's Clang importer does not inherit the C search-path setting.
+        OTHER_CFLAGS: '$(inherited) -iframework "$(BUILT_PRODUCTS_DIR)"'
+        # Swift's Clang importer has its own framework search options.
         OTHER_SWIFT_FLAGS: '$(inherited) -Fsystem "$(BUILT_PRODUCTS_DIR)"'
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
