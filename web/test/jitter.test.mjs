@@ -157,6 +157,22 @@ assert.equal(underrunsCounted(lostTerminators), 0);
 assert.equal(lostTerminators.policy.target, FRAME * 3);
 console.log(' ok  spurts whose terminator was lost do not count as underruns or grow the buffer');
 
+const delayedSpurt = startMixer();
+speak(delayedSpurt, 12);
+render(delayedSpurt, 30);
+speak(delayedSpurt, 13);
+send(delayedSpurt, { type: 'end', session: SPEAKER });
+render(delayedSpurt, 1000);
+assert.equal(underrunsCounted(delayedSpurt), 0);
+assert.equal(delayedSpurt.policy.target, FRAME * 4);
+for (let spurt = 0; spurt < 3; spurt++) {
+  speak(delayedSpurt, 25);
+  render(delayedSpurt, 700);
+}
+assert.equal(underrunsCounted(delayedSpurt), 0);
+assert.equal(delayedSpurt.policy.target, FRAME * 4);
+console.log(' ok  delivery gaps within a spurt grow the buffer before an underrun; later quiet endings do not');
+
 const midStreamGap = startMixer();
 speak(midStreamGap, 25);
 render(midStreamGap, 100);
