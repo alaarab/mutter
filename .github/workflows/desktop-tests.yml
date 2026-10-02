@@ -33,9 +33,15 @@ jobs:
       - run: npm ci
         working-directory: desktop
       - run: node --test desktop/test/security.test.mjs desktop/test/credentials.test.mjs
-      # Chromium's X11 capturer cannot initialize Xvfb's shared-memory buffers
-      # on the runner; ordinary X11 pixel reads still exercise real capture.
-      - run: xvfb-run -a -s '-screen 0 1280x800x24 -extension MIT-SHM' node --test desktop/test/share.test.mjs
+      # Use a private, local-only display without the runner's Xauthority file.
+      # Ordinary X11 pixel reads still exercise real capture.
+      - run: |
+          Xvfb :198 -screen 0 1280x800x24 -extension MIT-SHM -nolisten tcp -ac > "$RUNNER_TEMP/mutter-xvfb.log" 2>&1 &
+          mutter_xvfb_pid=$!
+          trap 'kill "$mutter_xvfb_pid" 2>/dev/null || true' EXIT
+          export DISPLAY=:198
+          unset XAUTHORITY
+          node --test desktop/test/share.test.mjs
         if: runner.os == 'Linux'
         env:
           CHROME: google-chrome
