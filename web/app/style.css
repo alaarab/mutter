@@ -2566,8 +2566,9 @@ body[data-members="off"] #members {
   gap: 0;
 }
 
-.popover.profile .banner {
+.popover.profile .profile-cover {
   height: 60px;
+  flex-shrink: 0;
 }
 
 .popover.profile .avatar.xl {

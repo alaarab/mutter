@@ -101,7 +101,7 @@ export function profileCard(anchor, user, ctx) {
     anchor,
     (popover) => {
       popover.classList.add('profile');
-      popover.append(el('div', { className: 'banner', style: `background:${colorFor(user.name)}` }));
+      popover.append(el('div', { className: 'profile-cover', style: `background:${colorFor(user.name)}` }));
       const picture = avatar(user.name, 'xl');
       picture.classList.add('presence', statusClass);
       picture.append(el('span', { className: 'sdot' }));

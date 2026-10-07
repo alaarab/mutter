@@ -6,6 +6,44 @@ import { startEnvironment, openClient, sleep } from './harness.mjs';
 
 const rgb = (hex) => `rgb(${hex.slice(1).match(/../g).map((part) => parseInt(part, 16)).join(', ')})`;
 
+test('user profiles keep their cover and avatar inside the card across repeated opens', { timeout: 30_000 }, async (t) => {
+  const environment = await startEnvironment();
+  t.after(() => environment.close());
+  const page = await openClient(environment, 'Morgan');
+  await openClient(environment, 'Edward');
+  await page.send('Page.bringToFront');
+  await page.waitFor(`document.querySelectorAll('#tree .user').length === 2`);
+
+  for (const reduced of [false, true]) {
+    await page.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: reduced ? 'reduce' : 'no-preference' }] });
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await page.click('#tree .user:not(.me)');
+      await page.waitFor(`!document.querySelector('#popover').hidden && document.querySelector('#popover').getAnimations().length === 0`);
+      const geometry = await page.eval(`(() => {
+        const card = document.querySelector('#popover');
+        const rect = element => {
+          const { left, top, right, bottom } = element.getBoundingClientRect();
+          return { left, top, right, bottom };
+        };
+        return {
+          card: rect(card),
+          cover: rect(card.firstElementChild),
+          avatar: rect(card.querySelector('.avatar')),
+          viewport: { left: 0, top: 0, right: innerWidth, bottom: innerHeight },
+        };
+      })()`);
+      const inside = (inner, outer) => inner.left >= outer.left && inner.top >= outer.top
+        && inner.right <= outer.right && inner.bottom <= outer.bottom;
+      assert.ok(inside(geometry.cover, geometry.card), 'profile cover stays inside its card, not detached in the viewport');
+      assert.ok(inside(geometry.avatar, geometry.card), 'profile avatar is not clipped by the card');
+      assert.ok(inside(geometry.card, geometry.viewport), 'profile fits in the viewport');
+      await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape' });
+      await page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape' });
+    }
+  }
+  assert.deepEqual(page.errors(), []);
+});
+
 test('every theme renders in both appearances without resetting the session or open settings', { timeout: 90_000 }, async (t) => {
   const environment = await startEnvironment();
   t.after(() => environment.close());
