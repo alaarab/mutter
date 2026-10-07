@@ -41,6 +41,15 @@ test('user profiles keep their cover and avatar inside the card across repeated 
       await page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape' });
     }
   }
+  await page.click('#tree .user.me');
+  await page.waitFor(`!document.querySelector('#popover').hidden && document.querySelector('#popover').getAnimations().length === 0`);
+  const bottomSpace = await page.eval(`(() => {
+    const card = document.querySelector('#popover');
+    const text = document.createRange();
+    text.selectNodeContents(card.querySelector('.pstats'));
+    return card.getBoundingClientRect().bottom - text.getBoundingClientRect().bottom;
+  })()`);
+  assert.ok(bottomSpace >= 14, 'own-user connection text has at least 14px of breathing room above the card border');
   assert.deepEqual(page.errors(), []);
 });
 
