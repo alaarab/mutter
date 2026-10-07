@@ -2645,6 +2645,10 @@ body[data-members="off"] #members {
   color: var(--body);
 }
 
+.popover.profile .pstats:last-child {
+  padding-bottom: 14px;
+}
+
 .popover.profile .msep {
   margin: 10px 12px 6px;
 }
