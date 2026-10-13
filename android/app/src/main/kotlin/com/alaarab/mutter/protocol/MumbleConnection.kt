@@ -51,16 +51,21 @@ class MumbleConnection(private val store: AppStore, private val identities: Iden
     private suspend fun keepConnected(server: Server) = coroutineScope {
         var synced = false
         var attempt = 0
+        var usernameInUseRetries = 0
+        var usernameOverride: String? = null
         while (isActive) {
             val link = Link()
             synchronized(stateLock) {
                 if (!isActive) return@coroutineScope
                 active = link
             }
+            val current = store.servers.value.find { it.id == server.id } ?: server
             try {
-                open(link, store.servers.value.find { it.id == server.id } ?: server)
+                open(link, current, usernameOverride ?: current.username)
                 synced = true
                 attempt = 0
+                usernameInUseRetries = 0
+                usernameOverride = null
             } catch (accepted: CertificateAccepted) {
                 link.close()
                 if (!isActive || active !== link) return@coroutineScope
@@ -70,9 +75,22 @@ class MumbleConnection(private val store: AppStore, private val identities: Iden
                 if (link.synced) {
                     synced = true
                     attempt = 0
+                    usernameInUseRetries = 0
+                    usernameOverride = null
                 }
                 note(error.message ?: "Connection closed")
-                if (!synced || attempt >= 6 || error is UntrustedCertificate) {
+                val usernameInUse = error is Rejected && error.type == REJECT_USERNAME_IN_USE
+                if (usernameInUse && synced) {
+                    usernameInUseRetries++
+                    if (usernameInUseRetries >= USERNAME_RETRIES_BEFORE_RENAME)
+                        usernameOverride = "${current.username}$usernameInUseRetries"
+                }
+                if (
+                    !synced ||
+                        attempt >= 6 ||
+                        error is UntrustedCertificate ||
+                        (error is Rejected && !usernameInUse)
+                ) {
                     stopAfterFailure(link, error.message)
                     return@coroutineScope
                 }
@@ -302,7 +320,7 @@ class MumbleConnection(private val store: AppStore, private val identities: Iden
     }
 
     @android.annotation.SuppressLint("CustomX509TrustManager")
-    private suspend fun open(link: Link, server: Server) = coroutineScope {
+    private suspend fun open(link: Link, server: Server, username: String) = coroutineScope {
         publish(link) {
             it.copy(
                 status = if (it.reconnectAttempt > 0) "reconnecting" else "connecting",
@@ -398,7 +416,7 @@ class MumbleConnection(private val store: AppStore, private val identities: Iden
         link.send(
             2,
             Proto()
-                .text(1, server.username)
+                .text(1, username)
                 .apply {
                     if (server.password.isNotEmpty()) text(2, server.password)
                     server.tokens.forEach { text(3, it) }
@@ -568,7 +586,8 @@ class MumbleConnection(private val store: AppStore, private val identities: Iden
                                 (System.currentTimeMillis() - f.long(1) / 1000).coerceIn(0, 60000)
                         )
                     }
-            4 -> error(f.text(2, "The server rejected the connection").take(2000))
+            4 ->
+                throw Rejected(f.int(1), f.text(2, "The server rejected the connection").take(2000))
             5 -> {
                 val session = f.int(1)
                 val freshRoster = link.roster
@@ -741,6 +760,8 @@ class MumbleConnection(private val store: AppStore, private val identities: Iden
     private class UntrustedCertificate(message: String = "Server certificate was not trusted") :
         Exception(message)
 
+    private class Rejected(val type: Int, message: String) : Exception(message)
+
     private class CertificateAccepted : Exception("The certificate was accepted; connecting again")
 
     private class Link {
@@ -803,5 +824,7 @@ class MumbleConnection(private val store: AppStore, private val identities: Iden
         const val SPEAKING = Long.MAX_VALUE
         private const val SPEECH_TIMEOUT_MILLIS = 300L
         private const val MAX_DATAGRAM = 2048
+        private const val REJECT_USERNAME_IN_USE = 5
+        private const val USERNAME_RETRIES_BEFORE_RENAME = 2
     }
 }
