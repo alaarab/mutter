@@ -14,6 +14,12 @@ struct ICECandidateProbe {
         let late = candidate("late-relay")
         let batcher = ICECandidateBatcher()
         var batches: [[ICECandidateInit]] = []
+        func waitForBatchCount(_ expectedCount: Int) async throws {
+            let deadline = Date().addingTimeInterval(10)
+            while batches.count < expectedCount, Date() < deadline {
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+        }
         batcher.add(early)
         batcher.add(racing)
         try await pause()
@@ -22,7 +28,7 @@ struct ICECandidateProbe {
         batcher.add(early) // A delegate callback may arrive after SDP was sent.
         batcher.add(late)
         batcher.add(late)
-        try await pause()
+        try await waitForBatchCount(1)
         precondition(batches == [[racing, late]])
 
         batcher.add(candidate("cancelled"))
@@ -35,7 +41,7 @@ struct ICECandidateProbe {
         precondition(replacement.scope != batcher.scope)
         replacement.activate(localSDP: "v=0\r\n") { batches.append($0) }
         replacement.add(late)
-        try await pause()
+        try await waitForBatchCount(2)
         precondition(batches == [[racing, late], [late]])
         replacement.cancel()
 
@@ -43,7 +49,7 @@ struct ICECandidateProbe {
         bounded.add(ICECandidateInit(candidate: String(repeating: "a", count: 4097)))
         for index in 0..<1000 { bounded.add(candidate("\(index)")) }
         bounded.activate(localSDP: "") { batches.append($0) }
-        try await pause()
+        try await waitForBatchCount(3)
         precondition(batches.last?.count == 256)
         bounded.cancel()
         print("PASS: late ICE, SDP ordering, batching, deduplication, cancellation, replacement and memory limits")
