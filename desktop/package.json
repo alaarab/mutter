@@ -126,5 +126,8 @@
   },
   "dependencies": {
     "uiohook-napi": "^1.5.5"
+  },
+  "overrides": {
+    "global-agent": "^4.1.3"
   }
 }
