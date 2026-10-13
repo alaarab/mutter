@@ -43,6 +43,9 @@ export function openPopover(anchor, build, { align = 'below' } = {}) {
   popover.style.top = `${clamp(top, EDGE_MARGIN, viewportHeight - height - EDGE_MARGIN)}px`;
   popover.style.transformOrigin = `${clamp(rect.left + rect.width / 2 - left, 0, width)}px ${top < rect.top ? '100%' : '0'}`;
   openAnchor = anchor;
+  if (anchor.matches(':focus-visible')) {
+    popover.querySelector('button, input, select, textarea, [tabindex="0"]')?.focus({ preventScroll: true });
+  }
   return popover;
 }
 
@@ -278,3 +281,39 @@ document.addEventListener('pointerout', (event) => {
 });
 document.addEventListener('pointerdown', hideTooltip);
 window.addEventListener('scroll', hideTooltip, true);
+
+document.addEventListener('focusin', (event) => {
+  const target = event.target.closest?.('[data-tip]');
+  if (target?.matches(':focus-visible')) {
+    hideTooltip();
+    showTooltip(target);
+  }
+});
+document.addEventListener('focusout', hideTooltip);
+
+function nameFromTip(element) {
+  if (!element.textContent.trim()) {
+    element.setAttribute('aria-label', element.dataset.tip);
+  }
+}
+
+function nameTippedElements(root) {
+  if (root.matches?.('[data-tip]')) {
+    nameFromTip(root);
+  }
+  for (const element of root.querySelectorAll?.('[data-tip]') ?? []) {
+    nameFromTip(element);
+  }
+}
+
+new MutationObserver((mutations) => {
+  for (const mutation of mutations) {
+    if (mutation.type === 'attributes') {
+      nameTippedElements(mutation.target);
+    }
+    for (const added of mutation.addedNodes) {
+      nameTippedElements(added);
+    }
+  }
+}).observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-tip'] });
+nameTippedElements(document.documentElement);
