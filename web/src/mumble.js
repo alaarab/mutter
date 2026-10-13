@@ -58,6 +58,7 @@ export function versionFields(major, minor, patch) {
 export const CLIENT_VERSION = versionFields(1, 5, 0);
 
 const uint = (name) => [name, 'uint'];
+const int32 = (name) => [name, 'int32'];
 const string = (name) => [name, 'string'];
 const bool = (name) => [name, 'bool'];
 const bytes = (name) => [name, 'bytes'];
@@ -110,7 +111,7 @@ const FIELDS = {
     3: string('name'),
     5: string('description'),
     8: bool('temporary'),
-    9: uint('position'),
+    9: int32('position'),
     10: bytes('descriptionHash'),
     11: uint('maxUsers'),
   },
@@ -250,6 +251,8 @@ function fieldValue(field, kind) {
       return field.bool;
     case 'bytes':
       return field.payload;
+    case 'int32':
+      return Number(BigInt.asIntN(32, field.big));
     default:
       return field.uint;
   }
