@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.update
 
 class MumbleConnection(private val store: AppStore, private val identities: Identities) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val controlSends = Dispatchers.IO.limitedParallelism(1)
     private val mutableState = MutableStateFlow(SessionState())
     val state = mutableState.asStateFlow()
     @Volatile private var active: Link? = null
@@ -192,7 +193,9 @@ class MumbleConnection(private val store: AppStore, private val identities: Iden
     fun action(type: Int, message: Proto): Boolean {
         val link = active ?: return false
         if (!state.value.connected) return false
-        scope.launch { runCatching { link.send(type, message.build()) }.onFailure { link.close() } }
+        scope.launch(controlSends) {
+            runCatching { link.send(type, message.build()) }.onFailure { link.close() }
+        }
         return true
     }
 
