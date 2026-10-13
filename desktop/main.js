@@ -58,6 +58,16 @@ async function startBridge() {
   return ready;
 }
 
+async function listCaptureSources() {
+  const options = { thumbnailSize: THUMBNAIL_SIZE, fetchWindowIcons: true };
+  if (process.platform !== 'linux' || process.env.WAYLAND_DISPLAY) {
+    return desktopCapturer.getSources({ ...options, types: ['screen', 'window'] });
+  }
+  const screens = await desktopCapturer.getSources({ ...options, types: ['screen'] });
+  const windows = await desktopCapturer.getSources({ ...options, types: ['window'] });
+  return [...screens, ...windows];
+}
+
 function installScreenPicker(url) {
   session.defaultSession.setDisplayMediaRequestHandler(
     async (request, callback) => {
@@ -67,11 +77,7 @@ function installScreenPicker(url) {
       }
       let streams = null;
       try {
-        const sources = await desktopCapturer.getSources({
-          types: ['screen', 'window'],
-          thumbnailSize: THUMBNAIL_SIZE,
-          fetchWindowIcons: true,
-        });
+        const sources = await listCaptureSources();
         // PipeWire returns the one source already selected in the system portal.
         // Asking again can show an unnamed source classified as a window even
         // when the user selected a monitor.
