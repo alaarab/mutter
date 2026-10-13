@@ -50,10 +50,10 @@
     </button>
     <div class="search">
       <span class="search-icon"></span>
-      <input id="search" placeholder="Find a channel or person" autocomplete="off" spellcheck="false">
+      <input id="search" aria-label="Find a channel or person" placeholder="Find a channel or person" autocomplete="off" spellcheck="false">
       <button id="newChannelBtn" class="icon small" type="button" data-tip="New channel" aria-label="New channel"></button>
     </div>
-    <div id="tree" class="tree" role="tree"></div>
+    <div id="tree" class="tree" role="tree" aria-label="Channels"></div>
 
     <div id="voicePanel" class="voice-panel">
       <div class="vp-top">
@@ -132,7 +132,7 @@
           <span id="scopeName">Chat</span>
           <span class="chev"></span>
         </button>
-        <textarea id="chatInput" placeholder="Message" rows="1" autocomplete="off" maxlength="5000"></textarea>
+        <textarea id="chatInput" aria-label="Message" placeholder="Message" rows="1" autocomplete="off" maxlength="5000"></textarea>
         <button id="sendBtn" class="icon primary" type="submit" data-tip="Send" aria-label="Send"></button>
       </form>
     </section>
@@ -190,7 +190,7 @@
     </div>
 
     <h3>How you talk</h3>
-    <div id="transmitMode" class="segmented" role="radiogroup">
+    <div id="transmitMode" class="segmented" role="group" aria-label="How you talk">
       <button type="button" data-value="vad">Voice</button>
       <button type="button" data-value="ptt">Push to talk</button>
       <button type="button" data-value="continuous">Always on</button>
@@ -210,11 +210,11 @@
       <label class="check"><input id="autoSens" type="checkbox"> Automatic sensitivity</label>
       <span id="thresholdLabel" class="hint"></span>
     </div>
-    <input id="threshold" type="range" min="-70" max="-10" step="1">
+    <input id="threshold" type="range" aria-label="Voice activity threshold" min="-70" max="-10" step="1">
     <p class="hint" id="floorHint"></p>
 
     <h3>Noise</h3>
-    <div id="noiseSuppression" class="segmented">
+    <div id="noiseSuppression" class="segmented" role="group" aria-label="Noise suppression">
       <button type="button" data-value="off">Off</button>
       <button type="button" data-value="light">Light</button>
       <button type="button" data-value="strong">Strong</button>
@@ -233,7 +233,7 @@
     <p class="hint">The browser's own stages, ahead of Mutter's. Keep echo cancellation on with speakers. Browser noise suppression on top of Neural tends to smear speech — try it both ways.</p>
 
     <h3>Quality</h3>
-    <div id="bitrate" class="segmented">
+    <div id="bitrate" class="segmented" role="group" aria-label="Quality">
       <button type="button" data-value="16000">16k</button>
       <button type="button" data-value="24000">24k</button>
       <button type="button" data-value="40000">40k</button>
@@ -242,11 +242,11 @@
     </div>
 
     <h3>Microphone</h3>
-    <select id="micSelect"></select>
+    <select id="micSelect" aria-label="Microphone"></select>
     <p id="micStatus" class="hint"></p>
 
     <h3>Output</h3>
-    <select id="outSelect"></select>
+    <select id="outSelect" aria-label="Output"></select>
     <p id="outStatus" class="hint"></p>
 
     <h3>Look</h3>
@@ -259,7 +259,7 @@
     <p id="themeDescription" class="hint"></p>
     <div class="row between" style="margin-top:10px">
       <span class="hint">Message text</span>
-      <div id="textSize" class="segmented mini">
+      <div id="textSize" class="segmented mini" role="group" aria-label="Message text size">
         <button type="button" data-value="13">S</button>
         <button type="button" data-value="14">M</button>
         <button type="button" data-value="15">L</button>
@@ -269,11 +269,11 @@
     <h3>Screen share</h3>
     <label class="check"><input id="shareAudio" type="checkbox"> Play the sharer’s audio</label>
     <p class="hint">Address discovery (STUN) and, for networks that block direct connections, a relay (TURN).</p>
-    <input id="stunUrl" placeholder="stun:host:3478" spellcheck="false">
-    <input id="turnUrl" placeholder="turn:host:3478" spellcheck="false" style="margin-top:8px">
+    <input id="stunUrl" aria-label="STUN server" placeholder="stun:host:3478" spellcheck="false">
+    <input id="turnUrl" aria-label="TURN server" placeholder="turn:host:3478" spellcheck="false" style="margin-top:8px">
     <div class="row" style="margin-top:8px">
-      <input id="turnUser" placeholder="username" spellcheck="false">
-      <input id="turnPass" placeholder="credential" type="password">
+      <input id="turnUser" aria-label="TURN username" placeholder="username" spellcheck="false">
+      <input id="turnPass" aria-label="TURN credential" placeholder="credential" type="password">
     </div>
     <p id="turnCredentialHint" class="hint">Credentials stay in memory for this session.</p>
     <div class="row" style="margin-top:10px">
@@ -291,7 +291,7 @@
 
   <div id="popover" class="popover" hidden></div>
   <div id="tooltip" class="tooltip" hidden></div>
-  <div id="toasts" class="toasts"></div>
+  <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
 
   <div id="overlay" class="overlay" hidden>
     <div class="card">
