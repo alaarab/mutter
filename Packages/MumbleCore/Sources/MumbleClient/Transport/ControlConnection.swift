@@ -98,7 +98,7 @@ final class ControlConnection {
                 self.bytesIn &+= UInt64(data.count)
                 self.parser.append(data)
                 do {
-                    while let frame = try self.parser.nextFrame() {
+                    while !self.isCancelled, let frame = try self.parser.nextFrame() {
                         self.onEvent?(.frame(frame))
                     }
                 } catch {
@@ -106,6 +106,7 @@ final class ControlConnection {
                     self.cancel()
                     return
                 }
+                guard !self.isCancelled else { return }
             }
             if let error {
                 self.onEvent?(.failed(error))
