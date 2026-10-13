@@ -4,6 +4,7 @@ import argparse
 import json
 import plistlib
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -57,6 +58,20 @@ def deploy_config():
     return json.loads(config_path.read_text()) if config_path.exists() else {}
 
 
+def remove_opus_stub(archive):
+    # Opus ships a static framework. The app links it statically, but Xcode still embeds a stub
+    # dylib built for the app's deployment target under Opus's own Info.plist, whose lower
+    # MinimumOSVersion makes App Store processing reject the build (90208).
+    app = archive / "Products/Applications/Mutter.app"
+    stub = app / "Frameworks/Opus.framework"
+    if not stub.exists():
+        return
+    links = subprocess.run(["otool", "-L", str(app / "Mutter")], check=True, capture_output=True, text=True).stdout
+    if "Opus.framework" in links:
+        raise RuntimeError("Mutter links Opus.framework dynamically; it can no longer be removed from the archive.")
+    shutil.rmtree(stub)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Archive Mutter for iOS and export it or upload it to TestFlight.")
     parser.add_argument("--build-number", required=True, type=int, help="Higher than every build already uploaded")
@@ -100,6 +115,7 @@ def main():
             "-allowProvisioningUpdates", "-skipPackagePluginValidation",
             *build_settings, *signing_settings,
         )
+        remove_opus_stub(archive)
         run(
             "xcodebuild", "-exportArchive", "-archivePath", str(archive),
             "-exportPath", str(output / "export"), "-exportOptionsPlist", str(export_options),
