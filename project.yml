@@ -30,7 +30,7 @@ settings:
     SWIFT_STRICT_CONCURRENCY: minimal
     CODE_SIGN_STYLE: Automatic
     MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "2"
+    CURRENT_PROJECT_VERSION: "3"
     # Only the app and widgets define intents; other targets have no metadata.
     LM_SKIP_METADATA_EXTRACTION: YES
 
@@ -78,6 +78,8 @@ targets:
           - voip
         NSMicrophoneUsageDescription: Mutter needs the microphone so other people in your channel can hear you.
         NSLocalNetworkUsageDescription: Mutter looks for Mumble servers on your local network.
+        NSCameraUsageDescription: Mutter doesn't turn on your camera. Its screen-sharing video library includes camera support, which iOS asks every app to describe.
+        NSPhotoLibraryUsageDescription: Mutter lets you pick photos from your library to send in channel chat.
         NSBonjourServices:
           - _mumble._tcp
         NSAppTransportSecurity:
