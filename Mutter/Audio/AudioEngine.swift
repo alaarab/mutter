@@ -86,7 +86,7 @@ final class AudioEngine: VoiceSink {
     var onEncodedPacket: ((Data, Int, Bool, VoiceTargetID) -> Void)?
     var onTransmitChanged: ((Bool) -> Void)?
 
-    @ObservationIgnored private let engine = AVAudioEngine()
+    @ObservationIgnored private var engine = AVAudioEngine()
     @ObservationIgnored private var encoder: OpusEncoderWrapper?
     @ObservationIgnored private let processingQueue = DispatchQueue(label: "mutter.audio.encode", qos: .userInteractive)
     @ObservationIgnored private var pending: [Float] = []
@@ -112,6 +112,7 @@ final class AudioEngine: VoiceSink {
     private static let retiredStreamGracePeriod: TimeInterval = 1
 
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
+    @ObservationIgnored private var configurationObserver: NSObjectProtocol?
 
     init() {
         let center = NotificationCenter.default
@@ -121,13 +122,19 @@ final class AudioEngine: VoiceSink {
         observers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] note in
             self?.handleRouteChange(note)
         })
-        observers.append(center.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
-            self?.scheduleRebuild(reason: "engine configuration changed")
-        })
+        observeConfigurationChanges()
     }
 
     deinit {
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
+    }
+
+    private func observeConfigurationChanges() {
+        if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
+        configurationObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+            self?.scheduleRebuild(reason: "engine configuration changed")
+        }
     }
 
     func start() {
@@ -226,9 +233,13 @@ final class AudioEngine: VoiceSink {
         }
     }
 
+    // Voice chat mode asks the system for its own echo cancellation, which only pairs with the
+    // voice-processing I/O unit; without it, default mode keeps playback on the plain output.
+    private var sessionMode: AVAudioSession.Mode { useVoiceProcessing ? .voiceChat : .default }
+
     private func configureSession() throws {
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .voiceChat, options: categoryOptions)
+        try session.setCategory(.playAndRecord, mode: sessionMode, options: categoryOptions)
         try session.setPreferredSampleRate(48_000)
         try session.setPreferredIOBufferDuration(0.01)
         try session.setActive(true)
@@ -237,14 +248,20 @@ final class AudioEngine: VoiceSink {
     private func applyOutputRoute() {
         guard isRunning else { return }
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playAndRecord, mode: .voiceChat, options: categoryOptions)
+        try? session.setCategory(.playAndRecord, mode: sessionMode, options: categoryOptions)
         try? session.overrideOutputAudioPort(route == .speaker ? .speaker : .none)
         refreshRoute()
     }
 
+    // The voice-processing I/O unit replaces both input and output. Switching it on a running
+    // engine leaves the mixer wired to the old output format and playback goes silent, so a
+    // change of voice processing starts over with a fresh engine.
     private func rebuildIfRunning() {
         guard isRunning else { return }
+        DiagnosticsLog.shared.add("audio", "voice processing \(useVoiceProcessing ? "on" : "off"), restarting engine")
         stop()
+        engine = AVAudioEngine()
+        observeConfigurationChanges()
         start()
     }
 
@@ -254,6 +271,7 @@ final class AudioEngine: VoiceSink {
             do {
                 try input.setVoiceProcessingEnabled(useVoiceProcessing)
             } catch {
+                DiagnosticsLog.shared.add("audio", "could not turn voice processing \(useVoiceProcessing ? "on" : "off"): \(error.localizedDescription)")
             }
         }
         if useVoiceProcessing {
