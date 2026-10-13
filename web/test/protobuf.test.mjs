@@ -105,4 +105,12 @@ function withKey(fieldNumber, wire, body) {
   console.log(` ok  an 8 MB frame in 16 KB chunks reassembles in ${elapsed.toFixed(1)} ms`);
 }
 
+{
+  const pinnedFirst = new Writer().uint(1, 7).uint(9, 2n ** 64n - 1n).finish();
+  assert.equal(decode(MessageType.channelState, pinnedFirst).position, -1);
+  const pinnedLast = new Writer().uint(1, 8).uint(9, 2147483647).finish();
+  assert.equal(decode(MessageType.channelState, pinnedLast).position, 2147483647);
+  console.log(' ok  channel positions decode as signed 32-bit values');
+}
+
 console.log('\nPASS');
