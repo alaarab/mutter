@@ -237,7 +237,7 @@ class MumbleConnection(private val store: AppStore, private val identities: Iden
     fun whisper(users: Set<Int>, channel: Int? = null, children: Boolean = false) {
         val target = Proto()
         users.forEach { target.number(1, it) }
-        channel?.let { target.number(2, it).bool(4, children) }
+        channel?.let { target.number(2, it).bool(5, children) }
         val registration =
             Proto().number(1, 1).apply {
                 if (users.isNotEmpty() || channel != null) message(2, target)
