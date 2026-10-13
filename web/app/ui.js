@@ -19,6 +19,7 @@ export function keyedRows(container) {
       const cached = previous.get(key);
       const element = cached?.rowSignature === signature ? cached : build();
       element.rowSignature = signature;
+      element.rowKey = key;
       next.set(key, element);
       rows.push(element);
     },
