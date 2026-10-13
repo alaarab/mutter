@@ -10,7 +10,7 @@ import { settings, saveSettings, servers, rememberServer, forgetServer, collapse
 import { confirmCertificate } from './certificate.js';
 import { DEFAULT_IMAGE_LIMIT, sanitize, imageToHtml, escapeHtml, plainText, openViewer } from './chat.js';
 import { DEFAULT_PORT } from '../src/mumble.js';
-import { renderTree, refreshUser, presence } from './tree.js';
+import { renderTree, refreshUser, presence, bindTreeKeyboard } from './tree.js';
 import { MessageList } from './messages.js';
 import { renderMembers } from './members.js';
 import { openPopover, closePopover, menuItem, profileCard, channelMenu, serverMenu } from './popovers.js';
@@ -273,6 +273,7 @@ function renderRail() {
     });
     button.style.background = colorFor(server.host);
     button.dataset.tip = serverLabel(server);
+    button.setAttribute('aria-label', serverLabel(server));
     button.onclick = () => {
       const alreadyThere = sameServer(server, ui.target) && client.state !== 'disconnected';
       if (alreadyThere) {
@@ -529,6 +530,8 @@ function watchUser(user) {
 function renderTreeNow() {
   renderTree($('tree'), treeContext());
 }
+
+bindTreeKeyboard($('tree'));
 
 function renderMembersNow() {
   renderMembers($('memberList'), $('memberCount'), treeContext());
@@ -1367,6 +1370,9 @@ const TOAST_ICONS = { join: 'userPlus', leave: 'userMinus', move: 'join', warn: 
 function toast(text, kind = 'info') {
   const icon = TOAST_ICONS[kind] ?? 'info';
   const element = el('div', { className: `toast ${kind}`, innerHTML: ICON[icon] }, el('span', { textContent: text }));
+  if (kind === 'warn') {
+    element.setAttribute('role', 'alert');
+  }
   $('toasts').append(element);
   setTimeout(
     () => {
