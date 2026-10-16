@@ -80,7 +80,7 @@ final class AudioEngine: VoiceSink {
     var isDeafened = false
     var outputGain: Float = 1.0
     var route: AudioRoute = .speaker { didSet { applyOutputRoute() } }
-    var mixWithOthers = true { didSet { applyOutputRoute() } }
+    var mixWithOthers = true { didSet { applyOutputRoute(); applyOtherAudioDucking() } }
     var transmitTarget: VoiceTargetID = .normal
 
     var onEncodedPacket: ((Data, Int, Bool, VoiceTargetID) -> Void)?
@@ -265,6 +265,14 @@ final class AudioEngine: VoiceSink {
         start()
     }
 
+    private func applyOtherAudioDucking() {
+        guard #available(iOS 17.0, *), engine.inputNode.isVoiceProcessingEnabled else { return }
+        // This controls other apps, independently of the session mixing option.
+        // Keep echo cancellation, noise suppression and AGC enabled.
+        engine.inputNode.voiceProcessingOtherAudioDuckingConfiguration = .init(
+            enableAdvancedDucking: ObjCBool(mixWithOthers), duckingLevel: mixWithOthers ? .min : .default)
+    }
+
     private func buildGraph() throws {
         let input = engine.inputNode
         if input.isVoiceProcessingEnabled != useVoiceProcessing {
@@ -280,6 +288,7 @@ final class AudioEngine: VoiceSink {
                 input.isVoiceProcessingAGCEnabled = true
             }
         }
+        applyOtherAudioDucking()
         let hardwareFormat = input.outputFormat(forBus: 0)
         guard hardwareFormat.sampleRate > 0,
               let converter = AVAudioConverter(from: hardwareFormat, to: AudioEngine.format48kMono) else {
@@ -510,9 +519,11 @@ final class AudioEngine: VoiceSink {
             DiagnosticsLog.shared.add("audio", "interruption began (another app took the audio session)")
             engine.pause()
         case .ended:
+            guard isRunning else { return }
             let optionsRaw = info[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
             let options = AVAudioSession.InterruptionOptions(rawValue: optionsRaw)
             DiagnosticsLog.shared.add("audio", "interruption ended (shouldResume: \(options.contains(.shouldResume)))")
+            guard options.contains(.shouldResume) else { return }
             try? AVAudioSession.sharedInstance().setActive(true)
             scheduleRebuild(reason: "interruption ended")
         @unknown default:
