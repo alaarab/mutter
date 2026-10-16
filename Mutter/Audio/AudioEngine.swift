@@ -270,7 +270,7 @@ final class AudioEngine: VoiceSink {
         // This controls other apps, independently of the session mixing option.
         // Keep echo cancellation, noise suppression and AGC enabled.
         engine.inputNode.voiceProcessingOtherAudioDuckingConfiguration = .init(
-            enableAdvancedDucking: mixWithOthers, duckingLevel: mixWithOthers ? .min : .default)
+            enableAdvancedDucking: ObjCBool(mixWithOthers), duckingLevel: mixWithOthers ? .min : .default)
     }
 
     private func buildGraph() throws {
@@ -519,9 +519,11 @@ final class AudioEngine: VoiceSink {
             DiagnosticsLog.shared.add("audio", "interruption began (another app took the audio session)")
             engine.pause()
         case .ended:
+            guard isRunning else { return }
             let optionsRaw = info[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
             let options = AVAudioSession.InterruptionOptions(rawValue: optionsRaw)
             DiagnosticsLog.shared.add("audio", "interruption ended (shouldResume: \(options.contains(.shouldResume)))")
+            guard options.contains(.shouldResume) else { return }
             try? AVAudioSession.sharedInstance().setActive(true)
             scheduleRebuild(reason: "interruption ended")
         @unknown default:
