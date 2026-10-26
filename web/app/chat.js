@@ -168,6 +168,43 @@ export function plainText(html) {
   return text.replace(/\s+/g, ' ').trim();
 }
 
+const BLOCK_TAGS = new Set(['p', 'div', 'pre', 'blockquote', 'ul', 'ol', 'li', 'table', 'tr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
+
+// A message as text for the clipboard: line breaks, list items and code
+// blocks keep their lines, where plainText folds everything onto one.
+export function messageText(html) {
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  let text = '';
+  const walk = (node, inPre) => {
+    for (const child of node.childNodes) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        text += inPre ? child.textContent : child.textContent.replace(/\s+/g, ' ');
+        continue;
+      }
+      if (child.nodeType !== Node.ELEMENT_NODE) {
+        continue;
+      }
+      const tag = child.localName;
+      if (tag === 'br') {
+        text += '\n';
+      } else if (tag === 'img') {
+        text += '[image]';
+      } else if (BLOCK_TAGS.has(tag)) {
+        if (text && !text.endsWith('\n')) text += '\n';
+        if (tag === 'li') text += child.parentElement?.localName === 'ol' ? `${[...child.parentElement.children].indexOf(child) + Number(child.parentElement.getAttribute('start') ?? 1)}. ` : '- ';
+        if (tag === 'blockquote') text += '> ';
+        walk(child, inPre || tag === 'pre');
+        if (!text.endsWith('\n')) text += '\n';
+      } else if (!['script', 'style', 'template'].includes(tag)) {
+        walk(child, inPre);
+      }
+    }
+  };
+  walk(template.content, false);
+  return text.replace(/[ \t]+\n/g, '\n').trim();
+}
+
 export function escapeHtml(text) {
   return text.replace(/[&<>"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[char]);
 }
