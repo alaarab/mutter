@@ -839,7 +839,7 @@ function serverFacts() {
     ['Voice', voiceSummary()],
     ['Ping', client.stats.tcpPingMs ? `${client.stats.tcpPingMs} ms` : '…'],
     ['You', `${client.myUser?.name ?? ''} · session ${client.me ?? ''}`],
-    ['Limits', `${info.messageLength ?? DEFAULT_MESSAGE_LIMIT} chars, images ${imageKb} KB${info.allowHtml === false ? ', no HTML' : ''}`],
+    ['Limits', `${info.messageLength === 0 ? 'Unlimited text' : `${info.messageLength ?? DEFAULT_MESSAGE_LIMIT} chars`}, images ${imageKb} KB${info.allowHtml === false ? ', no HTML' : ''}`],
   ];
 }
 

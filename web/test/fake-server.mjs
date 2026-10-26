@@ -503,7 +503,7 @@ export class FakeMumbleServer extends EventEmitter {
 
   textAllowed(html) {
     const { messageLength, imageMessageLength } = this.config;
-    if (html.length <= messageLength) {
+    if (!messageLength || html.length <= messageLength) {
       return true;
     }
     if (imageMessageLength && html.length >= imageMessageLength) {
