@@ -9,6 +9,27 @@ const DISTANCE_FROM_BOTTOM = `(() => {
 
 const ROW_COUNT = `document.querySelectorAll('#messages .row').length`;
 
+test('an unlimited server receives the entire chat message beyond 5,000 characters', { timeout: 60_000 }, async (t) => {
+  const environment = await startEnvironment();
+  t.after(() => environment.close());
+  environment.server.config.messageLength = 0;
+  const writer = await openClient(environment, 'Writer');
+  const reader = await openClient(environment, 'Reader');
+  const text = 'Long message <&> '.repeat(400) + 'end of message';
+
+  await writer.eval(`document.getElementById('chatInput').focus()`);
+  await writer.send('Input.insertText', { text });
+  assert.equal(await writer.eval(`document.getElementById('chatInput').value`), text);
+  await writer.click('#sendBtn');
+  await reader.waitFor(`mutter.client.messages.some(message => message.senderName === 'Writer')`);
+  assert.equal(await reader.eval(`document.querySelector('#messages .row:not(.system) .content').textContent`), text);
+  assert.equal(await writer.eval(`document.getElementById('chatInput').value`), '');
+  await writer.click('#serverBtn');
+  assert.match(await writer.eval(`document.getElementById('paneServer').textContent`), /Unlimited text/);
+  assert.deepEqual(writer.errors(), []);
+  assert.deepEqual(reader.errors(), []);
+});
+
 test('the latest message stays in view when the chat shrinks or a picture loads', { timeout: 90_000 }, async (t) => {
   const environment = await startEnvironment();
   t.after(() => environment.close());
