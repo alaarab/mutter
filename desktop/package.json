@@ -33,6 +33,7 @@
     "files": [
       "main.js",
       "security.js",
+      "context-menu.js",
       "credentials.js",
       "preload.cjs",
       "picker-preload.cjs",
