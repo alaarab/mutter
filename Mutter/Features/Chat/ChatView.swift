@@ -30,6 +30,7 @@ struct ChatView: View {
     @State private var followsLatestMessageThroughKeyboard = false
     @State private var transcriptEndOffset: CGFloat = 0
     @State private var transcriptViewportHeight: CGFloat = 0
+    @State private var messageSelection = MessageSelection()
 
     private static let transcriptSpace = "chat-transcript-space"
     private static let bottomTolerance: CGFloat = 32
@@ -108,7 +109,11 @@ struct ChatView: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .contentShape(Rectangle())
-                .simultaneousGesture(TapGesture().onEnded { composerFocused = false })
+                .simultaneousGesture(TapGesture().onEnded {
+                    composerFocused = false
+                    messageSelection.transcriptTapped()
+                })
+                .environment(messageSelection)
                 .accessibilityIdentifier("chat-transcript")
                 .overlay(alignment: .bottom) {
                     if !isAtBottom && unseenBelow > 0 {
@@ -394,6 +399,7 @@ struct PhotoConfirmSheet: View {
 
 struct MessageRow: View {
     @Environment(AppModel.self) private var model
+    @Environment(MessageSelection.self) private var selection: MessageSelection?
     var message: ChatMessage
     var onUser: (UInt32) -> Void
     @State private var viewedImage: ViewedImage?
@@ -412,6 +418,9 @@ struct MessageRow: View {
         }
         return restyled
     }
+
+    private var textColor: Color { message.isOwn ? Theme.onOwnBubble : Theme.ink }
+    private var isSelecting: Bool { selection?.active == message.id }
 
     var body: some View {
         if message.isSystem {
@@ -450,9 +459,20 @@ struct MessageRow: View {
                         if hasText {
                             Text(bubbleText)
                                 .font(.body)
-                                .foregroundStyle(message.isOwn ? Theme.onOwnBubble : Theme.ink)
-                                .textSelection(.enabled)
+                                .foregroundStyle(textColor)
                                 .fixedSize(horizontal: false, vertical: true)
+                                .opacity(isSelecting ? 0 : 1)
+                                .overlay {
+                                    if isSelecting, let selection {
+                                        SelectableMessageText(
+                                            text: rendered.text,
+                                            color: textColor,
+                                            linkColor: message.isOwn ? Theme.onOwnBubble : Theme.accent,
+                                            touched: { selection.noteTouchInside() },
+                                            finished: { selection.end(message.id) }
+                                        )
+                                    }
+                                }
                                 .frame(maxWidth: 300, alignment: .leading)
                         }
                         images
@@ -467,6 +487,15 @@ struct MessageRow: View {
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
                             .strokeBorder(message.isOwn ? Color.clear : Theme.separator, lineWidth: 1)
                     )
+                    .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .contextMenu {
+                        if hasText && !isSelecting {
+                            Button("Copy", systemImage: "doc.on.doc") { MessageSelection.copy(rendered.text) }
+                            if let selection {
+                                Button("Select Text", systemImage: "character.cursor.ibeam") { selection.begin(message.id) }
+                            }
+                        }
+                    }
                 }
                 if !message.isOwn { Spacer(minLength: 40) }
             }
