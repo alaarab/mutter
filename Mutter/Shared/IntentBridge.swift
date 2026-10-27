@@ -10,9 +10,9 @@ enum IntentAction: String, Sendable {
 @MainActor
 final class IntentBridge {
     static let shared = IntentBridge()
-    var handler: (@MainActor (IntentAction) -> Void)?
+    var handler: (@MainActor (IntentAction) async -> Void)?
 
-    func dispatch(_ action: IntentAction) {
-        handler?(action)
+    func dispatch(_ action: IntentAction) async {
+        await handler?(action)
     }
 }
