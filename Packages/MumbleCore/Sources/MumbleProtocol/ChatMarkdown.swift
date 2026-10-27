@@ -16,7 +16,19 @@ public enum ChatMarkdown {
     private static let bareURL = #/^https?:\/\/[^\s<>"']+/#
     private static let marks: [(mark: String, tag: String)] = [("**", "b"), ("__", "b"), ("~~", "s"), ("*", "i"), ("_", "i")]
 
+    /// Markdown that renders to no visible text (a lone ```, > or "# ") is
+    /// sent as the plain text it was, so it never arrives as an empty bubble.
     public static func html(from source: String) -> String {
+        let html = convert(source)
+        if !html.replacingOccurrences(of: "<[^>]*>", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return html
+        }
+        return source.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+            .split(separator: "\n", omittingEmptySubsequences: false).map { escape(String($0)) }.joined(separator: "<br />")
+    }
+
+    private static func convert(_ source: String) -> String {
         let lines = source.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
             .split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         var out = ""
@@ -67,7 +79,7 @@ public enum ChatMarkdown {
                     quoted.append(String(match.1))
                     index += 1
                 }
-                block("<blockquote>\(html(from: quoted.joined(separator: "\n")))</blockquote>")
+                block("<blockquote>\(convert(quoted.joined(separator: "\n")))</blockquote>")
                 continue
             }
             if let match = line.wholeMatch(of: heading) {

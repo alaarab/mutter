@@ -24,5 +24,11 @@
   { "name": "bare link drops trailing punctuation", "markdown": "go to https://example.com/path_name.", "html": "go to <a href=\"https://example.com/path_name\">https://example.com/path_name</a>." },
   { "name": "underscores in links stay literal", "markdown": "https://x.dev/_a_b_", "html": "<a href=\"https://x.dev/_a_b_\">https://x.dev/_a_b_</a>" },
   { "name": "windows newlines", "markdown": "a\r\nb", "html": "a<br />b" },
-  { "name": "unicode", "markdown": "héllo **wörld** 👋", "html": "héllo <b>wörld</b> 👋" }
+  { "name": "unicode", "markdown": "héllo **wörld** 👋", "html": "héllo <b>wörld</b> 👋" },
+  { "name": "a lone code fence is sent as text, not an empty block", "markdown": "```", "html": "```" },
+  { "name": "a fence with only a language is sent as text", "markdown": "```js", "html": "```js" },
+  { "name": "a lone quote marker is sent as text", "markdown": ">", "html": "&gt;" },
+  { "name": "an empty heading is sent as text", "markdown": "# ", "html": "# " },
+  { "name": "an empty list item is sent as text", "markdown": "- ", "html": "- " },
+  { "name": "empty fences on two lines are sent as text", "markdown": "```\n```", "html": "```<br />```" }
 ]

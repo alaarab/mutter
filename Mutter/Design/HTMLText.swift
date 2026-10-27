@@ -102,6 +102,12 @@ enum HTMLText {
             let text = normalizeStyle(AttributedString(prepared.markup))
             blocks = text.characters.isEmpty ? [] : [.prose(text)]
         }
+        // Formatting that renders to nothing (an empty code block or quote
+        // from another client) still shows whatever text the message has.
+        if blocks.isEmpty {
+            let plain = plainText(html)
+            if !plain.isEmpty { blocks = [.prose(normalizeStyle(AttributedString(plain)))] }
+        }
         var attributed = AttributedString()
         for (index, block) in blocks.enumerated() {
             if index > 0 { attributed += AttributedString("\n") }
