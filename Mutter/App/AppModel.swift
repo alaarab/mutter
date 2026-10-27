@@ -103,16 +103,22 @@ final class AppModel {
             case .toggleMute: self.toggleMute()
             case .toggleDeafen: self.toggleDeafen()
             case .toggleTalk: self.toggleTalk()
-            case .disconnect: self.disconnect()
+            case .disconnect:
+                self.disconnect()
+                return
             }
+            // The lock screen redraws the button when the intent returns, so
+            // hand it the new state first rather than on the next refresh.
+            await self.refreshPresence(immediate: true)?.value
         }
         remote.onToggle = { [weak self] in
             guard let self else { return }
             switch self.settings.headsetButtonAction {
             case .toggleMute: self.toggleMute()
             case .toggleTalk: self.toggleTalk()
-            case .nothing: break
+            case .nothing: return
             }
+            self.refreshPresence(immediate: true)
         }
         applyAudioSettings()
     }
@@ -342,16 +348,18 @@ final class AppModel {
         )
     }
 
-    func refreshPresence() {
-        guard session.state.isActive else { return }
+    @discardableResult
+    func refreshPresence(immediate: Bool = false) -> Task<Void, Never>? {
+        guard session.state.isActive else { return nil }
         let state = presenceState()
-        liveActivity.update(state)
+        let published = liveActivity.update(state, immediate: immediate)
         remote.setNowPlaying(
             server: activeServer?.displayName ?? "Mutter",
             channel: state.channelName,
             muted: state.isMuted,
             speakers: state.speakers
         )
+        return published
     }
 
     func setLocalMute(_ user: User, muted: Bool) {
