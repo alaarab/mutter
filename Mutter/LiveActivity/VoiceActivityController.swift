@@ -42,21 +42,27 @@ final class VoiceActivityController {
         Task { await Self.end(leftoverActivities) }
     }
 
-    func update(_ state: VoiceActivityAttributes.ContentState, now: Date = Date()) {
-        guard let activity else { return }
+    /// Changes are held briefly so a burst of talking updates goes out as
+    /// one; `immediate` skips that for something the person just pressed.
+    /// The returned task finishes once the system has the new state.
+    @discardableResult
+    func update(_ state: VoiceActivityAttributes.ContentState, now: Date = Date(), immediate: Bool = false) -> Task<Void, Never>? {
+        guard let activity else { return nil }
         let stateChanged = state != lastState
-        guard freshness.shouldPublish(stateChanged: stateChanged, at: now) else { return }
+        guard freshness.shouldPublish(stateChanged: stateChanged, at: now) else { return nil }
         lastState = state
         freshness.recordPublish(at: now)
         let content = ActivityContent(state: state, staleDate: freshness.staleDate(publishedAt: now))
         pending?.cancel()
-        pending = Task {
-            if stateChanged {
+        let task = Task {
+            if stateChanged && !immediate {
                 try? await Task.sleep(nanoseconds: 300_000_000)
                 guard !Task.isCancelled else { return }
             }
             await activity.update(content)
         }
+        pending = task
+        return task
     }
 
     func end() {
