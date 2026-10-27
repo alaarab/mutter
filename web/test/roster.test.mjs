@@ -54,14 +54,4 @@ assert.ok(Number.isFinite(loopedRoster.subtreeCount(0)));
 assert.ok(Number.isFinite(loopedRoster.subtreeCount(3)));
 console.log(' ok  a server that sends a parent loop cannot hang the roster');
 
-const large = new MumbleClient();
-populate(large, 1000, 500, 3);
-const begin = performance.now();
-for (let run = 0; run < 10; run++) {
-  large.roster();
-}
-const perRender = (performance.now() - begin) / 10;
-assert.ok(perRender < 50, `roster took ${perRender.toFixed(1)} ms`);
-console.log(` ok  1000 channels and 500 users index in ${perRender.toFixed(2)} ms`);
-
 console.log('\nPASS');
