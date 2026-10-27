@@ -125,7 +125,8 @@ test('a long code block keeps its header in view while scrolling through it', { 
     await new Promise((resolve) => setTimeout(resolve, 150));
     const head = code.querySelector('.code-head').getBoundingClientRect();
     const blockTop = code.getBoundingClientRect().top;
-    const boxTop = box.getBoundingClientRect().top;
+    // Sticky positions sit inside the chat's padding.
+    const boxTop = box.getBoundingClientRect().top + parseFloat(getComputedStyle(box).paddingTop);
     const copy = code.querySelector('.code-copy').getBoundingClientRect();
     const hit = document.elementFromPoint(copy.left + copy.width / 2, copy.top + copy.height / 2);
     return { headTop: head.top, blockTop, boxTop, copyReachable: !!hit?.closest('.code-copy') };
