@@ -22,7 +22,9 @@ jobs:
           package-manager-cache: false
       - run: npm audit --audit-level=low
         working-directory: desktop
-      - run: node --test --test-concurrency=1 web/test/bridge.test.mjs web/test/peer-certificate.test.mjs web/test/certificate.test.mjs web/test/chat-security.test.mjs web/test/credentials.test.mjs web/test/preferences.test.mjs web/test/signal-security.test.mjs desktop/test/security.test.mjs desktop/test/credentials.test.mjs
+      # bridge and signal-security run in web.yml, the desktop security and
+      # credential tests in desktop-tests.yml.
+      - run: node --test --test-concurrency=1 web/test/peer-certificate.test.mjs web/test/certificate.test.mjs web/test/chat-security.test.mjs web/test/credentials.test.mjs web/test/preferences.test.mjs
         env:
           CHROME: google-chrome
       - run: python3 -m unittest discover -s scripts -p 'test_signing_keychain.py' -v
@@ -37,8 +39,8 @@ jobs:
         with:
           node-version: '22'
           package-manager-cache: false
+      # The native probes run in ios.yml.
       - run: swift test --package-path Packages/MumbleCore
-      - run: node --test web/test/native.test.mjs
       - run: npm ci
         working-directory: desktop
       - run: node --test desktop/test/safe-storage.test.mjs

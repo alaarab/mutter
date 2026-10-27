@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { allowsPermission, CHROMIUM_FEATURES_TO_DISABLE, disableChromiumFeatures, isAppURL, isExternalURL } from '../security.js';
+import { allowsPermission, disableChromiumFeatures, isAppURL, isExternalURL } from '../security.js';
 
 const appURL = 'http://localhost:8789';
 
@@ -46,7 +46,6 @@ function recordingCommandLine(initialSwitches = {}) {
 }
 
 test('the desktop app shares real local addresses with screen-share peers instead of mDNS names', () => {
-  assert.deepEqual(CHROMIUM_FEATURES_TO_DISABLE, ['WebRtcHideLocalIpsWithMdns']);
   const commandLine = recordingCommandLine();
   disableChromiumFeatures(commandLine);
   assert.equal(commandLine.switches['disable-features'], 'WebRtcHideLocalIpsWithMdns');
