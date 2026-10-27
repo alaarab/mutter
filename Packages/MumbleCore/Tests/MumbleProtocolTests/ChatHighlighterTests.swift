@@ -32,17 +32,20 @@ final class ChatHighlighterTests: XCTestCase {
     }
 
     func testLongScriptsAndHostileInputStayFast() {
-        let script = (0..<3000).map { "if [ \"$x\" -gt \($0) ]; then echo 'n' \"${HOME}\" # \($0); fi" }.joined(separator: "\n")
+        let script = (0..<400).map { "if [ \"$x\" -gt \($0) ]; then echo 'n' \"${HOME}\" # \($0); fi" }.joined(separator: "\n")
         let inputs: [(String, String?)] = [
             (script, "bash"),
             (script, nil),
-            (String(repeating: "'", count: 50_000) + String(repeating: "\"", count: 50_000), "js"),
-            (String(repeating: "/*", count: 40_000), "c"),
-            (String(repeating: "<a b=\"", count: 20_000), "html"),
-            ("{" + String(repeating: " a", count: 50_000), "css"),
-            (String(repeating: "\"\\", count: 50_000), "py"),
-            (String(repeating: "x", count: 100_000), "sql"),
+            (String(repeating: "'", count: 10_000) + String(repeating: "\"", count: 10_000), "js"),
+            (String(repeating: "/*", count: 10_000), "c"),
+            (String(repeating: "<a b=\"", count: 4_000), "html"),
+            ("{" + String(repeating: " a", count: 10_000), "css"),
+            (String(repeating: "\"\\", count: 10_000), "py"),
+            (String(repeating: "x", count: 20_000), "sql"),
         ]
+        // About 20,000 UTF-16 units each, four times Mumble's default message
+        // limit: large enough that anything quadratic takes seconds, small
+        // enough for a Debug build on a slow CI simulator.
         for (code, language) in inputs {
             let started = Date()
             let result = ChatHighlighter.highlight(code, language: language)
