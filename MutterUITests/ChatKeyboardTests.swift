@@ -56,8 +56,9 @@ final class ChatKeyboardTests: XCTestCase {
             app.typeText("Follow check \(line)")
             send.tap()
         }
-        let composerTop = composer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
-        composerTop.press(forDuration: 0.05, thenDragTo: composerTop.withOffset(CGVector(dx: 0, dy: 160)))
+        let transcript = app.descendants(matching: .any)["chat-transcript"]
+        transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.98)))
         XCTAssertTrue(waitForKeyboard(in: app, visible: false))
 
         let latestMessage = app.staticTexts["Follow check \(messageCount)"]
