@@ -104,7 +104,7 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("org.bouncycastle:bcprov-jdk18on:1.86")
-    implementation("io.github.webrtc-sdk:android:150.7871.01")
+    implementation("io.github.webrtc-sdk:android:150.7871.04")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation(platform("androidx.compose:compose-bom:2026.09.00"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
