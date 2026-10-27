@@ -29,18 +29,17 @@ enum TransmitMode: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// Where sound goes when no headset is connected.
 enum AudioRoute: String, Codable, CaseIterable, Identifiable {
     case earpiece
     case speaker
-    case bluetooth
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .earpiece: return "Phone"
+        case .earpiece: return "iPhone"
         case .speaker: return "Speaker"
-        case .bluetooth: return "Bluetooth"
         }
     }
 
@@ -48,9 +47,26 @@ enum AudioRoute: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .earpiece: return "iphone.gen3"
         case .speaker: return "speaker.wave.3.fill"
-        case .bluetooth: return "headphones"
         }
     }
+}
+
+/// A place sound can go, listed the way the Phone app lists them: the
+/// iPhone itself, the loudspeaker, and each connected headset by its name.
+struct AudioOutput: Identifiable, Hashable {
+    enum Kind: Hashable {
+        case phone
+        case speaker
+        case device(uid: String)
+    }
+
+    let kind: Kind
+    let title: String
+    let symbol: String
+    var id: Kind { kind }
+
+    static let phone = AudioOutput(kind: .phone, title: AudioRoute.earpiece.title, symbol: AudioRoute.earpiece.symbol)
+    static let speaker = AudioOutput(kind: .speaker, title: AudioRoute.speaker.title, symbol: AudioRoute.speaker.symbol)
 }
 
 @Observable
@@ -60,6 +76,8 @@ final class AudioEngine: VoiceSink {
     private(set) var isRunning = false
     private(set) var lastError: String?
     private(set) var currentRoute: String = ""
+    private(set) var outputs: [AudioOutput] = [.phone, .speaker]
+    private(set) var activeOutput: AudioOutput.Kind = .speaker
     private(set) var noiseFloorDb: Float = -60
     private(set) var effectiveThresholdDb: Float = -38
 
@@ -79,7 +97,12 @@ final class AudioEngine: VoiceSink {
     var isMuted = false
     var isDeafened = false
     var outputGain: Float = 1.0
-    var route: AudioRoute = .speaker { didSet { applyOutputRoute() } }
+    var route: AudioRoute = .speaker {
+        didSet {
+            selectedDeviceUID = nil
+            applyOutputRoute()
+        }
+    }
     var mixWithOthers = true { didSet { applyOutputRoute(); applyOtherAudioDucking() } }
     var transmitTarget: VoiceTargetID = .normal
 
@@ -104,6 +127,9 @@ final class AudioEngine: VoiceSink {
     @ObservationIgnored private var floorDb: Float = -60
     @ObservationIgnored private var openFrames = 0
     @ObservationIgnored private var isRebuilding = false
+    /// The headset chosen for this call; nil means `route`.
+    @ObservationIgnored private var selectedDeviceUID: String?
+    @ObservationIgnored private var knownDeviceUIDs: Set<String> = []
     @ObservationIgnored private var rebuildScheduled = false
     @ObservationIgnored private var playoutDiagnostics: DispatchSourceTimer?
 
@@ -148,7 +174,9 @@ final class AudioEngine: VoiceSink {
             try engine.start()
             isRunning = true
             lastError = nil
-            refreshRoute()
+            // A headset already connected takes the call, as it would a phone call.
+            if selectedDeviceUID == nil { selectedDeviceUID = Self.headsetInputs().first?.uid }
+            applyOutputRoute()
             startPlayoutDiagnostics()
         } catch {
             DiagnosticsLog.shared.add("audio", "engine start failed: \(error.localizedDescription)")
@@ -197,15 +225,34 @@ final class AudioEngine: VoiceSink {
         suppressor?.reset()
     }
 
+    // Bluetooth is always allowed: iOS only lists a connected headset, and
+    // only plays to it, when the category allows it.
     private var categoryOptions: AVAudioSession.CategoryOptions {
-        var options: AVAudioSession.CategoryOptions
-        switch route {
-        case .bluetooth: options = [.allowBluetoothHFP, .allowBluetoothA2DP]
-        case .speaker: options = [.defaultToSpeaker]
-        case .earpiece: options = []
-        }
+        var options: AVAudioSession.CategoryOptions = [.allowBluetoothHFP, .allowBluetoothA2DP]
+        if route == .speaker { options.insert(.defaultToSpeaker) }
         if mixWithOthers { options.insert(.mixWithOthers) }
         return options
+    }
+
+    /// Plays through a connected headset for this call, or nil for `route`.
+    func useDevice(_ uid: String?) {
+        selectedDeviceUID = uid
+        applyOutputRoute()
+    }
+
+    private static let headsetPortTypes: Set<AVAudioSession.Port> = [.bluetoothHFP, .bluetoothLE, .headsetMic, .carAudio, .usbAudio]
+
+    private static func headsetInputs() -> [AVAudioSessionPortDescription] {
+        (AVAudioSession.sharedInstance().availableInputs ?? []).filter { headsetPortTypes.contains($0.portType) }
+    }
+
+    private static func symbol(for port: AVAudioSession.Port) -> String {
+        switch port {
+        case .carAudio: return "car.fill"
+        case .usbAudio: return "cable.connector"
+        case .HDMI, .airPlay: return "tv"
+        default: return "headphones"
+        }
     }
 
     func ensureRunning() {
@@ -270,7 +317,17 @@ final class AudioEngine: VoiceSink {
         guard isRunning else { return }
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playAndRecord, mode: sessionMode, options: categoryOptions)
-        try? session.overrideOutputAudioPort(route == .speaker ? .speaker : .none)
+        if let uid = selectedDeviceUID {
+            try? session.overrideOutputAudioPort(.none)
+            // A headset with a microphone is chosen through its input; one
+            // without (A2DP-only) is where iOS plays once nothing is preferred.
+            try? session.setPreferredInput(session.availableInputs?.first { $0.uid == uid })
+        } else {
+            // Preferring the built-in microphone keeps sound on the iPhone even
+            // with a headset connected, as choosing iPhone in the Phone app does.
+            try? session.setPreferredInput(session.availableInputs?.first { $0.portType == .builtInMic })
+            try? session.overrideOutputAudioPort(route == .speaker ? .speaker : .none)
+        }
         refreshRoute()
     }
 
@@ -553,16 +610,59 @@ final class AudioEngine: VoiceSink {
     }
 
     private func handleRouteChange(_ note: Notification) {
+        let reasonValue = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt ?? 0
+        let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue)
+        if isRunning {
+            if reason == .newDeviceAvailable, let added = Self.headsetInputs().first(where: { !knownDeviceUIDs.contains($0.uid) }) {
+                // A headset that connects mid-call takes the sound, like a phone call.
+                DiagnosticsLog.shared.add("audio", "headset connected: \(added.portName)")
+                useDevice(added.uid)
+            } else if reason == .oldDeviceUnavailable {
+                // Back to iPhone or Speaker when the chosen headset goes away;
+                // reapplied either way, since iOS falls back to the earpiece.
+                useDevice(selectedDeviceUID.flatMap { isConnected($0) ? $0 : nil })
+            } else {
+                refreshRoute()
+            }
+        }
         guard !isRebuilding else { return }
         scheduleRebuild(reason: "route changed")
     }
 
+    private func isConnected(_ uid: String) -> Bool {
+        let session = AVAudioSession.sharedInstance()
+        return (session.availableInputs ?? []).contains { $0.uid == uid } || session.currentRoute.outputs.contains { $0.uid == uid }
+    }
+
     private func refreshRoute() {
-        let outputs = AVAudioSession.sharedInstance().currentRoute.outputs
-        let newRoute = outputs.map { $0.portName }.joined(separator: ", ")
+        let session = AVAudioSession.sharedInstance()
+        let playing = session.currentRoute.outputs
+        let newRoute = playing.map { $0.portName }.joined(separator: ", ")
         if newRoute != currentRoute {
             DiagnosticsLog.shared.add("audio", "output route → \(newRoute.isEmpty ? "none" : newRoute)")
         }
         currentRoute = newRoute
+
+        var devices = Self.headsetInputs().map { AudioOutput(kind: .device(uid: $0.uid), title: $0.portName, symbol: Self.symbol(for: $0.portType)) }
+        let active: AudioOutput.Kind
+        switch playing.first?.portType {
+        case .builtInReceiver?: active = .phone
+        case .builtInSpeaker?: active = .speaker
+        case nil: active = route == .speaker ? .speaker : .phone
+        case let port?:
+            // Headphones without a microphone, or a Bluetooth speaker, are
+            // only visible as where sound is playing.
+            let output = playing[0]
+            if let match = devices.first(where: { $0.kind == .device(uid: output.uid) || $0.title == output.portName }) {
+                active = match.kind
+            } else {
+                let device = AudioOutput(kind: .device(uid: output.uid), title: output.portName, symbol: Self.symbol(for: port))
+                devices.append(device)
+                active = device.kind
+            }
+        }
+        knownDeviceUIDs = Set(devices.compactMap { if case .device(let uid) = $0.kind { return uid } else { return nil } })
+        outputs = [.phone, .speaker] + devices
+        if activeOutput != active { activeOutput = active }
     }
 }

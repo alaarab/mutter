@@ -246,12 +246,12 @@ struct AudioSettingsView: View {
             .themedRows()
 
             Section {
-                Picker("Audio output", selection: $settings.audioRoute) {
+                Picker("Without a headset", selection: $settings.audioRoute) {
                     ForEach(AudioRoute.allCases) { Label($0.title, systemImage: $0.symbol).tag($0) }
                 }
                 Toggle("Mix with other apps", isOn: $settings.mixWithOthers)
             } header: { SectionLabel(text: "Output") } footer: {
-                Text("Phone is the earpiece; Speaker is the loudspeaker. Mixing lets videos and music play without pausing the call.")
+                Text("A connected headset or Bluetooth device is used automatically, like a phone call; switch outputs during a call from the speaker button. Mixing lets videos and music play without pausing the call.")
             }
             .themedRows()
         }
