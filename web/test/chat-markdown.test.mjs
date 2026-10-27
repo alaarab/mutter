@@ -114,6 +114,9 @@ test('a long code block keeps its header in view while scrolling through it', { 
   await reader.waitFor(`!!${block}?.querySelector('.code-more')`, { label: 'the long block arrived folded' });
   await reader.eval(`${block}.querySelector('.code-more').click()`);
   await reader.waitFor(`${block}.querySelector('.code-toggle').getAttribute('aria-expanded') === 'true'`);
+  await sendFromComposer(writer, 'Thanks, looks good');
+  await reader.waitFor(`[...document.querySelectorAll('#messages .row .content')].some((content) => content.textContent === 'Thanks, looks good')`);
+  await new Promise((resolve) => setTimeout(resolve, 800));
   // Scroll so the block's top is well above the chat, its middle in view.
   const placement = await reader.eval(`(async () => {
     const box = document.getElementById('messages');
