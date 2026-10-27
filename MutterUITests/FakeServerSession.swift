@@ -33,9 +33,9 @@ enum FakeServer {
 }
 
 extension XCTestCase {
-    func launchConnectedToFakeServer(usernamePrefix: String) -> XCUIApplication {
+    func launchConnectedToFakeServer(usernamePrefix: String, arguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-defaultUsername", "\(usernamePrefix)\(Int.random(in: 1000...9999))", "-rememberedSelfMute", "NO", "-rememberedSelfDeaf", "NO"]
+        app.launchArguments = arguments + ["-defaultUsername", "\(usernamePrefix)\(Int.random(in: 1000...9999))", "-rememberedSelfMute", "NO", "-rememberedSelfDeaf", "NO"]
         app.launch()
 
         app.buttons["Add"].tap()

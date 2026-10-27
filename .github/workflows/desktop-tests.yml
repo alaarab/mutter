@@ -41,11 +41,11 @@ jobs:
           trap 'kill "$mutter_xvfb_pid" 2>/dev/null || true' EXIT
           export DISPLAY=:198
           unset XAUTHORITY
-          node --test desktop/test/share.test.mjs
+          node --test --test-concurrency=1 desktop/test/share.test.mjs desktop/test/persistence.test.mjs
         if: runner.os == 'Linux'
         env:
           CHROME: google-chrome
-      - run: node --test desktop/test/share.test.mjs
+      - run: node --test --test-concurrency=1 desktop/test/share.test.mjs desktop/test/persistence.test.mjs
         if: runner.os == 'Windows'
         env:
           CHROME: 'C:\Program Files\Google\Chrome\Application\chrome.exe'

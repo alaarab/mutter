@@ -36,10 +36,24 @@ final class ChatFormattingTests: XCTestCase {
         let shortToggle = app.buttons.matching(identifier: "chat-code-toggle").firstMatch
         XCTAssertEqual(shortToggle.label, "bash code, 1 line, expanded", "An unlabelled npm command is guessed as shell and starts open")
 
+        // A message that is one run of prose is selected in place.
+        let transcript = app.descendants(matching: .any)["chat-transcript"]
         formatted.press(forDuration: 1.0)
         XCTAssertTrue(app.buttons["Copy Conversation"].waitForExistence(timeout: 3), "Holding a message offers Copy Conversation")
+        XCTAssertTrue(app.buttons["Copy"].exists, "Holding a message offers Copy")
         attachScreenshot(of: app, named: "chat-formatting-menu")
-        app.buttons["Copy Conversation"].tap()
+        app.buttons["Select Text"].tap()
+        let proseSelection = app.textViews["chat-message-selection"]
+        XCTAssertTrue(proseSelection.waitForExistence(timeout: 3), "Select Text lays selectable text over the message")
+        XCTAssertEqual(proseSelection.value as? String, "Ready for raid night? Use push-to-talk")
+        XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 3), "The selection shows the native Copy menu")
+        let empty = transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9))
+        let deadline = Date().addingTimeInterval(5)
+        while proseSelection.exists && Date() < deadline {
+            empty.tap()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        }
+        XCTAssertFalse(proseSelection.exists, "A tap elsewhere in the transcript ends the selection")
 
         composer.tap()
         composer.typeText("Todo:\n- milk\n- eggs")
@@ -48,7 +62,7 @@ final class ChatFormattingTests: XCTestCase {
         XCTAssertTrue(list.waitForExistence(timeout: 5), "List items keep their bullets")
 
         // A message with a code block is selected as its whole text.
-        app.descendants(matching: .any)["chat-transcript"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).tap()
+        empty.tap()
         app.staticTexts["Run this:"].press(forDuration: 1.0)
         app.buttons["Select Text"].tap()
         attachScreenshot(of: app, named: "chat-formatting-selecting")
@@ -57,7 +71,7 @@ final class ChatFormattingTests: XCTestCase {
         XCTAssertEqual(selectable.value as? String, "Run this:\nnpm run raid")
 
         // Long code starts folded to its first lines and opens on request.
-        app.descendants(matching: .any)["chat-transcript"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+        transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
         composer.tap()
         let script = (1...16).map { "print(\"step \($0)\")  # \($0)" }.joined(separator: "\n")
         composer.typeText("Long one:\n```python\n\(script)\n```")

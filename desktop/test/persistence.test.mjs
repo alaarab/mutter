@@ -18,7 +18,7 @@ test('desktop retains localStorage across two default-port launches', { timeout:
   delete env.PORT;
   delete env.ELECTRON_RUN_AS_NODE;
   async function launch() {
-    const child = spawn(electron, ['.', '--smoke'], { cwd: desktop, env });
+    const child = spawn(electron, ['.', '--smoke', ...(process.platform === 'linux' ? ['--no-sandbox'] : [])], { cwd: desktop, env });
     t.after(() => child.kill());
     const timeout = setTimeout(() => child.kill('SIGKILL'), 45_000);
     let output = '';
