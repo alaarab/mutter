@@ -101,3 +101,38 @@ test('Markdown is sent as HTML, shown formatted, copied as text, and own message
   assert.deepEqual(reader.errors(), []);
   assert.deepEqual(writer.errors(), []);
 });
+
+test('a long code block keeps its header in view while scrolling through it', { timeout: 90_000 }, async (t) => {
+  const environment = await startEnvironment();
+  t.after(() => environment.close());
+  const reader = await openClient(environment, 'Reader');
+  const writer = await openClient(environment, 'Writer');
+  await reader.send('Emulation.setDeviceMetricsOverride', { width: 1180, height: 700, deviceScaleFactor: 1, mobile: false });
+  const lines = Array.from({ length: 60 }, (_, index) => `echo "line ${index + 1}"`).join('\n');
+  await sendFromComposer(writer, '```bash\n' + lines + '\n```');
+  const block = `[...document.querySelectorAll('#messages .row:not(.own) .code-block')].at(-1)`;
+  await reader.waitFor(`!!${block}?.querySelector('.code-more')`, { label: 'the long block arrived folded' });
+  await reader.eval(`${block}.querySelector('.code-more').click()`);
+  await reader.waitFor(`${block}.querySelector('.code-toggle').getAttribute('aria-expanded') === 'true'`);
+  await sendFromComposer(writer, 'Thanks, looks good');
+  await reader.waitFor(`[...document.querySelectorAll('#messages .row .content')].some((content) => content.textContent === 'Thanks, looks good')`);
+  await new Promise((resolve) => setTimeout(resolve, 800));
+  // Scroll so the block's top is well above the chat, its middle in view.
+  const placement = await reader.eval(`(async () => {
+    const box = document.getElementById('messages');
+    const code = ${block};
+    box.scrollTop += code.getBoundingClientRect().top - box.getBoundingClientRect().top + code.offsetHeight / 2;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const head = code.querySelector('.code-head').getBoundingClientRect();
+    const blockTop = code.getBoundingClientRect().top;
+    // Sticky positions sit inside the chat's padding.
+    const boxTop = box.getBoundingClientRect().top + parseFloat(getComputedStyle(box).paddingTop);
+    const copy = code.querySelector('.code-copy').getBoundingClientRect();
+    const hit = document.elementFromPoint(copy.left + copy.width / 2, copy.top + copy.height / 2);
+    return { headTop: head.top, blockTop, boxTop, copyReachable: !!hit?.closest('.code-copy') };
+  })()`);
+  assert.ok(placement.blockTop < placement.boxTop - 100, `the block starts above the chat (${JSON.stringify(placement)})`);
+  assert.ok(Math.abs(placement.headTop - placement.boxTop) < 2, `the header sticks to the top of the chat (${JSON.stringify(placement)})`);
+  assert.ok(placement.copyReachable, 'Copy can still be clicked');
+  assert.deepEqual(reader.errors(), []);
+});
