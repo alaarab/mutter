@@ -217,7 +217,8 @@ final class AppModel {
         audio.vadThresholdDb = settings.vadThresholdDb
         audio.bitrate = Int32(settings.bitrate)
         audio.frameMilliseconds = settings.frameMilliseconds
-        audio.route = settings.audioRoute
+        // Reassigning the route would also drop a headset chosen for this call.
+        if audio.route != settings.audioRoute { audio.route = settings.audioRoute }
         audio.mixWithOthers = settings.mixWithOthers
         audio.noiseSuppression = settings.noiseSuppression
         audio.autoSensitivity = settings.autoSensitivity
@@ -227,6 +228,21 @@ final class AppModel {
 
     var isMuted: Bool { settings.rememberedSelfMute || settings.rememberedSelfDeaf }
     var isDeafened: Bool { settings.rememberedSelfDeaf }
+
+    /// iPhone and Speaker also become the default for calls without a
+    /// headset; a headset is chosen for this call only, as in the Phone app.
+    func selectOutput(_ output: AudioOutput.Kind) {
+        switch output {
+        case .phone:
+            settings.audioRoute = .earpiece
+            audio.route = .earpiece
+        case .speaker:
+            settings.audioRoute = .speaker
+            audio.route = .speaker
+        case .device(let uid):
+            audio.useDevice(uid)
+        }
+    }
 
     func toggleMute() {
         let next = !isMuted

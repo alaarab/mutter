@@ -126,7 +126,10 @@ final class AppSettings {
         bitrate = defaults.value("bitrate", default: 40_000)
         frameMilliseconds = defaults.value("frameMilliseconds", default: 20)
         pushToTalkStyle = defaults.rawValue("pushToTalkStyle", default: .hold)
-        audioRoute = AudioRoute(rawValue: defaults.string(forKey: "audioRoute") ?? "")
+        // "bluetooth" was a choice before headsets were listed by name; with
+        // none connected it played on the iPhone.
+        let savedRoute = defaults.string(forKey: "audioRoute")
+        audioRoute = savedRoute == "bluetooth" ? .earpiece : AudioRoute(rawValue: savedRoute ?? "")
             ?? (defaults.value("speakerphone", default: true) ? .speaker : .earpiece)
         mixWithOthers = defaults.value("mixWithOthers", default: true)
         turnURL = defaults.string(forKey: "turnURL") ?? ""
