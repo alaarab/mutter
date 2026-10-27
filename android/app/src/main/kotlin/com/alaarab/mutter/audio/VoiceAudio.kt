@@ -14,7 +14,6 @@ import com.alaarab.mutter.protocol.VoicePacket
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.PriorityBlockingQueue
 import kotlin.math.sqrt
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -322,60 +321,43 @@ class VoiceAudio(
 
     fun receive(packet: VoicePacket) {
         if (packet.opus.isEmpty()) {
-            if (packet.end) streams[packet.session]?.end()
+            if (packet.end) streams[packet.session]?.offer(packet)
             return
         }
         val state = client.state.value
         if (state.self?.selfDeaf == true || state.self?.deaf == true || !focusAvailable) return
         val user = state.users[packet.session] ?: return
         if (user.localMute) return
-        streams.computeIfAbsent(packet.session) { Playback(it) }.offer(packet)
+        val playback = streams.computeIfAbsent(packet.session) { Playback(it) }
+        if (!playback.offer(packet)) {
+            // The stream just shut down after a long silence; start a fresh one.
+            streams.remove(packet.session, playback)
+            streams.computeIfAbsent(packet.session) { Playback(it) }.offer(packet)
+        }
     }
 
+    /**
+     * One speaker: a jitter buffer and a writer thread at audio priority. Blocking 10 ms writes
+     * to the AudioTrack pace the thread, so playout runs on the hardware clock rather than on
+     * packet arrival.
+     */
     private inner class Playback(private val session: Int) {
-        private val queue = PriorityBlockingQueue<VoicePacket>(16, compareBy { it.frame })
-        @Volatile private var ended = false
-        private val worker = scope.launch {
-            var codec: MediaCodec? = null
+        private val decoder = OpusDecoder()
+        private val playout = Playout(session, decoder)
+        @Volatile private var running = true
+
+        init {
+            Thread({ run() }, "Mutter playout $session").apply {
+                isDaemon = true
+                start()
+            }
+        }
+
+        private fun run() {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
             var track: AudioTrack? = null
             try {
-                codec =
-                    MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_AUDIO_OPUS).apply {
-                        configure(
-                            MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_OPUS, 48000, 1)
-                                .apply {
-                                    val header =
-                                        ByteBuffer.allocate(19).order(ByteOrder.LITTLE_ENDIAN)
-                                    header
-                                        .put("OpusHead".toByteArray())
-                                        .put(1)
-                                        .put(1)
-                                        .putShort(0)
-                                        .putInt(48000)
-                                        .putShort(0)
-                                        .put(0)
-                                    setByteBuffer("csd-0", ByteBuffer.wrap(header.array()))
-                                    setByteBuffer(
-                                        "csd-1",
-                                        ByteBuffer.allocate(8)
-                                            .order(ByteOrder.nativeOrder())
-                                            .putLong(0)
-                                            .apply { flip() },
-                                    )
-                                    setByteBuffer(
-                                        "csd-2",
-                                        ByteBuffer.allocate(8)
-                                            .order(ByteOrder.nativeOrder())
-                                            .putLong(80000000)
-                                            .apply { flip() },
-                                    )
-                                },
-                            null,
-                            null,
-                            0,
-                        )
-                        start()
-                    }
+                decoder.start()
                 track =
                     AudioTrack.Builder()
                         .setAudioAttributes(attributes())
@@ -387,86 +369,180 @@ class VoiceAudio(
                                 .build()
                         )
                         .setBufferSizeInBytes(
+                            // The jitter buffer absorbs network delay; this only has to cover
+                            // scheduling, and every byte of it is added latency.
                             maxOf(
                                 AudioTrack.getMinBufferSize(
                                     48000,
                                     AudioFormat.CHANNEL_OUT_MONO,
                                     AudioFormat.ENCODING_PCM_16BIT,
                                 ),
-                                11520,
+                                TRACK_BUFFER_BYTES,
                             )
                         )
                         .setTransferMode(AudioTrack.MODE_STREAM)
                         .build()
                 track.play()
-                delay(40)
-                val sequence = FrameSequence()
-                var idle = 0
-                fun playPending() {
-                    drain(codec) { pcm ->
-                        val current = client.state.value
-                        val user = current.users[session]
-                        val volume =
-                            if (
-                                user?.localMute == true ||
-                                    current.self?.selfDeaf == true ||
-                                    current.self?.deaf == true ||
-                                    !focusAvailable
-                            )
-                                0f
-                            else user?.volume ?: 0f
-                        track.setVolume(volume.coerceIn(0f, 1f))
-                        track.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING)
+                val frame = FloatArray(FRAME_SAMPLES)
+                val out = ShortArray(FRAME_SAMPLES)
+                var volume = -1f
+                var idleFrames = 0
+                var framesSinceReport = 0
+                while (running) {
+                    val written = playout.render(frame, FRAME_SAMPLES)
+                    idleFrames = if (written == 0 && playout.isIdle) idleFrames + 1 else 0
+                    if (idleFrames > IDLE_FRAMES_BEFORE_CLOSE) break
+                    val wanted = volume()
+                    if (wanted != volume) {
+                        // AudioTrack ramps volume changes itself.
+                        track.setVolume(wanted)
+                        volume = wanted
                     }
-                }
-                while (isActive) {
-                    playPending()
-                    val packet = queue.poll()
-                    if (packet == null) {
-                        delay(10)
-                        if (++idle > 3000) break
-                        continue
+                    for (index in 0 until FRAME_SAMPLES) {
+                        out[index] = (frame[index].coerceIn(-1f, 1f) * 32767).toInt().toShort()
                     }
-                    idle = 0
-                    if (ended) {
-                        ended = false
-                        sequence.end()
+                    val result = track.write(out, 0, FRAME_SAMPLES, AudioTrack.WRITE_BLOCKING)
+                    if (result < 0) error("AudioTrack write failed ($result)")
+                    if (++framesSinceReport >= 100) {
+                        framesSinceReport = 0
+                        playout
+                            .diagnosticsSummary(android.os.SystemClock.elapsedRealtime())
+                            ?.let { client.note(it) }
                     }
-                    if (!sequence.accept(packet.frame, System.currentTimeMillis())) continue
-                    if (packet.end) sequence.end()
-                    val index = codec.dequeueInputBuffer(10000)
-                    if (index < 0) continue
-                    codec.getInputBuffer(index)!!.put(packet.opus)
-                    codec.queueInputBuffer(index, 0, packet.opus.size, packet.frame * 10000, 0)
-                    playPending()
                 }
             } catch (error: Exception) {
-                if (isActive) client.note("Playback: ${error.message}")
+                if (running) client.note("Playback: ${error.message}")
             } finally {
+                running = false
                 runCatching { track?.stop() }
                 track?.release()
-                runCatching { codec?.stop() }
-                codec?.release()
+                decoder.release()
                 streams.remove(session, this@Playback)
             }
         }
 
-        fun offer(packet: VoicePacket) {
-            if (queue.size > 25) queue.clear()
-            queue.offer(packet)
+        private fun volume(): Float {
+            val current = client.state.value
+            val user = current.users[session]
+            val silent =
+                user?.localMute == true ||
+                    current.self?.selfDeaf == true ||
+                    current.self?.deaf == true ||
+                    !focusAvailable
+            return if (silent) 0f else (user?.volume ?: 0f).coerceIn(0f, 1f)
         }
 
-        fun end() {
-            ended = true
+        /** Returns false once the stream has shut down. */
+        fun offer(packet: VoicePacket): Boolean {
+            if (!running) return false
+            playout.push(packet.frame, packet.opus, packet.end)
+            return true
         }
 
         fun close() {
-            worker.cancel()
-            queue.clear()
+            running = false
+        }
+    }
+
+    /**
+     * MediaCodec's Opus decoder used one packet at a time. It has no loss concealment or FEC
+     * entry point, which is why Playout conceals by itself.
+     */
+    private class OpusDecoder : Playout.Decoder {
+        private var codec: MediaCodec? = null
+        private val info = MediaCodec.BufferInfo()
+        private val shorts = ShortArray(Playout.MAXIMUM_FRAME_SAMPLES)
+        private var timestamp = 0L
+
+        fun start() {
+            codec =
+                MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_AUDIO_OPUS).apply {
+                    configure(
+                        MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_OPUS, 48000, 1)
+                            .apply {
+                                val header = ByteBuffer.allocate(19).order(ByteOrder.LITTLE_ENDIAN)
+                                header
+                                    .put("OpusHead".toByteArray())
+                                    .put(1)
+                                    .put(1)
+                                    .putShort(0)
+                                    .putInt(48000)
+                                    .putShort(0)
+                                    .put(0)
+                                setByteBuffer("csd-0", ByteBuffer.wrap(header.array()))
+                                setByteBuffer(
+                                    "csd-1",
+                                    ByteBuffer.allocate(8)
+                                        .order(ByteOrder.nativeOrder())
+                                        .putLong(0)
+                                        .apply { flip() },
+                                )
+                                setByteBuffer(
+                                    "csd-2",
+                                    ByteBuffer.allocate(8)
+                                        .order(ByteOrder.nativeOrder())
+                                        .putLong(80000000)
+                                        .apply { flip() },
+                                )
+                            },
+                        null,
+                        null,
+                        0,
+                    )
+                    start()
+                }
+        }
+
+        // The decoder is never flushed between utterances: a flush makes the Android decoder
+        // discard the 80 ms seek pre-roll, and the gain ramp already hides any leftover state.
+        override fun decode(packet: ByteArray, length: Int, output: FloatArray): Int {
+            val codec = codec ?: return -1
+            val input = codec.dequeueInputBuffer(DECODE_WAIT_MICROS)
+            if (input < 0) return -1
+            codec.getInputBuffer(input)!!.apply {
+                clear()
+                put(packet, 0, length)
+            }
+            codec.queueInputBuffer(input, 0, length, timestamp, 0)
+            timestamp += 10000
+            var count = 0
+            var attempts = 0
+            while (count < output.size) {
+                val index =
+                    codec.dequeueOutputBuffer(info, if (count == 0) DECODE_WAIT_MICROS else 0)
+                if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) continue
+                if (index < 0) {
+                    if (count == 0 && ++attempts < 4) continue
+                    break
+                }
+                if (info.size > 0 && info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0) {
+                    val samples = minOf(info.size / 2, output.size - count, shorts.size)
+                    codec.getOutputBuffer(index)!!.apply {
+                        position(info.offset)
+                        limit(info.offset + info.size)
+                        order(ByteOrder.nativeOrder()).asShortBuffer().get(shorts, 0, samples)
+                    }
+                    for (sample in 0 until samples) output[count + sample] = shorts[sample] / 32768f
+                    count += samples
+                }
+                codec.releaseOutputBuffer(index, false)
+            }
+            return if (count == 0) -1 else count
+        }
+
+        fun release() {
+            runCatching { codec?.stop() }
+            codec?.release()
+            codec = null
         }
     }
 
     companion object {
+        private const val FRAME_SAMPLES = 480
+        private const val TRACK_BUFFER_BYTES = 48 * 40 * 2
+        private const val IDLE_FRAMES_BEFORE_CLOSE = 3000
+        private const val DECODE_WAIT_MICROS = 5000L
+
         private fun attributes() =
             AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
