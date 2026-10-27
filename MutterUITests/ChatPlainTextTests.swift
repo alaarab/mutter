@@ -26,12 +26,29 @@ final class ChatPlainTextTests: XCTestCase {
             "```",
             ">",
         ]
+        // Code: the owner's TestFlight report was a one-line fence alone.
+        let code: [(typed: String, shown: String)] = [
+            ("```\nhey\n```", "hey"),
+            ("```swift\nlet x = 1\n```", "let x = 1"),
+            ("`hey there`", "hey there"),
+            ("say `hi` back", "hi"),
+        ]
         for text in messages {
             composer.tap()
             composer.typeText(text)
             app.buttons["chat-send"].tap()
             let shown = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
             XCTAssertTrue(shown.waitForExistence(timeout: 5), "“\(text)” must show in its bubble")
+        }
+        for (typed, shown) in code {
+            composer.tap()
+            composer.typeText(typed)
+            app.buttons["chat-send"].tap()
+            let visible = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", shown)).firstMatch
+            XCTAssertTrue(visible.waitForExistence(timeout: 5), "“\(typed)” must show its code")
+            if typed.hasPrefix("```") {
+                XCTAssertTrue(app.buttons["chat-code-toggle"].firstMatch.exists, "a fenced block shows its header")
+            }
         }
         app.descendants(matching: .any)["chat-transcript"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
         attachScreenshot(of: app, named: "plain-messages")
