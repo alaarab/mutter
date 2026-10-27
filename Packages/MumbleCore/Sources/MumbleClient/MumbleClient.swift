@@ -211,7 +211,7 @@ public final class MumbleClient {
         lastUDPReply = nil
         isSynced = false
         while !undeliveredTexts.isEmpty {
-            failOldestUndeliveredText("connection lost before the server confirmed it")
+            failOldestUndeliveredText("connection lost before the server confirmed it", canRetry: true)
         }
         mySession = nil
         talkers = [:]
@@ -329,10 +329,10 @@ public final class MumbleClient {
         return lastPingStamp
     }
 
-    private func failOldestUndeliveredText(_ reason: String) {
+    private func failOldestUndeliveredText(_ reason: String, canRetry: Bool = false) {
         guard !undeliveredTexts.isEmpty else { return }
         let id = undeliveredTexts.removeFirst().id
-        ui { $0.updateDelivery(of: id, to: .failed(reason)) }
+        ui { $0.updateDelivery(of: id, to: .failed(reason: reason, canRetry: canRetry)) }
     }
 
     private func handle(_ message: IncomingMessage) {
@@ -976,37 +976,57 @@ public final class MumbleClient {
 
     public func sendText(html: String, to scope: MessageScope) {
         queue.async {
-            let text: TextMessageMessage
-            switch scope {
-            case .channel(let id): text = TextMessageMessage(message: html, channelIds: [id])
-            case .tree(let id): text = TextMessageMessage(message: html, treeIds: [id])
-            case .user(let id): text = TextMessageMessage(message: html, sessions: [id])
-            case .system: return
-            }
-            guard self.isSynced, self.control != nil else {
+            if !self.postText(html: html, to: scope) {
                 self.ui { $0.appendNotice(.info("Not connected — message not sent.")) }
-                return
             }
-            let myName = self.mySession.flatMap { self.users[$0]?.name } ?? "Me"
-            var message = ChatMessage(senderSession: self.mySession, senderName: myName, html: html, scope: scope, isOwn: true)
-            message.delivery = .sending
-            let id = message.id
-            self.ui { $0.appendMessage(message) }
-            self.send(text) { [weak self] in
-                guard let self, self.undeliveredTexts.contains(where: { $0.id == id }) else { return }
-                self.ui { session in
-                    if session.messages.last(where: { $0.id == id })?.delivery == .sending {
-                        session.updateDelivery(of: id, to: .sent)
-                    }
+        }
+    }
+
+    /// Sends a message the connection lost again, as a new message at the
+    /// bottom with fresh ticks. The failed one leaves the list at once, so a
+    /// second tap finds nothing to send. If the connection has gone again by
+    /// the time it would be sent, the failed message goes back where it was.
+    @MainActor
+    public func retry(_ message: ChatMessage) {
+        guard message.delivery?.canRetry == true, session.isConnected,
+              let index = session.removeMessage(id: message.id) else { return }
+        queue.async {
+            if !self.postText(html: message.html, to: message.scope) {
+                self.ui { $0.messages.insert(message, at: min(index, $0.messages.count)) }
+            }
+        }
+    }
+
+    /// On the queue. False when there is no connection to send on.
+    private func postText(html: String, to scope: MessageScope) -> Bool {
+        let text: TextMessageMessage
+        switch scope {
+        case .channel(let id): text = TextMessageMessage(message: html, channelIds: [id])
+        case .tree(let id): text = TextMessageMessage(message: html, treeIds: [id])
+        case .user(let id): text = TextMessageMessage(message: html, sessions: [id])
+        case .system: return true
+        }
+        guard isSynced, control != nil else { return false }
+        let myName = mySession.flatMap { users[$0]?.name } ?? "Me"
+        var message = ChatMessage(senderSession: mySession, senderName: myName, html: html, scope: scope, isOwn: true)
+        message.delivery = .sending
+        let id = message.id
+        ui { $0.appendMessage(message) }
+        send(text) { [weak self] in
+            guard let self, self.undeliveredTexts.contains(where: { $0.id == id }) else { return }
+            self.ui { session in
+                if session.messages.last(where: { $0.id == id })?.delivery == .sending {
+                    session.updateDelivery(of: id, to: .sent)
                 }
             }
-            // Mumble has no delivery receipts. The server handles a
-            // connection's messages in order, so the reply to this ping means
-            // it has accepted and relayed the text, or refused it first.
-            let ping = self.makePing()
-            self.undeliveredTexts.append((id, ping.timestamp ?? 0))
-            self.send(ping)
         }
+        // Mumble has no delivery receipts. The server handles a
+        // connection's messages in order, so the reply to this ping means
+        // it has accepted and relayed the text, or refused it first.
+        let ping = makePing()
+        undeliveredTexts.append((id, ping.timestamp ?? 0))
+        send(ping)
+        return true
     }
 
     public func createChannel(name: String, parent: UInt32, temporary: Bool, description: String? = nil) {

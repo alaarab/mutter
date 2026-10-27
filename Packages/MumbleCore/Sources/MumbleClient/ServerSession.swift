@@ -126,6 +126,12 @@ public final class ServerSession {
         messages[index].delivery = delivery
     }
 
+    func removeMessage(id: UUID) -> Int? {
+        guard let index = messages.firstIndex(where: { $0.id == id }) else { return nil }
+        messages.remove(at: index)
+        return index
+    }
+
     func appendMessage(_ message: ChatMessage) {
         messages.append(message)
         totalMessagesPosted += 1
