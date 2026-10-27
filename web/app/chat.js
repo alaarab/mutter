@@ -15,7 +15,7 @@ const ALLOWED_TAGS = {
   ol: [],
   li: [],
   pre: [],
-  code: [],
+  code: ['class'],
   blockquote: [],
   h1: [],
   h2: [],
@@ -30,6 +30,8 @@ const ALLOWED_TAGS = {
   td: [],
   th: [],
 };
+// The fence language Mutter's Markdown puts on code blocks; any other class is dropped.
+export const CODE_LANGUAGE_CLASS = /^language-[a-z0-9+#-]{1,20}$/;
 const DROPPED_TAGS = new Set(['script', 'style', 'head', 'template']);
 const URL_PATTERN = /https?:\/\/[^\s<>"']+/g;
 export const DEFAULT_IMAGE_LIMIT = 131_072;
@@ -107,7 +109,9 @@ function copyElement(node, into, insideLink) {
   const element = document.createElement(tag);
   for (const attribute of allowedAttributes) {
     const value = node.getAttribute(attribute);
-    if (value && (attribute === 'alt' || isSafeUrl(attribute, value))) {
+    if (attribute === 'class') {
+      if (value && CODE_LANGUAGE_CLASS.test(value)) element.className = value;
+    } else if (value && (attribute === 'alt' || isSafeUrl(attribute, value))) {
       element.setAttribute(attribute, value);
     }
   }

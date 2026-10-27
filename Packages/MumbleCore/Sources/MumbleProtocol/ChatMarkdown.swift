@@ -7,6 +7,7 @@ import Foundation
 /// web/test/fixtures/markdown.json.
 public enum ChatMarkdown {
     private static let fence = #/^\s{0,3}```/#
+    private static let fenceLanguage = #/[A-Za-z0-9+#-]{1,20}/#
     private static let bullet = #/^\s{0,3}[-*+]\s+(.*)$/#
     private static let numbered = #/^\s{0,3}(\d{1,9})[.)]\s+(.*)$/#
     private static let quote = #/^\s{0,3}>\s?(.*)$/#
@@ -29,7 +30,8 @@ public enum ChatMarkdown {
         var index = 0
         while index < lines.count {
             let line = lines[index]
-            if line.contains(fence) {
+            if let opening = line.firstMatch(of: fence) {
+                let language = Self.language(after: line[opening.range.upperBound...])
                 var code: [String] = []
                 index += 1
                 while index < lines.count, !lines[index].contains(fence) {
@@ -37,7 +39,7 @@ public enum ChatMarkdown {
                     index += 1
                 }
                 index += 1
-                block("<pre><code>\(escape(code.joined(separator: "\n")))</code></pre>")
+                block("<pre><code\(language.map { " class=\"language-\($0)\"" } ?? "")>\(escape(code.joined(separator: "\n")))</code></pre>")
                 continue
             }
             if line.wholeMatch(of: bullet) != nil {
@@ -79,6 +81,14 @@ public enum ChatMarkdown {
             index += 1
         }
         return out
+    }
+
+    /// The word after the opening fence, as a class other clients can
+    /// ignore. Anything but a plain name is dropped rather than escaped.
+    private static func language(after fence: Substring) -> String? {
+        guard let word = fence.split(whereSeparator: \.isWhitespace).first,
+              word.wholeMatch(of: fenceLanguage) != nil else { return nil }
+        return word.lowercased()
     }
 
     public static func escape(_ text: String) -> String {
