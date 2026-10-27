@@ -68,6 +68,42 @@ enum Theme {
         return danger
     }
 
+    /// A status colour that stays readable inside a code block on your own
+    /// bubble. The bubble is dark in both appearances, so this starts from
+    /// the dark palette's colour and moves toward the bubble's text until it
+    /// reaches 4.5:1 against the block's shaded fill.
+    /// How much a code block darkens your own bubble behind it.
+    static let ownCodeShade = 0.18
+
+    static func onOwnBubble(_ key: KeyPath<ThemeColors, UInt32>) -> Color {
+        let palette = style.palette
+        return Color(uiColor: UIColor { traits in
+            let colors = traits.userInterfaceStyle == .dark ? palette.dark : palette.light
+            let fill = mix(0x000000, colors.ownBubble, ownCodeShade)
+            let start = palette.dark[keyPath: key]
+            let readable = (0...20).lazy.map { mix(colors.onOwnBubble, start, Double($0) / 20) }.first { contrast($0, fill) >= 4.5 }
+            return UIColor(hex: readable ?? colors.onOwnBubble)
+        })
+    }
+
+    private static func mix(_ a: UInt32, _ b: UInt32, _ amount: Double) -> UInt32 {
+        [16, 8, 0].reduce(0) { result, shift in
+            let channel = Double((a >> shift) & 0xFF) * amount + Double((b >> shift) & 0xFF) * (1 - amount)
+            return result | (UInt32(channel.rounded()) << shift)
+        }
+    }
+
+    private static func contrast(_ a: UInt32, _ b: UInt32) -> Double {
+        func luminance(_ color: UInt32) -> Double {
+            zip([16, 8, 0], [0.2126, 0.7152, 0.0722]).reduce(0) { sum, part in
+                let channel = Double((color >> UInt32(part.0)) & 0xFF) / 255
+                return sum + part.1 * (channel <= 0.04045 ? channel / 12.92 : pow((channel + 0.055) / 1.055, 2.4))
+            }
+        }
+        let (high, low) = (max(luminance(a), luminance(b)), min(luminance(a), luminance(b)))
+        return (high + 0.05) / (low + 0.05)
+    }
+
     static var surfaceGradient: LinearGradient {
         LinearGradient(colors: [color(\.surfaceHighlight), surface], startPoint: .topLeading, endPoint: .bottomTrailing)
     }

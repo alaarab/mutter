@@ -33,6 +33,9 @@ final class ChatFormattingTests: XCTestCase {
         copyCode.tap()
         XCTAssertTrue(app.buttons["Copied"].waitForExistence(timeout: 2), "Copying the code confirms it")
 
+        let shortToggle = app.buttons.matching(identifier: "chat-code-toggle").firstMatch
+        XCTAssertEqual(shortToggle.label, "bash code, 1 line, expanded", "An unlabelled npm command is guessed as shell and starts open")
+
         formatted.press(forDuration: 1.0)
         XCTAssertTrue(app.buttons["Copy Conversation"].waitForExistence(timeout: 3), "Holding a message offers Copy Conversation")
         attachScreenshot(of: app, named: "chat-formatting-menu")
@@ -52,5 +55,22 @@ final class ChatFormattingTests: XCTestCase {
         let selectable = app.textViews["chat-message-selection"]
         XCTAssertTrue(selectable.waitForExistence(timeout: 3))
         XCTAssertEqual(selectable.value as? String, "Run this:\nnpm run raid")
+
+        // Long code starts folded to its first lines and opens on request.
+        app.descendants(matching: .any)["chat-transcript"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+        composer.tap()
+        let script = (1...16).map { "print(\"step \($0)\")  # \($0)" }.joined(separator: "\n")
+        composer.typeText("Long one:\n```python\n\(script)\n```")
+        app.buttons["chat-send"].tap()
+        let longToggle = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "python code, 16 lines")).firstMatch
+        XCTAssertTrue(longToggle.waitForExistence(timeout: 5), "The fence language labels the block")
+        XCTAssertTrue(longToggle.label.hasSuffix("collapsed"), "Long blocks start folded")
+        let showAll = app.buttons["chat-code-show-all"]
+        XCTAssertEqual(showAll.label, "Show all 16 lines")
+        showAll.tap()
+        let opened = NSPredicate(format: "label ENDSWITH %@", "expanded")
+        expectation(for: opened, evaluatedWith: longToggle)
+        waitForExpectations(timeout: 3)
+        attachScreenshot(of: app, named: "chat-code-expanded")
     }
 }

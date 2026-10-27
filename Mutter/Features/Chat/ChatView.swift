@@ -599,8 +599,8 @@ struct MessageRow: View {
             }
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: Self.bubbleWidth, alignment: .leading)
-        case .code(let code):
-            ChatCodeBlock(code: code, onOwnBubble: message.isOwn)
+        case .code(let code, let language):
+            ChatCodeBlock(code: code, language: language, onOwnBubble: message.isOwn)
                 .frame(maxWidth: Self.bubbleWidth, alignment: .leading)
         }
     }
@@ -710,28 +710,99 @@ struct DeliveryMark: View {
     }
 }
 
-/// A fenced code block: monospaced, scrolls sideways rather than wrapping,
-/// with its own Copy button.
+/// A fenced code block: coloured by language, monospaced, scrolls sideways
+/// rather than wrapping, under a header with its language, line count, Copy
+/// and a fold toggle. Long blocks start folded to their first few lines.
 struct ChatCodeBlock: View {
     let code: String
+    var language: String?
     var onOwnBubble = false
     @State private var copied = false
+    /// Nil until the reader folds or opens it; it then holds their choice.
+    @State private var expandedChoice: Bool?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    private static let foldOverLines = 12
+    private static let previewLines = 8
+
+    private var highlighted: Highlighted { Highlighted.make(code, language: language, onOwnBubble: onOwnBubble) }
+    private var isLong: Bool { highlighted.lines > Self.foldOverLines }
+    private var expanded: Bool { expandedChoice ?? !isLong }
+    private var lineText: String { "\(highlighted.lines) \(highlighted.lines == 1 ? "line" : "lines")" }
+    private var fill: Color { onOwnBubble ? Color.black.opacity(Theme.ownCodeShade) : Theme.surfaceSunken }
+    private var quiet: Color { onOwnBubble ? Theme.onOwnBubbleMuted : Theme.muted }
+
+    private var previewHeight: CGFloat {
+        let font = UIFont.monospacedSystemFont(ofSize: UIFont.preferredFont(forTextStyle: .footnote).pointSize, weight: .regular)
+        return font.lineHeight * CGFloat(Self.previewLines) + 10
+    }
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            Text(code)
-                .font(.footnote.monospaced())
-                .foregroundStyle(onOwnBubble ? Theme.onOwnBubble : Theme.ink)
-                .fixedSize()
-                .padding(.vertical, 10)
-                .padding(.leading, 12)
-                .padding(.trailing, 40)
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            if expanded || isLong {
+                Rectangle().fill(quiet.opacity(0.18)).frame(height: 1)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    Text(highlighted.text)
+                        .font(.footnote.monospaced())
+                        .foregroundStyle(onOwnBubble ? Theme.onOwnBubble : Theme.ink)
+                        .fixedSize()
+                        .padding(.vertical, 10)
+                        .padding(.horizontal, 12)
+                }
+                .frame(maxHeight: expanded ? nil : previewHeight, alignment: .top)
+                .clipped()
+                .overlay(alignment: .bottom) {
+                    if !expanded {
+                        LinearGradient(colors: [.clear, onOwnBubble ? Theme.ownBubble.opacity(0.9) : Theme.surfaceSunken], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 36)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .transition(.opacity)
+                if !expanded {
+                    Button { setExpanded(true) } label: {
+                        Text("Show all \(highlighted.lines) lines")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(quiet)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("chat-code-show-all")
+                }
+            }
         }
-        .background(
-            onOwnBubble ? Color.black.opacity(0.18) : Theme.surfaceSunken,
-            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-        )
-        .overlay(alignment: .topTrailing) {
+        .background(fill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private var header: some View {
+        HStack(spacing: 0) {
+            Button { setExpanded(!expanded) } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right")
+                        .font(.icon(10, .bold))
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                    Text(highlighted.label)
+                        .foregroundStyle(onOwnBubble ? Theme.onOwnBubble : Theme.body)
+                    Text("· \(lineText)")
+                }
+                .font(.caption2.monospaced().weight(.semibold))
+                .foregroundStyle(quiet)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+                .padding(.leading, 10)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(highlighted.label) code, \(lineText), \(expanded ? "expanded" : "collapsed")")
+            .accessibilityHint(expanded ? "Folds the code" : "Shows all the code")
+            .accessibilityAction(named: expanded ? "Collapse" : "Expand") { setExpanded(!expanded) }
+            .accessibilityIdentifier("chat-code-toggle")
             Button {
                 UIPasteboard.general.string = code
                 Haptics.impact(.light)
@@ -744,13 +815,67 @@ struct ChatCodeBlock: View {
                 Image(systemName: copied ? "checkmark" : "doc.on.doc")
                     .font(.icon(12, .semibold))
                     .contentTransition(.symbolEffect(.replace))
-                    .foregroundStyle(copied ? Theme.speaking : (onOwnBubble ? Theme.onOwnBubbleMuted : Theme.muted))
-                    .frame(width: 32, height: 32)
+                    .foregroundStyle(copied ? (onOwnBubble ? Theme.onOwnBubble(\.speaking) : Theme.speaking) : quiet)
+                    .frame(width: 36, height: 32)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(copied ? "Copied" : "Copy code")
             .accessibilityIdentifier("chat-code-copy")
+        }
+    }
+
+    private func setExpanded(_ value: Bool) {
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.28)) { expandedChoice = value }
+    }
+
+    /// The coloured code, built once per block and kept like HTMLText keeps
+    /// its renders. The key includes the theme, since the colours come from it.
+    struct Highlighted {
+        var text: AttributedString
+        var label: String
+        var lines: Int
+
+        private final class Box {
+            let value: Highlighted
+            init(_ value: Highlighted) { self.value = value }
+        }
+
+        private static let cache: NSCache<NSString, Box> = {
+            let cache = NSCache<NSString, Box>()
+            cache.countLimit = 200
+            return cache
+        }()
+
+        static func make(_ code: String, language: String?, onOwnBubble: Bool) -> Highlighted {
+            let key = "\(Theme.style.rawValue)|\(onOwnBubble)|\(language ?? "")|\(code)" as NSString
+            if let cached = cache.object(forKey: key) { return cached.value }
+            let result = ChatHighlighter.highlight(code, language: language)
+            var text = AttributedString()
+            for token in result.tokens {
+                var run = AttributedString(token.text)
+                if let kind = token.kind {
+                    run.foregroundColor = color(for: kind, onOwnBubble: onOwnBubble)
+                    if kind == .comment { run.font = .footnote.monospaced().italic() }
+                }
+                text += run
+            }
+            let lines = code.utf8.reduce(1) { $1 == 10 ? $0 + 1 : $0 } - (code.utf8.last == 10 ? 1 : 0)
+            let value = Highlighted(text: text, label: result.language ?? "code", lines: lines)
+            cache.setObject(Box(value), forKey: key, cost: code.utf8.count)
+            return value
+        }
+
+        private static func color(for kind: ChatHighlighter.Kind, onOwnBubble: Bool) -> Color {
+            let key: KeyPath<ThemeColors, UInt32>
+            switch kind {
+            case .keyword: key = \.whisper
+            case .string, .inserted: key = \.speaking
+            case .number, .type: key = \.warn
+            case .property, .variable, .deleted: key = \.danger
+            case .comment: return onOwnBubble ? Theme.onOwnBubbleMuted : Theme.muted
+            }
+            return onOwnBubble ? Theme.onOwnBubble(key) : Theme.color(key)
         }
     }
 }

@@ -3,6 +3,9 @@ import Foundation
 public enum HTMLSanitizer {
     private static let allowed = Set(["a", "b", "strong", "i", "em", "u", "s", "br", "p", "span", "div", "ul", "ol", "li", "pre", "code", "blockquote", "h1", "h2", "h3", "h4", "h5", "h6", "table", "thead", "tbody", "tr", "td", "th"])
     private static let dropped = Set(["script", "style", "head", "template", "iframe", "object"])
+    /// The fence language Mutter's Markdown puts on code blocks; any other
+    /// class is dropped.
+    private static let codeLanguageClass = #/language-[a-z0-9+#-]{1,20}/#
 
     public static func isSafeLink(_ url: URL) -> Bool {
         ["https", "http", "mailto"].contains(url.scheme?.lowercased() ?? "")
@@ -12,7 +15,8 @@ public enum HTMLSanitizer {
         let text = String(html.prefix(65_536)) as NSString
         guard let tokens = try? NSRegularExpression(pattern: "<[^<>]*+>|[^<]++|<"),
               let names = try? NSRegularExpression(pattern: "^<\\s*+(/?)\\s*+([a-zA-Z][a-zA-Z0-9]*+)\\b"),
-              let href = try? NSRegularExpression(pattern: "\\shref\\s*+=\\s*+(?:\"([^\"]*+)\"|'([^']*+)'|([^\\s>]++))", options: .caseInsensitive) else { return "" }
+              let href = try? NSRegularExpression(pattern: "\\shref\\s*+=\\s*+(?:\"([^\"]*+)\"|'([^']*+)'|([^\\s>]++))", options: .caseInsensitive),
+              let className = try? NSRegularExpression(pattern: "\\sclass\\s*+=\\s*+(?:\"([^\"]*+)\"|'([^']*+)'|([^\\s>]++))", options: .caseInsensitive) else { return "" }
         var output = ""
         var suppressed: String?
         for token in tokens.matches(in: text as String, range: NSRange(location: 0, length: text.length)) {
@@ -43,6 +47,11 @@ public enum HTMLSanitizer {
                     .replacingOccurrences(of: "<", with: "&lt;")
                     .replacingOccurrences(of: ">", with: "&gt;")
                 output += "<a href=\"\(escaped)\">"
+            } else if tag == "code", let attribute = className.firstMatch(in: value as String, range: range),
+                      let index = (1...3).first(where: { attribute.range(at: $0).location != NSNotFound }),
+                      case let language = value.substring(with: attribute.range(at: index)),
+                      language.wholeMatch(of: codeLanguageClass) != nil {
+                output += "<code class=\"\(language)\">"
             } else {
                 output += "<\(tag)>"
             }

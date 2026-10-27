@@ -1525,19 +1525,105 @@ body[data-tab="screen"] #stage {
 }
 
 .row .content .code-block {
+  --code-line: calc(12.5px * 1.55);
   position: relative;
   margin: 6px 0;
   max-width: min(100%, 760px);
+  background: var(--sunken);
+  border: 1px solid var(--separator);
+  border-radius: var(--r8);
+  overflow: hidden;
+  white-space: normal;
+}
+
+.row .content .code-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 30px;
+  padding-right: 3px;
+  border-bottom: 1px solid var(--separator);
+}
+
+.row .content .code-block.collapsed:not(.long) .code-head {
+  border-bottom-color: transparent;
+}
+
+.row .content .code-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  align-self: stretch;
+  padding: 0 8px 0 6px;
+  font: 600 11.5px/1 ui-monospace, 'SF Mono', Menlo, monospace;
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.row .content .code-toggle:hover {
+  color: var(--ink);
+}
+
+.row .content .code-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: var(--r6);
+}
+
+.row .content .code-chevron {
+  display: grid;
+  place-items: center;
+  transition: transform var(--t-move);
+}
+
+.row .content .code-chevron svg {
+  width: 13px;
+  height: 13px;
+}
+
+.row .content .code-block:not(.collapsed) .code-chevron {
+  transform: rotate(90deg);
+}
+
+.row .content .code-lang {
+  color: var(--body);
+}
+
+.row .content .code-lines::before {
+  content: '·';
+  margin-right: 6px;
+}
+
+.row .content .code-body {
+  position: relative;
+  overflow: hidden;
+}
+
+.row .content .code-block.collapsed.long .code-body {
+  max-height: calc(8 * var(--code-line) + 10px);
+}
+
+.row .content .code-block.collapsed.long .code-body::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0;
+  height: calc(2.5 * var(--code-line));
+  background: linear-gradient(to bottom, transparent, var(--sunken));
+  pointer-events: none;
+}
+
+.row .content .code-block.collapsed:not(.long) .code-body {
+  max-height: 0;
 }
 
 .row .content pre {
   margin: 0;
-  padding: 10px 40px 10px 12px;
+  padding: 10px 12px;
   overflow-x: auto;
   white-space: pre;
-  background: var(--sunken);
-  border: 1px solid var(--separator);
-  border-radius: var(--r8);
   tab-size: 2;
 }
 
@@ -1550,26 +1636,31 @@ body[data-tab="screen"] #stage {
   color: var(--ink);
 }
 
+.row .content .code-more {
+  display: block;
+  width: 100%;
+  padding: 6px 12px 7px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-align: left;
+  border-top: 1px solid var(--separator);
+}
+
+.row .content .code-more:hover {
+  color: var(--ink);
+  background: var(--hover);
+}
+
 .row .content .code-copy {
-  position: absolute;
-  top: 5px;
-  right: 5px;
-  width: 28px;
-  height: 28px;
+  flex: none;
+  width: 26px;
+  height: 24px;
   border-radius: var(--r6);
   display: grid;
   place-items: center;
   color: var(--muted);
-  background: var(--surface);
-  border: 1px solid var(--separator);
-  opacity: 0;
-  transition: opacity var(--t), color var(--t), background var(--t);
-}
-
-.row .content .code-block:hover .code-copy,
-.row .content .code-copy:focus-visible,
-.row .content .code-copy.done {
-  opacity: 1;
+  transition: color var(--t), background var(--t);
 }
 
 .row .content .code-copy:hover {
@@ -1582,9 +1673,21 @@ body[data-tab="screen"] #stage {
 }
 
 .row .content .code-copy svg {
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
 }
+
+/* Syntax colours come from the theme's status colours, which are already
+   contrast-checked against every surface in light and dark. */
+.row .content .tok-keyword { color: var(--whisper); }
+.row .content .tok-string { color: var(--speaking); }
+.row .content .tok-number,
+.row .content .tok-type { color: var(--warn); }
+.row .content .tok-property,
+.row .content .tok-variable { color: var(--danger); }
+.row .content .tok-comment { color: var(--muted); font-style: italic; }
+.row .content .tok-inserted { color: var(--speaking); background: color-mix(in srgb, var(--speaking) 12%, transparent); }
+.row .content .tok-deleted { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
 
 .row .content b,
 .row .content strong {
@@ -3041,10 +3144,6 @@ body[data-members="off"] #members {
 
   .row .receipt {
     right: 10px;
-  }
-
-  .row .content .code-copy {
-    opacity: 1;
   }
 
   .row .gutter {

@@ -49,4 +49,30 @@ final class HTMLSanitizerTests: XCTestCase {
     func testStrayAngleBracketBeforeATagIsEscaped() {
         XCTAssertEqual(HTMLSanitizer.sanitize("<<b>bold</b>"), "&lt;<b>bold</b>")
     }
+
+    func testCodeKeepsOnlyAFenceLanguageClass() {
+        XCTAssertEqual(HTMLSanitizer.sanitize("<pre><code class=\"language-python\">x</code></pre>"), "<pre><code class=\"language-python\">x</code></pre>")
+        XCTAssertEqual(HTMLSanitizer.sanitize("<code class='language-c++'>a</code><code class=language-c#>b</code>"), "<code class=\"language-c++\">a</code><code class=\"language-c#\">b</code>")
+        let hostile = [
+            "<code class=\"language-js\" onclick=\"alert(1)\">x</code>",
+            "<code class=\"language-js evil\">x</code>",
+            "<code class=\"language-\">x</code>",
+            "<code class=\"Language-JS\">x</code>",
+            "<code class=\"language-abcdefghijklmnopqrstu\">x</code>",
+            "<code class=\"language-js\\\"><script>alert(1)</script>\">x</code>",
+            "<code class='language-x\" onmouseover=\"alert(1)'>x</code>",
+            "<code class=language-x/onfocus=alert(1)>x</code>",
+            "<code style=\"color:red\" class=\"x\">x</code>",
+            "<pre class=\"language-js\"><span class=\"language-js\">x</span></pre>",
+        ]
+        for html in hostile {
+            let clean = HTMLSanitizer.sanitize(html)
+            for unsafe in ["onclick", "onmouseover", "onfocus", "<script", "style", "evil", "Language"] {
+                XCTAssertFalse(clean.contains(unsafe), "\(html) -> \(clean)")
+            }
+            XCTAssertFalse(clean.contains("class") && !clean.contains("<code class=\"language-"), "\(html) -> \(clean)")
+        }
+        XCTAssertEqual(HTMLSanitizer.sanitize(hostile[1]), "<code>x</code>")
+        XCTAssertEqual(HTMLSanitizer.sanitize(hostile[9]), "<pre><span>x</span></pre>")
+    }
 }

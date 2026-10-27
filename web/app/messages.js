@@ -1,4 +1,5 @@
-import { sanitize, messageText } from './chat.js';
+import { sanitize, messageText, linkify } from './chat.js';
+import { highlight } from './highlight.js';
 import { ICON } from './icons.js';
 import { el, avatar, clickWithoutBubbling } from './ui.js';
 
@@ -6,6 +7,9 @@ const GROUP_WINDOW_MS = 7 * 60_000;
 const MAX_ROWS = 600;
 const BOTTOM_THRESHOLD_PX = 40;
 const FRESH_MS = 3000;
+// Code longer than this starts folded to its first few lines.
+const FOLD_OVER_LINES = 12;
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 
 export class MessageList {
   constructor(container, ctx) {
@@ -102,7 +106,7 @@ export class MessageList {
     }
     const content = el('div', { className: 'content' });
     content.append(sanitize(message.html));
-    addCodeCopyButtons(content);
+    addCodeBlocks(content, frame => this.expanding(frame));
     content.addEventListener('click', event => {
       if (event.target instanceof HTMLImageElement) this.ctx.onImage?.(event.target.src);
     });
@@ -146,6 +150,16 @@ export class MessageList {
     return bar;
   }
 
+  // A block opening near the bottom would push its own header off the top
+  // while the list sticks to the latest message; let it grow downwards instead.
+  expanding(frame) {
+    if (!this.atBottom) return;
+    const top = frame.getBoundingClientRect().top - this.box.getBoundingClientRect().top;
+    const body = frame.querySelector('.code-body');
+    const growth = body.scrollHeight - body.clientHeight;
+    if (top - growth < 0) this.atBottom = false;
+  }
+
   markFailed(message) {
     const row = this.box.querySelector(`[data-id="${message.id}"]`);
     if (!row || row.classList.contains('failed')) {
@@ -184,25 +198,76 @@ export function copyText(text) {
   return navigator.clipboard?.writeText(text).then(() => true, () => false) ?? Promise.resolve(false);
 }
 
-// Each code block gets its own Copy button, which copies the code exactly.
-function addCodeCopyButtons(content) {
+// Each code block gets a header with its language, line count, a Copy
+// button that copies the code exactly, and a toggle to fold it. The code is
+// coloured once, here, when the row is built.
+function addCodeBlocks(content, onExpand) {
   for (const pre of content.querySelectorAll('pre')) {
-    const frame = el('div', { className: 'code-block' });
-    const button = el('button', { type: 'button', className: 'code-copy', innerHTML: ICON.copy });
-    button.dataset.tip = 'Copy code';
-    button.setAttribute('aria-label', 'Copy code');
-    clickWithoutBubbling(button, async () => {
-      if (await copyText(pre.textContent)) {
-        button.innerHTML = ICON.check;
-        button.classList.add('done');
+    const text = pre.textContent;
+    const code = pre.querySelector(':scope > code');
+    const given = code?.className.match(/^language-(.+)$/)?.[1] ?? null;
+    const { language, detected, tokens } = highlight(text, given);
+    // Markup from other clients (line breaks, bold) is left as it came.
+    const target = code ?? pre;
+    if (![...target.querySelectorAll('*')].some(node => node.localName !== 'a')) {
+      target.replaceChildren();
+      for (const [kind, part] of tokens) {
+        if (kind) {
+          const span = el('span', { className: `tok-${kind}` });
+          linkify(part, span);
+          target.append(span);
+        } else {
+          linkify(part, target);
+        }
+      }
+    }
+    const lines = text.replace(/\n$/, '').split('\n').length;
+    const long = lines > FOLD_OVER_LINES;
+    const frame = el('div', { className: `code-block${long ? ' long collapsed' : ''}` });
+    const body = el('div', { className: 'code-body' });
+    const label = el('span', { className: 'code-lang', textContent: language ?? 'code' });
+    if (detected) label.title = 'Language guessed from the code';
+    const toggle = el(
+      'button',
+      { type: 'button', className: 'code-toggle' },
+      el('span', { className: 'code-chevron', innerHTML: ICON.chevron }),
+      label,
+      el('span', { className: 'code-lines', textContent: `${lines} ${lines === 1 ? 'line' : 'lines'}` })
+    );
+    const copy = el('button', { type: 'button', className: 'code-copy', innerHTML: ICON.copy });
+    copy.dataset.tip = 'Copy code';
+    copy.setAttribute('aria-label', 'Copy code');
+    clickWithoutBubbling(copy, async () => {
+      if (await copyText(text)) {
+        copy.innerHTML = ICON.check;
+        copy.classList.add('done');
         setTimeout(() => {
-          button.innerHTML = ICON.copy;
-          button.classList.remove('done');
+          copy.innerHTML = ICON.copy;
+          copy.classList.remove('done');
         }, 1400);
       }
     });
+    const more = el('button', { type: 'button', className: 'code-more', textContent: `Show all ${lines} lines` });
+    const setExpanded = (expanded, animate) => {
+      const from = body.getBoundingClientRect().height;
+      if (expanded && animate) onExpand(frame);
+      frame.classList.toggle('collapsed', !expanded);
+      toggle.setAttribute('aria-expanded', String(expanded));
+      toggle.setAttribute('aria-label', `${language ?? 'Code'}, ${lines} ${lines === 1 ? 'line' : 'lines'}, ${expanded ? 'expanded' : 'collapsed'}`);
+      body.inert = !expanded && !long;
+      more.hidden = expanded || !long;
+      const duration = animate && !reducedMotion.matches ? parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--duration-panel')) : 0;
+      const to = body.getBoundingClientRect().height;
+      if (duration && from !== to) {
+        body.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' });
+      }
+    };
+    clickWithoutBubbling(toggle, () => setExpanded(frame.classList.contains('collapsed'), true));
+    clickWithoutBubbling(more, () => setExpanded(true, true));
+    setExpanded(!long, false);
     pre.replaceWith(frame);
-    frame.append(pre, button);
+    body.append(pre);
+    frame.append(el('div', { className: 'code-head' }, toggle, copy), body, more);
   }
 }
 
