@@ -28,6 +28,9 @@ final class ChatBubbleThemeTests: XCTestCase {
         let composer = app.descendants(matching: .any)["chat-composer"]
         XCTAssertTrue(composer.waitForExistence(timeout: 5))
         composer.tap()
+        // A tap that lands while the tab is still settling can miss focus.
+        if !app.keyboards.firstMatch.waitForExistence(timeout: 3) { composer.tap() }
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3), "The composer takes focus")
         let messageText = "Bubble check \(theme.rawValue) https://example.com"
         composer.typeText(messageText)
         app.buttons["chat-send"].tap()
