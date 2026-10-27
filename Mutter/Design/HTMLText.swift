@@ -23,7 +23,8 @@ enum HTMLText {
 
     enum Block: Hashable {
         case prose(AttributedString)
-        case code(String)
+        /// The code and the fence language it was sent with, if any.
+        case code(String, language: String?)
         case quote(AttributedString)
     }
 
@@ -92,9 +93,9 @@ enum HTMLText {
                 case .quote(let markup):
                     let text = proseText(markup)
                     return text.characters.isEmpty ? nil : .quote(text)
-                case .code(let markup):
+                case .code(let markup, let language):
                     let code = decodeEntities(markup.replacingOccurrences(of: "<[^<>]*+>", with: "", options: .regularExpression))
-                    return code.isEmpty ? nil : .code(code.hasSuffix("\n") ? String(code.dropLast()) : code)
+                    return code.isEmpty ? nil : .code(code.hasSuffix("\n") ? String(code.dropLast()) : code, language: language)
                 }
             }
         } else {
@@ -106,7 +107,7 @@ enum HTMLText {
             if index > 0 { attributed += AttributedString("\n") }
             switch block {
             case .prose(let text), .quote(let text): attributed += text
-            case .code(let code): attributed += AttributedString(code)
+            case .code(let code, _): attributed += AttributedString(code)
             }
         }
         let links = detectLinks(in: String(attributed.characters))
@@ -167,12 +168,12 @@ enum HTMLText {
 
     private enum RawBlock {
         case prose(String)
-        case code(String)
+        case code(String, language: String?)
         case quote(String)
     }
 
     private static let blockPattern = try! NSRegularExpression(
-        pattern: "<pre>(?:\\s*<code>)?(.*?)(?:</code>\\s*)?</pre>|<blockquote>(.*?)</blockquote>",
+        pattern: "<pre>(?:\\s*<code(?: class=\"language-([a-z0-9+#-]{1,20})\")?>)?(.*?)(?:</code>\\s*)?</pre>|<blockquote>(.*?)</blockquote>",
         options: [.caseInsensitive, .dotMatchesLineSeparators]
     )
 
@@ -186,10 +187,11 @@ enum HTMLText {
             if match.range.location > cursor {
                 blocks.append(.prose(ns.substring(with: NSRange(location: cursor, length: match.range.location - cursor))))
             }
-            if match.range(at: 1).location != NSNotFound {
-                blocks.append(.code(ns.substring(with: match.range(at: 1))))
+            if match.range(at: 2).location != NSNotFound {
+                let language = match.range(at: 1).location != NSNotFound ? ns.substring(with: match.range(at: 1)) : nil
+                blocks.append(.code(ns.substring(with: match.range(at: 2)), language: language))
             } else {
-                blocks.append(.quote(ns.substring(with: match.range(at: 2))))
+                blocks.append(.quote(ns.substring(with: match.range(at: 3))))
             }
             cursor = match.range.location + match.range.length
         }

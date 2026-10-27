@@ -51,6 +51,32 @@ test('hostile markup stays inert and cannot break chat rendering', { timeout: 60
   for (const value of ['javascript:', 'onclick', 'onload', 'file:', '<script', '<svg', '<constructor', 'svg+xml', 'svg%2B', 'text/html', 'Vector bomb', 'Encoded vector', 'Not an image']) {
     assert.ok(!rendered.html.includes(value), value);
   }
+  const classes = await page.eval(`(async () => {
+    const { sanitize } = await import('/app/chat.js');
+    const render = html => { const host = document.createElement('div'); host.append(sanitize(html)); return host.innerHTML; };
+    return [
+      '<pre><code class="language-python">x</code></pre>',
+      '<code class="language-c++">a</code><code class=language-c#>b</code>',
+      '<code class="language-js" onclick="alert(1)">x</code>',
+      '<code class="language-js evil">x</code>',
+      '<code class="Language-JS">x</code>',
+      '<code class="language-abcdefghijklmnopqrstu">x</code>',
+      '<code class="language-js&quot; onmouseover=&quot;alert(1)">x</code>',
+      '<code class=language-x/onfocus=alert(1)>x</code>',
+      '<pre class="language-js"><span class="language-js">x</span></pre>',
+    ].map(render);
+  })()`);
+  assert.deepEqual(classes, [
+    '<pre><code class="language-python">x</code></pre>',
+    '<code class="language-c++">a</code><code class="language-c#">b</code>',
+    '<code class="language-js">x</code>',
+    '<code>x</code>',
+    '<code>x</code>',
+    '<code>x</code>',
+    '<code>x</code>',
+    '<code>x</code>',
+    '<pre><span>x</span></pre>',
+  ], 'code keeps only an exact language-<name> class');
   const headers = await fetch(environment.bridge.url).then(response => response.headers);
   assert.ok(headers.get('content-security-policy').includes("script-src 'self'"));
   assert.ok(headers.get('content-security-policy').includes("frame-src 'none'"));

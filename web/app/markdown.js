@@ -7,6 +7,7 @@
 import { escapeHtml as escapeText } from './chat.js';
 
 const FENCE = /^\s{0,3}```/;
+const FENCE_LANGUAGE = /^[A-Za-z0-9+#-]{1,20}$/;
 const BULLET = /^\s{0,3}[-*+]\s+(.*)$/;
 const NUMBERED = /^\s{0,3}(\d{1,9})[.)]\s+(.*)$/;
 const QUOTE = /^\s{0,3}>\s?(.*)$/;
@@ -28,13 +29,14 @@ export function markdownToHtml(source) {
   while (index < lines.length) {
     const line = lines[index];
     if (FENCE.test(line)) {
+      const language = fenceLanguage(line);
       const code = [];
       index++;
       while (index < lines.length && !FENCE.test(lines[index])) {
         code.push(lines[index++]);
       }
       index++;
-      block(`<pre><code>${escapeText(code.join('\n'))}</code></pre>`);
+      block(`<pre><code${language ? ` class="language-${language}"` : ''}>${escapeText(code.join('\n'))}</code></pre>`);
       continue;
     }
     const list = BULLET.test(line) ? BULLET : NUMBERED.test(line) ? NUMBERED : null;
@@ -75,6 +77,13 @@ export function markdownToHtml(source) {
     index++;
   }
   return out.join('');
+}
+
+// The word after the opening fence, as a class other clients can ignore.
+// Anything but a plain name is dropped rather than escaped.
+function fenceLanguage(line) {
+  const word = line.replace(FENCE, '').trim().split(/\s/)[0];
+  return FENCE_LANGUAGE.test(word) ? word.toLowerCase() : null;
 }
 
 // Inline marks: `code`, **bold**, *italic*, _italic_, ~~strike~~, [text](url)
