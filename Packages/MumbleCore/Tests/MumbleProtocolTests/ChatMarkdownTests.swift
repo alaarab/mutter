@@ -24,7 +24,7 @@ final class ChatMarkdownTests: XCTestCase {
     }
 
     func testOutputPassesTheSanitizerUnchanged() {
-        let html = ChatMarkdown.html(from: "**a** `b`\n- c\n> d\n```\ne\n```")
+        let html = ChatMarkdown.html(from: "**a** `b`\n- c\n> d\n```\ne\n```\n```C++\nf\n```")
         XCTAssertEqual(HTMLSanitizer.sanitize(html), html)
     }
 }
