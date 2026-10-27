@@ -186,7 +186,7 @@ export class FakeMumbleServer extends EventEmitter {
       this.authenticate(user, message);
       return;
     }
-    if (!user.synced) {
+    if (!user.synced || user.stalled) {
       return;
     }
     switch (type) {
@@ -223,6 +223,26 @@ export class FakeMumbleServer extends EventEmitter {
       default:
         break;
     }
+  }
+
+  // A stalled connection is read but never answered, like a server that has
+  // hung: its texts are not relayed and its pings get no reply. Dropping it
+  // then lets a test leave a message unconfirmed when the connection goes.
+  // The client's next connection is a new user and is answered as usual.
+  stall(name) {
+    this.userNamed(name).stalled = true;
+  }
+
+  drop(name) {
+    this.userNamed(name).socket.destroy();
+  }
+
+  userNamed(name) {
+    const user = [...this.users.values()].find((candidate) => candidate.name === name);
+    if (!user) {
+      throw new Error(`no user named ${name}`);
+    }
+    return user;
   }
 
   onRequestBlob(user, message) {
