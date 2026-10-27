@@ -91,7 +91,7 @@ export class MessageList {
 
   row(message, previous) {
     const continues = continuesGroup(message, previous);
-    const row = el('div', { className: `row${continues ? ' cont' : ''}${message.own ? ' own' : ''}` });
+    const row = el('div', { className: `row${continues ? ' cont' : ''}${message.own ? ' own' : ''}${message.failed ? ' failed' : ''}` });
     row.dataset.id = message.id;
     if (message.senderSession !== undefined) {
       row.dataset.session = message.senderSession;
@@ -112,7 +112,7 @@ export class MessageList {
     });
     body.append(content);
     if (message.failed) {
-      body.append(failedNote(message));
+      body.append(this.failedNote(message));
     }
     row.append(gutter, body);
     if (message.own && message.delivery && !message.failed) {
@@ -140,6 +140,9 @@ export class MessageList {
       clickWithoutBubbling(button, action);
       return button;
     };
+    if (message.failed && message.retryable) {
+      bar.append(this.retryTool(message));
+    }
     bar.append(tool('quote', 'Quote', () => this.ctx.onQuote?.(message)));
     bar.append(tool('copy', 'Copy message', () => copyText(messageText(message.html))));
     const senderOnline = message.senderSession !== undefined && this.ctx.client.users.has(message.senderSession);
@@ -167,7 +170,71 @@ export class MessageList {
     }
     row.classList.add('failed');
     row.querySelector('.receipt')?.remove();
-    row.querySelector('.body')?.append(failedNote(message));
+    row.querySelector('.body')?.append(this.failedNote(message));
+    if (message.retryable) {
+      row.querySelector('.tools')?.prepend(this.retryTool(message));
+    }
+  }
+
+  failedNote(message) {
+    const note = el('div', { className: 'failed-note' }, el('span', { textContent: `Not delivered · ${message.failed}` }));
+    if (message.retryable) {
+      const retry = el('button', { type: 'button', className: 'retry', textContent: 'Retry' });
+      this.retryControl(retry, message);
+      note.append(retry);
+    }
+    return note;
+  }
+
+  retryTool(message) {
+    const button = el('button', { type: 'button', className: 'retry', innerHTML: ICON.retry });
+    this.retryControl(button, message);
+    return button;
+  }
+
+  retryControl(button, message) {
+    button.setAttribute('aria-label', 'Try again, message not delivered');
+    clickWithoutBubbling(button, () => this.ctx.client.retryText(message));
+    showRetryEnabled(button, this.ctx.client.isConnected);
+  }
+
+  // Retry only works while connected; the buttons stay visible but disabled
+  // while the client reconnects.
+  refreshRetry() {
+    for (const button of this.box.querySelectorAll('.retry')) {
+      showRetryEnabled(button, this.ctx.client.isConnected);
+    }
+  }
+
+  remove(id) {
+    const row = this.box.querySelector(`.row[data-id="${id}"]`);
+    if (!row) {
+      return;
+    }
+    const before = row.previousElementSibling;
+    const after = row.nextElementSibling;
+    this.sizeWatcher.unobserve(row);
+    row.remove();
+    if (before?.classList.contains('day') && (!after || after.classList.contains('day'))) {
+      before.remove();
+    }
+    // The next message may have been grouped under the removed one; build it
+    // again so it gets back its own name and avatar if it needs them.
+    const next = this.messageFor(after);
+    if (after?.classList.contains('cont') && next) {
+      const rebuilt = this.row(next, this.messageFor(previousRow(after)));
+      this.sizeWatcher.unobserve(after);
+      after.replaceWith(rebuilt);
+      this.sizeWatcher.observe(rebuilt);
+    }
+    if (this.previous?.id === id) {
+      this.previous = this.messageFor([...this.box.querySelectorAll('.row')].at(-1));
+    }
+    this.settledLayout = this.currentLayout();
+  }
+
+  messageFor(row) {
+    return row ? (this.ctx.client.messages.find(message => message.id === row.dataset.id) ?? null) : null;
   }
 
   markDelivery(message) {
@@ -291,8 +358,17 @@ function continuesGroup(message, previous) {
   );
 }
 
-function failedNote(message) {
-  return el('div', { className: 'failed-note', textContent: `Not delivered · ${message.failed}` });
+function showRetryEnabled(button, connected) {
+  button.disabled = !connected;
+  button.dataset.tip = connected ? 'Retry' : 'Retry when connected';
+}
+
+function previousRow(element) {
+  let node = element.previousElementSibling;
+  while (node && !node.classList.contains('row')) {
+    node = node.previousElementSibling;
+  }
+  return node;
 }
 
 function systemIcon(html) {

@@ -446,9 +446,10 @@ struct MessageRow: View {
     private var quietColor: Color { message.isOwn ? Theme.onOwnBubbleMuted : Theme.muted }
     private var isSelecting: Bool { selection?.active == message.id }
     private var failure: String? {
-        if case .failed(let reason) = message.delivery { return reason }
+        if case .failed(let reason, _) = message.delivery { return reason }
         return nil
     }
+    private var canRetry: Bool { message.delivery?.canRetry == true }
 
     /// A message that is one run of prose is selected in place; anything
     /// with code or quotes is selected as its whole text, laid over all of it.
@@ -486,11 +487,20 @@ struct MessageRow: View {
                     if !continuesGroup { header }
                     bubble
                     if let failure {
-                        Label("Not delivered · \(failure)", systemImage: "exclamationmark.circle.fill")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(Theme.danger)
-                            .frame(maxWidth: Self.bubbleWidth, alignment: .trailing)
-                            .accessibilityIdentifier("chat-message-failed")
+                        HStack(spacing: 8) {
+                            Label("Not delivered · \(failure)", systemImage: "exclamationmark.circle.fill")
+                                .accessibilityIdentifier("chat-message-failed")
+                            if canRetry {
+                                Button("Try Again") { model.client.retry(message) }
+                                    .buttonStyle(.borderless)
+                                    .disabled(!model.session.isConnected)
+                                    .accessibilityLabel("Try again, message not delivered")
+                                    .accessibilityIdentifier("chat-message-retry")
+                            }
+                        }
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(Theme.danger)
+                        .frame(maxWidth: Self.bubbleWidth, alignment: .trailing)
                     }
                 }
                 if !message.isOwn { Spacer(minLength: 48) }
@@ -551,6 +561,11 @@ struct MessageRow: View {
         .overlay(bubbleShape.strokeBorder(failure != nil ? Theme.danger.opacity(0.7) : (message.isOwn ? Color.clear : Theme.separator), lineWidth: 1))
         .contentShape(.contextMenuPreview, bubbleShape)
         .contextMenu {
+            if canRetry {
+                Button("Try Again", systemImage: "arrow.clockwise") { model.client.retry(message) }
+                    .disabled(!model.session.isConnected)
+                    .accessibilityLabel("Try again, message not delivered")
+            }
             if hasText && !isSelecting {
                 Button("Copy", systemImage: "doc.on.doc") { MessageSelection.copy(rendered.text) }
                 if let selection {

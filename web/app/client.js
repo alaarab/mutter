@@ -282,13 +282,28 @@ export class MumbleClient extends EventTarget {
     this.#emit('text-delivery', message);
   }
 
-  #failOldestUndelivered(reason) {
+  #failOldestUndelivered(reason, { retryable = false } = {}) {
     const pending = this.#undelivered.shift();
     if (!pending) {
       return;
     }
     pending.message.failed = reason;
+    pending.message.retryable = retryable;
     this.#emit('text-failed', pending.message);
+  }
+
+  // Sends a failed message again as a new one at the bottom. Only messages
+  // lost with the connection can be retried: the server would refuse a
+  // refused one again. A message already retried is gone from the list, so
+  // a second click sends nothing.
+  retryText(message) {
+    const index = this.messages.indexOf(message);
+    if (!this.isConnected || !message.retryable || index === -1) {
+      return false;
+    }
+    this.messages.splice(index, 1);
+    this.#emit('text-removed', message);
+    return this.sendText(message.html, message.scope);
   }
 
   joinChannel(channelId) {
@@ -464,7 +479,7 @@ export class MumbleClient extends EventTarget {
     this.#opening?.abort();
     this.#opening = null;
     while (this.#undelivered.length) {
-      this.#failOldestUndelivered('connection lost before the server confirmed it');
+      this.#failOldestUndelivered('connection lost before the server confirmed it', { retryable: true });
     }
     for (const timer of Object.values(this.#timers)) {
       clearInterval(timer);
