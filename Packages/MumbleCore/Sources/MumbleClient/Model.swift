@@ -114,7 +114,14 @@ public enum MessageDelivery: Hashable, Sendable {
     /// The server has handled it: a ping sent after it came back with no
     /// refusal first, and the server handles a connection's messages in order.
     case delivered
-    case failed(String)
+    /// Never confirmed. A message the connection lost can be sent again; one
+    /// the server refused would only be refused again.
+    case failed(reason: String, canRetry: Bool)
+
+    public var canRetry: Bool {
+        if case .failed(_, canRetry: true) = self { return true }
+        return false
+    }
 }
 
 public struct ChatMessage: Identifiable, Hashable, Sendable {
