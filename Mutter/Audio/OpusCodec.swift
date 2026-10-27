@@ -47,8 +47,8 @@ final class OpusEncoderWrapper {
 }
 
 final class OpusDecoderWrapper {
+    static let maximumFrameSamples = 5760
     private var decoder: OpaquePointer
-    private var scratch = [Float](repeating: 0, count: 5760)
 
     init() throws {
         var status: Int32 = 0
@@ -62,22 +62,28 @@ final class OpusDecoderWrapper {
         opus_decoder_destroy(decoder)
     }
 
+    /// The duration of a packet at 48 kHz, or nil if it is not a valid Opus packet.
+    static func samples(in packet: Data) -> Int? {
+        let samples = packet.withUnsafeBytes { raw -> Int32 in
+            guard let bytes = raw.bindMemory(to: UInt8.self).baseAddress else { return -1 }
+            return opus_packet_get_nb_samples(bytes, Int32(raw.count), OpusEncoderWrapper.sampleRate)
+        }
+        return samples > 0 ? Int(samples) : nil
+    }
+
     func reset() {
         _ = opus_shim_decoder_reset(decoder)
     }
 
-    func decode(_ packet: Data?, plcSamples: Int = 960) throws -> [Float] {
-        let samples: Int32 = scratch.withUnsafeMutableBufferPointer { output -> Int32 in
-            if let packet, !packet.isEmpty {
-                return packet.withUnsafeBytes { raw -> Int32 in
-                    let bytes = raw.bindMemory(to: UInt8.self).baseAddress
-                    return opus_decode_float(decoder, bytes, Int32(packet.count), output.baseAddress!, Int32(output.count), 0)
-                }
-            } else {
-                return opus_decode_float(decoder, nil, 0, output.baseAddress!, Int32(plcSamples), 0)
-            }
+    /// Decodes without allocating, so it is safe on the render thread. With no packet it conceals `samples`;
+    /// with `fec` it rebuilds the `samples` before `packet` from the packet's in-band redundancy.
+    /// Returns the samples written, or a negative Opus error.
+    func decode(_ packet: UnsafeRawBufferPointer?, fec: Bool = false, samples: Int,
+                into output: UnsafeMutablePointer<Float>, capacity: Int) -> Int {
+        guard let packet, let bytes = packet.bindMemory(to: UInt8.self).baseAddress, !packet.isEmpty else {
+            return Int(opus_decode_float(decoder, nil, 0, output, Int32(min(samples, capacity)), 0))
         }
-        guard samples >= 0 else { throw OpusError.decodeFailed(samples) }
-        return Array(scratch[0..<Int(samples)])
+        let frameSize = fec ? min(samples, capacity) : capacity
+        return Int(opus_decode_float(decoder, bytes, Int32(packet.count), output, Int32(frameSize), fec ? 1 : 0))
     }
 }
