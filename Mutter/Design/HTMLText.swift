@@ -6,10 +6,25 @@ import MumbleProtocol
 
 enum HTMLText {
     struct Rendered {
+        /// The whole message as one run of text, for copying and previews.
         var text: AttributedString
+        /// The same text split where it is shown differently: prose, code
+        /// blocks and quotes.
+        var blocks: [Block] = []
         var images: [UIImage]
         var links: [URL]
         var unreadableImages: Int = 0
+    }
+
+    /// The brand text face has no italic, which SwiftUI will not slant,
+    /// so italic runs use the system face.
+    static let italicFont = Font.system(.body).italic()
+    static let boldItalicFont = Font.system(.body, weight: .bold).italic()
+
+    enum Block: Hashable {
+        case prose(AttributedString)
+        case code(String)
+        case quote(AttributedString)
     }
 
     private struct Prepared {
@@ -67,15 +82,35 @@ enum HTMLText {
         if let cached = cache.object(forKey: key) { return cached.value }
         let prepared = preparedCache.object(forKey: key)?.value ?? prepare(html)
         preparedCache.removeObject(forKey: key)
-        var attributed: AttributedString
+        var blocks: [Block]
         if prepared.looksLikeHTML {
-            attributed = attributedFromSanitizedHTML(prepared.markup) ?? AttributedString(plainText(prepared.markup))
+            blocks = splitBlocks(prepared.markup).compactMap { block in
+                switch block {
+                case .prose(let markup):
+                    let text = proseText(markup)
+                    return text.characters.isEmpty ? nil : .prose(text)
+                case .quote(let markup):
+                    let text = proseText(markup)
+                    return text.characters.isEmpty ? nil : .quote(text)
+                case .code(let markup):
+                    let code = decodeEntities(markup.replacingOccurrences(of: "<[^<>]*+>", with: "", options: .regularExpression))
+                    return code.isEmpty ? nil : .code(code.hasSuffix("\n") ? String(code.dropLast()) : code)
+                }
+            }
         } else {
-            attributed = AttributedString(prepared.markup)
+            let text = normalizeStyle(AttributedString(prepared.markup))
+            blocks = text.characters.isEmpty ? [] : [.prose(text)]
         }
-        attributed = normalizeStyle(attributed)
+        var attributed = AttributedString()
+        for (index, block) in blocks.enumerated() {
+            if index > 0 { attributed += AttributedString("\n") }
+            switch block {
+            case .prose(let text), .quote(let text): attributed += text
+            case .code(let code): attributed += AttributedString(code)
+            }
+        }
         let links = detectLinks(in: String(attributed.characters))
-        let result = Rendered(text: attributed, images: prepared.images, links: links, unreadableImages: prepared.unreadableImages)
+        let result = Rendered(text: attributed, blocks: blocks, images: prepared.images, links: links, unreadableImages: prepared.unreadableImages)
         cache.setObject(Box(result), forKey: key, cost: cost(of: html, images: prepared.images))
         return result
     }
@@ -100,9 +135,12 @@ enum HTMLText {
     static func plainText(_ html: String) -> String {
         var text = String(stripImages(from: String(html.prefix(maximumScannedLength))).prefix(maximumTextLength))
         text = text.replacingOccurrences(of: "<br\\s*+/?>", with: "\n", options: [.regularExpression, .caseInsensitive])
-        text = text.replacingOccurrences(of: "</p>", with: "\n", options: .caseInsensitive)
+        text = text.replacingOccurrences(of: "</(p|li|pre|blockquote|h[1-6]|ul|ol|div|tr)>", with: "\n", options: [.regularExpression, .caseInsensitive])
+        text = text.replacingOccurrences(of: "<li[^<>]*+>", with: "- ", options: [.regularExpression, .caseInsensitive])
+        text = text.replacingOccurrences(of: "<(pre|blockquote|ul|ol|h[1-6])[^<>]*+>", with: "\n", options: [.regularExpression, .caseInsensitive])
         text = text.replacingOccurrences(of: "<[^<>]*+>", with: "", options: .regularExpression)
         text = decodeEntities(text)
+        text = text.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -127,6 +165,72 @@ enum HTMLText {
         text.range(of: "<[a-zA-Z/][^<>]*+>", options: .regularExpression) != nil || text.contains("&")
     }
 
+    private enum RawBlock {
+        case prose(String)
+        case code(String)
+        case quote(String)
+    }
+
+    private static let blockPattern = try! NSRegularExpression(
+        pattern: "<pre>(?:\\s*<code>)?(.*?)(?:</code>\\s*)?</pre>|<blockquote>(.*?)</blockquote>",
+        options: [.caseInsensitive, .dotMatchesLineSeparators]
+    )
+
+    /// Code blocks and quotes come out of the sanitized markup as their own
+    /// blocks; everything around them is prose.
+    private static func splitBlocks(_ markup: String) -> [RawBlock] {
+        let ns = markup as NSString
+        var blocks: [RawBlock] = []
+        var cursor = 0
+        for match in blockPattern.matches(in: markup, range: NSRange(location: 0, length: ns.length)) {
+            if match.range.location > cursor {
+                blocks.append(.prose(ns.substring(with: NSRange(location: cursor, length: match.range.location - cursor))))
+            }
+            if match.range(at: 1).location != NSNotFound {
+                blocks.append(.code(ns.substring(with: match.range(at: 1))))
+            } else {
+                blocks.append(.quote(ns.substring(with: match.range(at: 2))))
+            }
+            cursor = match.range.location + match.range.length
+        }
+        if cursor < ns.length {
+            blocks.append(.prose(ns.substring(from: cursor)))
+        }
+        return blocks
+    }
+
+    private static func proseText(_ markup: String) -> AttributedString {
+        var text = normalizeStyle(attributedFromSanitizedHTML(markup) ?? AttributedString(plainText(markup)))
+        // Only line breaks: a leading list marker's spaces are part of it.
+        while text.characters.first == "\n" { text.characters.removeFirst() }
+        return text
+    }
+
+    private static let listMarker = try! NSRegularExpression(pattern: "^\\t(•|\\d+)\\t", options: .anchorsMatchLines)
+
+    /// iOS keeps list bullets and numbers in the paragraph style rather
+    /// than the text, so they would vanish with it: write them in.
+    private static func insertListMarkers(into text: NSMutableAttributedString) {
+        let string = text.string as NSString
+        var items: [(location: Int, marker: String)] = []
+        var numbers: [ObjectIdentifier: Int] = [:]
+        string.enumerateSubstrings(in: NSRange(location: 0, length: string.length), options: [.byParagraphs, .substringNotRequired]) { _, range, _, _ in
+            guard range.length > 0,
+                  let style = text.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle,
+                  let list = style.textLists.last,
+                  !string.substring(with: range).hasPrefix("\t") else { return }
+            let number = (numbers[ObjectIdentifier(list)] ?? list.startingItemNumber - 1) + 1
+            numbers[ObjectIdentifier(list)] = number
+            let ordered = list.markerFormat != .disc && list.markerFormat != .circle && list.markerFormat != .square && list.markerFormat != .hyphen
+            items.append((range.location, ordered ? "  \(number).  " : "  •  "))
+        }
+        for item in items.reversed() {
+            var attributes = text.attributes(at: item.location, effectiveRange: nil)
+            attributes[.link] = nil
+            text.insert(NSAttributedString(string: item.marker, attributes: attributes), at: item.location)
+        }
+    }
+
     private static func attributedFromSanitizedHTML(_ sanitized: String) -> AttributedString? {
         let wrapped = "<span style=\"font-family: -apple-system; font-size: 16px;\">\(sanitized)</span>"
         guard let data = wrapped.data(using: .utf8) else { return nil }
@@ -136,7 +240,14 @@ enum HTMLText {
         ]
         guard let ns = try? NSAttributedString(data: data, options: options, documentAttributes: nil) else { return nil }
         let normalized = NSMutableAttributedString(attributedString: ns)
+        insertListMarkers(into: normalized)
         normalized.removeAttribute(.paragraphStyle, range: NSRange(location: 0, length: normalized.length))
+        // Without paragraph styles, the importer's tab-indented list markers
+        // would sit at arbitrary tab stops; give them fixed spacing instead.
+        for match in listMarker.matches(in: normalized.string, range: NSRange(location: 0, length: normalized.length)).reversed() {
+            let marker = (normalized.string as NSString).substring(with: match.range(at: 1))
+            normalized.replaceCharacters(in: match.range, with: marker == "•" ? "  •  " : "  \(marker).  ")
+        }
         return try? AttributedString(normalized, including: \.uiKit)
     }
 
@@ -151,12 +262,15 @@ enum HTMLText {
             out[range].uiKit.font = nil
             out[range].uiKit.foregroundColor = nil
             out[range].uiKit.backgroundColor = nil
-            if traits.contains(.traitBold) && traits.contains(.traitItalic) {
-                out[range].swiftUI.font = .body.bold().italic()
+            if traits.contains(.traitMonoSpace) {
+                out[range].swiftUI.font = .callout.monospaced()
+                out[range].swiftUI.backgroundColor = Color.primary.opacity(0.09)
+            } else if traits.contains(.traitBold) && traits.contains(.traitItalic) {
+                out[range].swiftUI.font = boldItalicFont
             } else if traits.contains(.traitBold) {
                 out[range].swiftUI.font = .body.bold()
             } else if traits.contains(.traitItalic) {
-                out[range].swiftUI.font = .body.italic()
+                out[range].swiftUI.font = italicFont
             }
             if let link = run.link, !HTMLSanitizer.isSafeLink(link) {
                 out[range].link = nil
