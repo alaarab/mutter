@@ -1,9 +1,10 @@
-import { app, BrowserWindow, session, desktopCapturer, shell, ipcMain, nativeImage, dialog, safeStorage } from 'electron';
+import { app, BrowserWindow, Menu, session, desktopCapturer, shell, ipcMain, nativeImage, dialog, safeStorage } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { allowsPermission, disableChromiumFeatures, isAppURL, isExternalURL } from './security.js';
 import { CredentialVault } from './credentials.js';
+import { contextMenuItems } from './context-menu.js';
 
 disableChromiumFeatures(app.commandLine);
 
@@ -141,6 +142,10 @@ function createMainWindow(url) {
   });
   window.webContents.on('will-redirect', (event, target) => {
     if (!isAppURL(target, url)) event.preventDefault();
+  });
+  window.webContents.on('context-menu', (_event, params) => {
+    const items = contextMenuItems(params);
+    if (items.length) Menu.buildFromTemplate(items).popup({ window });
   });
   session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
     callback(contents === window.webContents && allowsPermission(permission, details.requestingUrl, contents.getURL(), url, details.isMainFrame));

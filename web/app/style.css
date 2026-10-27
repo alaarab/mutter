@@ -1380,7 +1380,7 @@ body[data-tab="screen"] #stage {
 @keyframes message-in {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateY(8px) scale(0.99);
   }
 }
 
@@ -1517,32 +1517,151 @@ body[data-tab="screen"] #stage {
   cursor: zoom-in;
 }
 
-.row .content pre,
 .row .content code {
-  font: 12.5px ui-monospace, monospace;
-  background: var(--sunken);
-  border: 1px solid var(--separator);
+  font: 0.86em/1.5 ui-monospace, 'SF Mono', Menlo, monospace;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
   border-radius: 5px;
-  padding: 1px 5px;
+  padding: 0.1em 0.38em;
+}
+
+.row .content .code-block {
+  position: relative;
+  margin: 6px 0;
+  max-width: min(100%, 760px);
 }
 
 .row .content pre {
-  padding: 8px 10px;
+  margin: 0;
+  padding: 10px 40px 10px 12px;
   overflow-x: auto;
-  margin: 4px 0;
+  white-space: pre;
+  background: var(--sunken);
+  border: 1px solid var(--separator);
+  border-radius: var(--r8);
+  tab-size: 2;
+}
+
+.row .content pre code {
+  display: block;
+  padding: 0;
+  background: none;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+.row .content .code-copy {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r6);
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--separator);
+  opacity: 0;
+  transition: opacity var(--t), color var(--t), background var(--t);
+}
+
+.row .content .code-block:hover .code-copy,
+.row .content .code-copy:focus-visible,
+.row .content .code-copy.done {
+  opacity: 1;
+}
+
+.row .content .code-copy:hover {
+  color: var(--ink);
+  background: var(--hover);
+}
+
+.row .content .code-copy.done {
+  color: var(--speaking);
+}
+
+.row .content .code-copy svg {
+  width: 15px;
+  height: 15px;
+}
+
+.row .content b,
+.row .content strong {
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.row .content h1,
+.row .content h2,
+.row .content h3,
+.row .content h4,
+.row .content h5,
+.row .content h6 {
+  font-size: 1.08em;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 6px 0 2px;
 }
 
 .row .content blockquote {
-  margin: 3px 0;
-  padding-left: 10px;
-  border-left: 3px solid var(--separator);
+  margin: 4px 0;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid color-mix(in srgb, var(--accent) 55%, var(--separator));
   color: var(--body);
 }
 
 .row .content ul,
 .row .content ol {
-  margin: 3px 0;
-  padding-left: 20px;
+  margin: 4px 0;
+  padding-left: 22px;
+  white-space: normal;
+}
+
+.row .content li {
+  white-space: pre-wrap;
+}
+
+.row .content li + li {
+  margin-top: 2px;
+}
+
+.row .content li::marker {
+  color: var(--muted);
+}
+
+.row.own .body {
+  padding-right: 22px;
+}
+
+.row .receipt {
+  position: absolute;
+  right: 16px;
+  bottom: 5px;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+  animation: receipt-in var(--duration-standard) var(--ease);
+}
+
+.row .receipt svg {
+  width: 16px;
+  height: 16px;
+}
+
+.row .receipt.sending {
+  opacity: 0.7;
+}
+
+.row .receipt.delivered {
+  color: var(--speaking);
+}
+
+@keyframes receipt-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
 }
 
 .row.system {
@@ -2918,6 +3037,14 @@ body[data-members="off"] #members {
 
   .messages .row {
     padding-right: 10px;
+  }
+
+  .row .receipt {
+    right: 10px;
+  }
+
+  .row .content .code-copy {
+    opacity: 1;
   }
 
   .row .gutter {

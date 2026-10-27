@@ -1,4 +1,4 @@
-import { sanitize, plainText } from './chat.js';
+import { sanitize, messageText } from './chat.js';
 import { ICON } from './icons.js';
 import { el, avatar, clickWithoutBubbling } from './ui.js';
 
@@ -102,6 +102,7 @@ export class MessageList {
     }
     const content = el('div', { className: 'content' });
     content.append(sanitize(message.html));
+    addCodeCopyButtons(content);
     content.addEventListener('click', event => {
       if (event.target instanceof HTMLImageElement) this.ctx.onImage?.(event.target.src);
     });
@@ -109,7 +110,11 @@ export class MessageList {
     if (message.failed) {
       body.append(failedNote(message));
     }
-    row.append(gutter, body, this.tools(message));
+    row.append(gutter, body);
+    if (message.own && message.delivery && !message.failed) {
+      row.append(receipt(message.delivery));
+    }
+    row.append(this.tools(message));
     return row;
   }
 
@@ -132,7 +137,7 @@ export class MessageList {
       return button;
     };
     bar.append(tool('quote', 'Quote', () => this.ctx.onQuote?.(message)));
-    bar.append(tool('copy', 'Copy text', () => navigator.clipboard?.writeText(plainText(message.html)).catch(() => {})));
+    bar.append(tool('copy', 'Copy message', () => copyText(messageText(message.html))));
     const senderOnline = message.senderSession !== undefined && this.ctx.client.users.has(message.senderSession);
     if (!message.own && senderOnline) {
       bar.append(tool('message', 'Message them', () => this.ctx.onMessageUser?.(message.senderSession)));
@@ -147,8 +152,66 @@ export class MessageList {
       return;
     }
     row.classList.add('failed');
+    row.querySelector('.receipt')?.remove();
     row.querySelector('.body')?.append(failedNote(message));
   }
+
+  markDelivery(message) {
+    const current = this.box.querySelector(`[data-id="${message.id}"] .receipt`);
+    current?.replaceWith(receipt(message.delivery));
+  }
+}
+
+const RECEIPT = {
+  sending: { label: 'Sending', paths: '<circle cx="12" cy="12" r="7.5"/><path d="M12 8v4l2.5 1.5"/>' },
+  sent: { label: 'Sent', paths: '<path d="M5 12.5l4.5 4.5L19 7.5"/>' },
+  delivered: { label: 'Delivered to the server', paths: '<path d="M2.5 12.5L7 17l9.5-9.5"/><path d="M11 15.5l1.5 1.5L22 7.5"/>' },
+};
+
+function receipt(delivery) {
+  const { label, paths } = RECEIPT[delivery];
+  const mark = el('span', {
+    className: `receipt ${delivery}`,
+    innerHTML: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`,
+  });
+  mark.dataset.tip = label;
+  mark.setAttribute('role', 'img');
+  mark.setAttribute('aria-label', label);
+  return mark;
+}
+
+export function copyText(text) {
+  return navigator.clipboard?.writeText(text).then(() => true, () => false) ?? Promise.resolve(false);
+}
+
+// Each code block gets its own Copy button, which copies the code exactly.
+function addCodeCopyButtons(content) {
+  for (const pre of content.querySelectorAll('pre')) {
+    const frame = el('div', { className: 'code-block' });
+    const button = el('button', { type: 'button', className: 'code-copy', innerHTML: ICON.copy });
+    button.dataset.tip = 'Copy code';
+    button.setAttribute('aria-label', 'Copy code');
+    clickWithoutBubbling(button, async () => {
+      if (await copyText(pre.textContent)) {
+        button.innerHTML = ICON.check;
+        button.classList.add('done');
+        setTimeout(() => {
+          button.innerHTML = ICON.copy;
+          button.classList.remove('done');
+        }, 1400);
+      }
+    });
+    pre.replaceWith(frame);
+    frame.append(pre, button);
+  }
+}
+
+// The conversation as plain text, one message per paragraph, for Copy conversation.
+export function transcriptText(messages) {
+  return messages
+    .filter(message => !message.scope?.system)
+    .map(message => `${message.senderName ?? '…'} · ${message.date.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}\n${messageText(message.html)}`)
+    .join('\n\n');
 }
 
 function continuesGroup(message, previous) {
