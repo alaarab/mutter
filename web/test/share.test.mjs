@@ -119,8 +119,13 @@ try {
     await bravo.eval(`(() => {
       window.watchedVideo = document.querySelector('#stage video.remote');
       window.videoLeftPage = false;
-      new MutationObserver(() => { if (!window.watchedVideo.isConnected) window.videoLeftPage = true; })
-        .observe(document.getElementById('stage'), { childList: true, subtree: true });
+      // A video moved back in the same task is still taken out of the page
+      // first, which ends full screen; the removal records show it.
+      new MutationObserver((records) => {
+        if (records.some((record) => [...record.removedNodes].some((node) => node === window.watchedVideo || node.contains?.(window.watchedVideo)))) {
+          window.videoLeftPage = true;
+        }
+      }).observe(document.getElementById('stage'), { childList: true, subtree: true });
     })()`);
     for (const muted of [true, false, true, false]) {
       await alpha.eval(`mutter.client.setSelfMute(${muted})`);
@@ -158,16 +163,26 @@ try {
     }
   });
 
-  await step('stopping and watching again at once connects to the new watch', async () => {
+  await step('an offer meant for an earlier watch is ignored', async () => {
     await bravo.eval(`(() => {
       const sender = [...mutter.share.available.keys()][0];
       mutter.share.unwatch();
       mutter.share.watch(sender);
-      setTimeout(() => { mutter.share.unwatch(); mutter.share.watch(sender); }, 120);
     })()`);
-    await sleep(300);
-    await bravo.waitFor(`mutter.share.watching?.state === 'connected'`, { timeout: 15_000, label: 'quick re-watch connected' });
-    await alpha.waitFor('mutter.share.sharing.peers.size === 1', { timeout: 5000, label: 'one peer after the re-watch' });
+    // The sharer answers this watch as usual; first, a real offer tagged for
+    // another watch arrives, as one left in flight by a quick unwatch would.
+    await alpha.eval(`(async () => {
+      const { encodeSignal, DATA_ID } = await import('/src/rtcsignal.js');
+      const stray = new RTCPeerConnection();
+      stray.addTransceiver('video', { direction: 'sendonly' });
+      await stray.setLocalDescription(await stray.createOffer());
+      const bravo = [...mutter.client.users.values()].find((user) => user.name === 'Bravo').session;
+      const offer = { t: 'offer', id: mutter.share.sharing.id, sdp: stray.localDescription.sdp, n: -1 };
+      for (const data of await encodeSignal(offer, 250)) mutter.client.sendPlugin([bravo], DATA_ID, data);
+      stray.close();
+    })()`);
+    await bravo.waitFor(`mutter.share.watching?.state === 'connected'`, { timeout: 15_000, label: 'connected despite the stray offer' });
+    await alpha.waitFor('mutter.share.sharing.peers.size === 1', { timeout: 5000, label: 'one peer for the viewer' });
   });
 
   await step('a viewer who leaves the channel is dropped and cannot watch from outside', async () => {
