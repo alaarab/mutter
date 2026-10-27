@@ -157,7 +157,9 @@ struct JitterBuffer {
     private var policy: DelayPolicy
     private var statistics = Statistics()
 
-    init(slotCount: Int = 64, maximumPayloadBytes: Int = 1024) {
+    // One Opus frame can be 1275 bytes, and a desktop Mumble on high quality
+    // with 60 ms packets sends about 1200; anything larger is dropped as lost.
+    init(slotCount: Int = 64, maximumPayloadBytes: Int = 1500) {
         self.maximumPayloadBytes = maximumPayloadBytes
         slots = [Slot](repeating: Slot(), count: slotCount)
         payloads = [UInt8](repeating: 0, count: slotCount * maximumPayloadBytes)
