@@ -83,7 +83,14 @@ struct SelectableMessageText: UIViewRepresentable {
         func apply(_ text: AttributedString, color: Color, to view: UITextView) {
             if let applied, applied.0 == text, applied.1 == color { return }
             applied = (text, color)
+            // Setting the text clears the selection; that is not the person
+            // leaving it, so keep a whole-text selection across the update.
+            let selectable = view as? SelectableMessageTextView
+            let hadSelection = view.selectedRange.length > 0
+            selectable?.isReplacingText = true
             view.attributedText = SelectableMessageText.render(text, color: UIColor(color))
+            if hadSelection { view.selectedRange = NSRange(location: 0, length: view.textStorage.length) }
+            selectable?.isReplacingText = false
         }
 
         // Links open the way the rest of the chat opens them.
@@ -107,11 +114,16 @@ struct SelectableMessageText: UIViewRepresentable {
         for run in source.runs {
             let font = run.swiftUI.font
             var traits: UIFontDescriptor.SymbolicTraits = []
-            if font == Font.body.bold() || font == Font.body.bold().italic() { traits.insert(.traitBold) }
-            if font == Font.body.italic() || font == Font.body.bold().italic() { traits.insert(.traitItalic) }
-            let descriptor = family.withSymbolicTraits(traits) ?? family
+            if font == Font.body.bold() || font == HTMLText.boldItalicFont { traits.insert(.traitBold) }
+            if font == HTMLText.italicFont || font == HTMLText.boldItalicFont { traits.insert(.traitItalic) }
+            // The brand face has no italic; slant with the system face, as the bubble does.
+            let base = traits.contains(.traitItalic) ? UIFont.systemFont(ofSize: size).fontDescriptor : family
+            let descriptor = base.withSymbolicTraits(traits) ?? base
+            let face = font == Font.callout.monospaced()
+                ? UIFont.monospacedSystemFont(ofSize: UIFontMetrics(forTextStyle: .callout).scaledValue(for: 15), weight: .regular)
+                : UIFont(descriptor: descriptor, size: size)
             var attributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont(descriptor: descriptor, size: size),
+                .font: face,
                 .foregroundColor: color,
             ]
             if let url = run.link { attributes[.link] = url }
@@ -124,6 +136,7 @@ struct SelectableMessageText: UIViewRepresentable {
 final class SelectableMessageTextView: UITextView, UIEditMenuInteractionDelegate {
     var touched: (() -> Void)?
     var finished: (() -> Void)?
+    var isReplacingText = false
     private var selectsAll = true
     private lazy var selectionMenu = UIEditMenuInteraction(delegate: self)
 
@@ -145,7 +158,7 @@ final class SelectableMessageTextView: UITextView, UIEditMenuInteractionDelegate
 
     /// Clearing the selection is leaving it.
     func selectionChanged() {
-        guard !selectsAll, selectedRange.length == 0 else { return }
+        guard !selectsAll, !isReplacingText, selectedRange.length == 0 else { return }
         DispatchQueue.main.async { [weak self] in self?.finished?() }
     }
 

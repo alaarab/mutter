@@ -121,6 +121,11 @@ public final class ServerSession {
         if notices.count > 200 { notices.removeFirst(notices.count - 200) }
     }
 
+    func updateDelivery(of id: UUID, to delivery: MessageDelivery) {
+        guard let index = messages.lastIndex(where: { $0.id == id }) else { return }
+        messages[index].delivery = delivery
+    }
+
     func appendMessage(_ message: ChatMessage) {
         messages.append(message)
         totalMessagesPosted += 1
