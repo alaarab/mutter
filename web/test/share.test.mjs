@@ -181,6 +181,7 @@ try {
       for (const data of await encodeSignal(offer, 250)) mutter.client.sendPlugin([bravo], DATA_ID, data);
       stray.close();
     })()`);
+    await bravo.waitFor(`mutter.client.log.some((entry) => entry.message === 'ignored an offer for an earlier watch')`, { timeout: 5000, label: 'the stray offer was ignored' });
     await bravo.waitFor(`mutter.share.watching?.state === 'connected'`, { timeout: 15_000, label: 'connected despite the stray offer' });
     await alpha.waitFor('mutter.share.sharing.peers.size === 1', { timeout: 5000, label: 'one peer for the viewer' });
   });
