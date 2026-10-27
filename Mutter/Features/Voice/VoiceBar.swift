@@ -9,6 +9,9 @@ struct VoiceBar: View {
 
     private var session: ServerSession { model.session }
     private var audio: AudioEngine { model.audio }
+    private var activeOutput: AudioOutput {
+        audio.outputs.first { $0.kind == audio.activeOutput } ?? (model.settings.audioRoute == .speaker ? .speaker : .phone)
+    }
 
     var body: some View {
         VStack(spacing: 8) {
@@ -67,22 +70,20 @@ struct VoiceBar: View {
 
                 Menu {
                     Picker("Audio output", selection: Binding(
-                        get: { model.settings.audioRoute },
-                        set: {
-                            model.settings.audioRoute = $0
-                            audio.route = $0
-                        }
+                        get: { audio.activeOutput },
+                        set: { model.selectOutput($0) }
                     )) {
-                        ForEach(AudioRoute.allCases) { route in Label(route.title, systemImage: route.symbol).tag(route) }
+                        ForEach(audio.outputs) { output in Label(output.title, systemImage: output.symbol).tag(output.kind) }
                     }
                 } label: {
-                    Image(systemName: model.settings.audioRoute.symbol)
+                    Image(systemName: activeOutput.symbol)
                         .font(.icon(17, .semibold))
                         .frame(width: 42, height: 42)
                         .foregroundStyle(Theme.ink)
                         .background(Theme.surfaceElevated, in: Circle())
                 }
-                .accessibilityLabel("Audio output: \(model.settings.audioRoute.title)")
+                .accessibilityLabel("Audio output: \(activeOutput.title)")
+                .accessibilityIdentifier("audio-output")
 
                 Menu {
                     Picker("Transmit", selection: Binding(
