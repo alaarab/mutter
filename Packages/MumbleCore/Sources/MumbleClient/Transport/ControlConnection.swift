@@ -74,12 +74,15 @@ final class ControlConnection {
         connection.start(queue: queue)
     }
 
-    func send(_ data: Data) {
+    /// `written` runs once the bytes have gone to the network.
+    func send(_ data: Data, written: (() -> Void)? = nil) {
         guard !isCancelled else { return }
         bytesOut &+= UInt64(data.count)
         connection.send(content: data, completion: .contentProcessed { [weak self] error in
             if let error, let self, !self.isCancelled {
                 self.onEvent?(.failed(error))
+            } else if error == nil {
+                written?()
             }
         })
     }

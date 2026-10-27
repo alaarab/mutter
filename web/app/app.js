@@ -8,10 +8,11 @@ import { isVisible, setVisible } from './motion.js';
 import { mountAppearance } from './appearance.js';
 import { settings, saveSettings, servers, rememberServer, forgetServer, collapsedFor, certificateFor, rememberCertificate, credentialStorage, sameServer } from './store.js';
 import { confirmCertificate } from './certificate.js';
-import { DEFAULT_IMAGE_LIMIT, sanitize, imageToHtml, escapeHtml, plainText, openViewer } from './chat.js';
+import { DEFAULT_IMAGE_LIMIT, sanitize, imageToHtml, plainText, openViewer } from './chat.js';
 import { DEFAULT_PORT } from '../src/mumble.js';
 import { renderTree, refreshUser, presence, bindTreeKeyboard } from './tree.js';
-import { MessageList } from './messages.js';
+import { MessageList, transcriptText, copyText } from './messages.js';
+import { markdownToHtml } from './markdown.js';
 import { renderMembers } from './members.js';
 import { openPopover, closePopover, menuItem, profileCard, channelMenu, serverMenu } from './popovers.js';
 import { $, el, avatar, colorFor, initials } from './ui.js';
@@ -66,6 +67,7 @@ function mountIcons() {
     voiceBtn: 'volume',
     screenBtn: 'screen',
     serverBtn: 'info',
+    copyChatBtn: 'copy',
     membersBtn: 'users',
     imageBtn: 'plus',
     sendBtn: 'send',
@@ -193,6 +195,7 @@ function showTab(name) {
   }
   document.body.dataset.tab = name;
   $('serverBtn').classList.toggle('on', name === 'server');
+  $('copyChatBtn').hidden = name !== 'chat';
   $('screenBtn').classList.toggle('on', name === 'screen');
   $('voiceBtn').classList.toggle('on', name === 'voice');
   if (name === 'voice') {
@@ -216,6 +219,14 @@ function toggleTab(name) {
 wide.addEventListener('change', applyLayout);
 $('backBtn').onclick = () => showTab('channels');
 $('serverBtn').onclick = () => toggleTab('server');
+$('copyChatBtn').onclick = async () => {
+  const text = transcriptText(client.messages);
+  if (!text) {
+    toast('Nothing to copy yet');
+  } else if (await copyText(text)) {
+    toast('Conversation copied');
+  }
+};
 $('voiceBtn').onclick = () => toggleTab('voice');
 $('screenBtn').onclick = () => toggleTab('screen');
 $('railHome').onclick = () => showTab('chat');
@@ -744,6 +755,7 @@ client.addEventListener('text', (event) => {
   messages.append(message);
 });
 client.addEventListener('text-failed', (event) => messages.markFailed(event.detail));
+client.addEventListener('text-delivery', (event) => messages.markDelivery(event.detail));
 
 const composer = $('chatInput');
 
@@ -757,7 +769,7 @@ function sendComposer() {
   if (!text) {
     return;
   }
-  const html = escapeHtml(text).replace(/\n/g, '<br />');
+  const html = markdownToHtml(text);
   if (client.sendText(html, sendScope())) {
     composer.value = '';
     autoGrowComposer();

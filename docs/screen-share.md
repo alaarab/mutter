@@ -50,9 +50,9 @@ the sharer when it starts, so late or stale signals for an earlier share can be 
 |---|---|---|---|
 | `announce` | sharer → channel members | `id`, `title`, `w`, `h`, `audio` | Once on start to everyone in the channel, and once to each person who joins the channel afterwards. Never repeated: the control channel is reliable, and the plugin channel is someone else's server — nothing recurring rides on it. Viewers keep the offer until `stop`, or until either of them leaves the channel. |
 | `stop` | sharer → everyone announced to | `id` | Sharing ended, or that person left the sharer's channel. |
-| `watch` | viewer → sharer | `id` | Please send me an offer. |
-| `offer` | sharer → viewer | `id`, `sdp` | SDP offer with candidates gathered until complete or the platform deadline (2.5 s on web). |
-| `answer` | viewer → sharer | `id`, `sdp` | SDP answer, same gathering rule. |
+| `watch` | viewer → sharer | `id`, `n`? | Please send me an offer. `n` is an optional number that tags this watch. |
+| `offer` | sharer → viewer | `id`, `sdp`, `n`? | SDP offer with candidates gathered until complete or the platform deadline (2.5 s on web). Echoes the watch's `n` when it had one. |
+| `answer` | viewer → sharer | `id`, `sdp`, `n`? | SDP answer, same gathering rule. Echoes the offer's `n`. |
 | `leave` | viewer → sharer | `id` | Stopped watching; sharer closes that connection. |
 | `ice` | either | `id`, `c: [RTCIceCandidateInit…]` | Late ICE candidates; all clients send and accept them. Web batches them every 250 ms; iOS uses 100 ms. |
 
@@ -88,6 +88,13 @@ Rules both sides follow:
   checks this.
 - A viewer sends `watch` only after it has an `announce` for that `id`; an `offer` for an
   unknown `id` is ignored. A viewer drops offers from anyone who is not in its channel.
+- Stopping and watching again quickly can leave the first watch's offer in flight. The web
+  viewer tags each watch with `n` and ignores an offer whose `n` differs, or any second offer
+  for the same watch; the sharer ignores an answer whose `n` differs from the watch it is
+  answering, and drops an offer still queued for a connection it has closed. A message
+  without `n` (older clients, the phones today) is accepted as before.
+- The send queue is capped. When it is full, the oldest offer, answer or `ice` goes first;
+  `announce` and `stop` are never dropped, because they are sent only once.
 - Web compression/decompression preserves message order, and pending work is discarded on
   disconnect. A canceled or disconnected screen picker releases any capture that arrives later.
 

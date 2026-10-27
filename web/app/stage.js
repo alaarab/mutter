@@ -46,6 +46,10 @@ function titleBlock(strong, sub) {
 export function mountStage({ share, client, stage, tabs, showTab, toast, applySink }) {
   let video = null;
   let preview = null;
+  // Holds the videos and stays in the page across renders: taking a <video>
+  // out of the document ends full screen and picture in picture, and the
+  // stage renders again whenever anyone on the server mutes or moves.
+  let frame = null;
   let wasSharing = false;
 
   const nameOf = (session) => client.users.get(session)?.name ?? 'Someone';
@@ -66,18 +70,27 @@ export function mountStage({ share, client, stage, tabs, showTab, toast, applySi
       showTab('screen');
     }
     wasSharing = !!own;
-    stage.replaceChildren();
     if (!own) {
       preview = null;
     }
-    if (!showStage) {
+    if (!viewer) {
       video = null;
+    }
+    frame = viewer || own ? frame ?? el('div', { className: 'frame' }) : null;
+    for (const child of [...stage.children]) {
+      if (child !== frame) child.remove();
+    }
+    if (!showStage) {
       return;
+    }
+    if (frame) {
+      for (const child of [...frame.children]) {
+        if (child !== video && child !== preview) child.remove();
+      }
+      if (!frame.isConnected) stage.append(frame);
     }
     if (viewer) {
       renderViewer(viewer);
-    } else {
-      video = null;
     }
     if (own) {
       renderOwnShare(own, viewer);
@@ -103,11 +116,13 @@ export function mountStage({ share, client, stage, tabs, showTab, toast, applySi
       iconButton('fullscreen', 'Full screen', () => video.requestFullscreen?.().catch(() => {})),
       iconButton('close', 'Stop watching', () => share.unwatch())
     );
-    const frame = el('div', { className: 'frame' }, video);
+    if (video.parentNode !== frame) {
+      frame.prepend(video);
+    }
     if (viewer.state !== 'connected') {
       frame.append(connectionNote(viewer));
     }
-    stage.append(bar, frame);
+    stage.insertBefore(bar, frame);
     renderStats();
   }
 
@@ -150,11 +165,13 @@ export function mountStage({ share, client, stage, tabs, showTab, toast, applySi
       contentHintPicker(own.contentHint, (hint) => share.setContentHint(hint)),
       el('button', { type: 'button', className: 'ghost danger', textContent: 'Stop', onclick: () => share.stop() })
     );
+    if (preview.parentNode !== frame) {
+      frame.append(preview);
+    }
     if (viewer) {
       stage.append(bar);
-      stage.querySelector('.frame').append(preview);
     } else {
-      stage.append(bar, el('div', { className: 'frame' }, preview));
+      stage.insertBefore(bar, frame);
     }
   }
 

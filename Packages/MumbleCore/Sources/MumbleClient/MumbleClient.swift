@@ -54,6 +54,10 @@ public final class MumbleClient {
     private var wireFormat: VoiceWireFormat = .legacy
     private var mySession: UInt32?
     private var isSynced = false
+    /// Your messages the server has not yet confirmed, oldest first, with
+    /// the timestamp of the ping sent after each.
+    private var undeliveredTexts: [(id: UUID, pingStamp: UInt64)] = []
+    private var lastPingStamp: UInt64 = 0
     private var intentionalDisconnect = false
     private var reconnectAttempt = 0
     private var reconnectWorkItem: DispatchWorkItem?
@@ -206,6 +210,9 @@ public final class MumbleClient {
         udpAvailable = false
         lastUDPReply = nil
         isSynced = false
+        while !undeliveredTexts.isEmpty {
+            failOldestUndeliveredText("connection lost before the server confirmed it")
+        }
         mySession = nil
         talkers = [:]
         users = [:]
@@ -310,9 +317,22 @@ public final class MumbleClient {
         send(auth)
     }
 
-    private func send<M: ControlMessage>(_ message: M) {
+    private func send<M: ControlMessage>(_ message: M, written: (() -> Void)? = nil) {
         tcpPacketsSent &+= 1
-        control?.send(ControlFraming.frame(message))
+        control?.send(ControlFraming.frame(message), written: written)
+    }
+
+    /// Ping timestamps only ever increase, so a reply confirms every text
+    /// sent before its ping.
+    private func nextPingStamp() -> UInt64 {
+        lastPingStamp = max(nowMicros(), lastPingStamp &+ 1)
+        return lastPingStamp
+    }
+
+    private func failOldestUndeliveredText(_ reason: String) {
+        guard !undeliveredTexts.isEmpty else { return }
+        let id = undeliveredTexts.removeFirst().id
+        ui { $0.updateDelivery(of: id, to: .failed(reason)) }
     }
 
     private func handle(_ message: IncomingMessage) {
@@ -376,6 +396,9 @@ public final class MumbleClient {
         case .permissionDenied(let denial):
             let text = denial.userMessage
             ui { $0.appendNotice(.permissionDenied(text)) }
+            if denial.type == .textTooLong || (denial.type == .permission && denial.permission == Permissions.textMessage.rawValue) {
+                failOldestUndeliveredText(text)
+            }
 
         case .pluginDataTransmission(let plugin):
             if let handler = onPluginData {
@@ -387,6 +410,10 @@ public final class MumbleClient {
 
         case .ping(let ping):
             if let timestamp = ping.timestamp {
+                while let oldest = undeliveredTexts.first, oldest.pingStamp <= timestamp {
+                    undeliveredTexts.removeFirst()
+                    ui { $0.updateDelivery(of: oldest.id, to: .delivered) }
+                }
                 let roundTrip = Double(nowMicros() &- timestamp) / 1000.0
                 tcpPingSamples.append(roundTrip)
                 if tcpPingSamples.count > 20 { tcpPingSamples.removeFirst() }
@@ -768,8 +795,10 @@ public final class MumbleClient {
         talkTimer = talkSource
     }
 
-    private func tick() {
-        var ping = PingMessage(timestamp: nowMicros())
+    /// A ping carrying this connection's statistics, which the server
+    /// records from every ping it gets.
+    private func makePing() -> PingMessage {
+        var ping = PingMessage(timestamp: nextPingStamp())
         ping.good = crypt.good
         ping.late = crypt.late
         ping.lost = crypt.lost
@@ -780,7 +809,11 @@ public final class MumbleClient {
         ping.udpPingVar = Float(variance(udpPingSamples))
         ping.tcpPingAvg = Float(average(tcpPingSamples))
         ping.tcpPingVar = Float(variance(tcpPingSamples))
-        send(ping)
+        return ping
+    }
+
+    private func tick() {
+        send(makePing())
         sendUDPPing()
 
         if isSynced, Date().timeIntervalSince(lastControlReceiveAt) > 20 {
@@ -954,10 +987,25 @@ public final class MumbleClient {
                 self.ui { $0.appendNotice(.info("Not connected — message not sent.")) }
                 return
             }
-            self.send(text)
             let myName = self.mySession.flatMap { self.users[$0]?.name } ?? "Me"
-            let message = ChatMessage(senderSession: self.mySession, senderName: myName, html: html, scope: scope, isOwn: true)
+            var message = ChatMessage(senderSession: self.mySession, senderName: myName, html: html, scope: scope, isOwn: true)
+            message.delivery = .sending
+            let id = message.id
             self.ui { $0.appendMessage(message) }
+            self.send(text) { [weak self] in
+                guard let self, self.undeliveredTexts.contains(where: { $0.id == id }) else { return }
+                self.ui { session in
+                    if session.messages.last(where: { $0.id == id })?.delivery == .sending {
+                        session.updateDelivery(of: id, to: .sent)
+                    }
+                }
+            }
+            // Mumble has no delivery receipts. The server handles a
+            // connection's messages in order, so the reply to this ping means
+            // it has accepted and relayed the text, or refused it first.
+            let ping = self.makePing()
+            self.undeliveredTexts.append((id, ping.timestamp ?? 0))
+            self.send(ping)
         }
     }
 
