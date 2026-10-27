@@ -26,12 +26,19 @@ native interfaces and independent protocol implementations that speak the same w
 | Screen-share audio | Browser capture capabilities | Not implemented | Not implemented | Windows loopback capture; OS-dependent elsewhere |
 | LAN discovery | Not implemented | Bonjour | Android NSD | Not implemented |
 | Password and identity storage | Session-only passwords; bridge identity | Apple Keychain | Android Keystore encryption | OS-encrypted passwords; bridge identity |
+| Chat formatting and delivery | Markdown sent as HTML, delivery ticks, Copy conversation | Markdown sent as HTML, delivery ticks, Copy Conversation | Shows received HTML | Same as browser |
 | Installation | Local bridge, optional browser app shortcut | Signed iOS app | Signed Android APK | Windows, macOS, Linux packages |
 
 Voice in the browser requires Chromium features used by the client; see the
 [browser guide](../web/README.md). Native audio processing and Bluetooth routing depend on the
 device. The Android development build supports Android 10+; its [build guide](../android/README.md#validation)
 includes device and protocol test commands.
+
+Chat Markdown (bold, italics, strike, code, lists, quotes, headings, links) is turned into HTML
+when it is sent, as Mumble's desktop client does, so other Mumble clients see the formatting too.
+Mumble has no delivery receipts, so ticks go no further than the server: one tick when the message
+has left the device, two once the server has handled it (a ping sent after the message has come
+back without a refusal first). Nobody's reading is reported.
 
 ## Platform guides
 

@@ -31,6 +31,7 @@ jobs:
       - run: node web/test/dsp.test.mjs
       - run: node web/test/rnnoise.test.mjs
       - run: node web/test/roster.test.mjs
+      - run: node --test web/test/markdown.test.mjs
       - run: node --test web/test/backpressure.test.mjs web/test/bridge.test.mjs
 
   browser:
@@ -57,4 +58,4 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends coturn
       - run: node --test web/test/share-turn.test.mjs
       - run: node --test --test-concurrency=1 web/test/share-network.test.mjs
-      - run: node --test --test-concurrency=1 web/test/lifecycle.test.mjs web/test/chat-scroll.test.mjs web/test/appearance.test.mjs web/test/persistence.test.mjs web/test/tree-keyboard.test.mjs
+      - run: node --test --test-concurrency=1 web/test/lifecycle.test.mjs web/test/chat-scroll.test.mjs web/test/chat-markdown.test.mjs web/test/appearance.test.mjs web/test/persistence.test.mjs web/test/tree-keyboard.test.mjs

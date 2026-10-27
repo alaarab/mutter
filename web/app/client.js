@@ -38,6 +38,11 @@ const NEW_SPURT_GAP_MS = 2000;
 const STALL_FRAMES = 20;
 const ROSTER_MESSAGE_TYPES = new Set([MessageType.channelState, MessageType.channelRemove, MessageType.userState, MessageType.userRemove]);
 
+// Mumble's TextMessage permission bit, for a text the server refuses.
+const TEXT_MESSAGE_PERMISSION = 0x200;
+const DELIVERY_RANK = { sending: 0, sent: 1, delivered: 2 };
+const SENT_CHECK_MS = 50;
+
 const DenyType = {
   text: 0,
   permission: 1,
@@ -108,7 +113,8 @@ export class MumbleClient extends EventTarget {
   #talkers = new Map();
   #lastPacket = new Map();
   #lastReceivedAt = 0;
-  #lastOwnMessage = null;
+  #undelivered = [];
+  #lastPingStamp = 0;
   #timers = {};
   #blobs = new Map();
   #awaitedBlobs = { comment: new Set(), description: new Set() };
@@ -230,14 +236,59 @@ export class MumbleClient extends EventTarget {
         sessions: scope.sessions ?? [],
       })
     );
-    this.#pushMessage({
+    // Mumble has no delivery receipts. The server handles a connection's
+    // messages in order, so the reply to a ping sent right after the text
+    // means it has accepted and relayed the text, or refused it first.
+    const ackStamp = this.#pingStamp();
+    this.#send(pingMessage(ackStamp));
+    const message = this.#pushMessage({
       senderSession: this.me,
       senderName: this.myUser?.name ?? 'Me',
       html,
       scope,
       own: true,
+      delivery: 'sending',
     });
+    this.#undelivered.push({ message, ackStamp });
+    this.#markSentOnceFlushed(message);
     return true;
+  }
+
+  #pingStamp() {
+    this.#lastPingStamp = Math.max(Date.now() * 1000, this.#lastPingStamp + 1);
+    return this.#lastPingStamp;
+  }
+
+  #markSentOnceFlushed(message) {
+    const socket = this.#socket;
+    const check = () => {
+      if (socket !== this.#socket || message.delivery !== 'sending') {
+        return;
+      }
+      if (socket.bufferedAmount === 0) {
+        this.#setDelivery(message, 'sent');
+      } else {
+        setTimeout(check, SENT_CHECK_MS);
+      }
+    };
+    setTimeout(check, 0);
+  }
+
+  #setDelivery(message, delivery) {
+    if (message.failed || DELIVERY_RANK[delivery] <= DELIVERY_RANK[message.delivery]) {
+      return;
+    }
+    message.delivery = delivery;
+    this.#emit('text-delivery', message);
+  }
+
+  #failOldestUndelivered(reason) {
+    const pending = this.#undelivered.shift();
+    if (!pending) {
+      return;
+    }
+    pending.message.failed = reason;
+    this.#emit('text-failed', pending.message);
   }
 
   joinChannel(channelId) {
@@ -412,6 +463,9 @@ export class MumbleClient extends EventTarget {
   #teardown() {
     this.#opening?.abort();
     this.#opening = null;
+    while (this.#undelivered.length) {
+      this.#failOldestUndelivered('connection lost before the server confirmed it');
+    }
     for (const timer of Object.values(this.#timers)) {
       clearInterval(timer);
       clearTimeout(timer);
@@ -469,7 +523,7 @@ export class MumbleClient extends EventTarget {
   #startTimers() {
     this.#lastReceivedAt = Date.now();
     this.#timers.ping = setInterval(() => {
-      this.#send(pingMessage(Date.now() * 1000));
+      this.#send(pingMessage(this.#pingStamp()));
       if (Date.now() - this.#lastReceivedAt > WATCHDOG_MS) {
         this.diag('connection', 'server went silent — dropping');
         this.#fail('The server stopped responding.');
@@ -676,15 +730,21 @@ export class MumbleClient extends EventTarget {
       }
     }
     this.#note(text);
-    if (message.type === DenyType.textTooLong && this.#lastOwnMessage) {
-      this.#lastOwnMessage.failed = text;
-      this.#emit('text-failed', this.#lastOwnMessage);
+    const refusesText =
+      message.type === DenyType.textTooLong ||
+      (message.type === DenyType.permission && message.permission === TEXT_MESSAGE_PERMISSION);
+    if (refusesText) {
+      this.#failOldestUndelivered(text);
     }
   }
 
   #onPing(message) {
     if (!message.timestamp) {
       return;
+    }
+    const echoed = Number(message.timestamp);
+    while (this.#undelivered.length && this.#undelivered[0].ackStamp <= echoed) {
+      this.#setDelivery(this.#undelivered.shift().message, 'delivered');
     }
     const roundTrip = Date.now() - Number(BigInt(message.timestamp) / 1000n);
     if (roundTrip < 0 || roundTrip >= MAX_PING_MS) {
@@ -821,14 +881,12 @@ export class MumbleClient extends EventTarget {
 
   #pushMessage(fields) {
     const message = { id: crypto.randomUUID(), date: new Date(), ...fields };
-    if (message.own) {
-      this.#lastOwnMessage = message;
-    }
     this.messages.push(message);
     if (this.messages.length > MAX_MESSAGES) {
       this.messages.shift();
     }
     this.#emit('text', message);
+    return message;
   }
 
   #notice(text, kind) {

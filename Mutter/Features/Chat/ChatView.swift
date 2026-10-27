@@ -30,6 +30,8 @@ struct ChatView: View {
     @State private var followsLatestMessageThroughKeyboard = false
     @State private var transcriptEndOffset: CGFloat = 0
     @State private var transcriptViewportHeight: CGFloat = 0
+    @State private var messageSelection = MessageSelection()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let transcriptSpace = "chat-transcript-space"
     private static let bottomTolerance: CGFloat = 32
@@ -55,18 +57,23 @@ struct ChatView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: 0) {
-                        LazyVStack(alignment: .leading, spacing: 10) {
+                        LazyVStack(alignment: .leading, spacing: 3) {
                             if session.messages.isEmpty {
                                 EmptyState(symbol: "bubble.left.and.bubble.right", title: "No messages yet", message: "Messages sent to your channel, or directly to you, show up here.")
                                     .padding(.top, 40)
                             }
-                            ForEach(session.messages) { message in
-                                MessageRow(message: message, onUser: onUser)
+                            ForEach(Array(session.messages.enumerated()), id: \.element.id) { index, message in
+                                MessageRow(message: message, continuesGroup: continuesGroup(at: index), onUser: onUser)
                                     .id(message.id)
+                                    .transition(.asymmetric(
+                                        insertion: .move(edge: .bottom).combined(with: .opacity),
+                                        removal: .opacity
+                                    ))
                             }
                         }
                         .padding(.horizontal, 12)
                         .padding(.top, 8)
+                        .animation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.86), value: session.messages.last?.id)
                         Color.clear
                             .frame(height: 1)
                             .id("bottom")
@@ -108,7 +115,11 @@ struct ChatView: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .contentShape(Rectangle())
-                .simultaneousGesture(TapGesture().onEnded { composerFocused = false })
+                .simultaneousGesture(TapGesture().onEnded {
+                    composerFocused = false
+                    messageSelection.transcriptTapped()
+                })
+                .environment(messageSelection)
                 .accessibilityIdentifier("chat-transcript")
                 .overlay(alignment: .bottom) {
                     if !isAtBottom && unseenBelow > 0 {
@@ -304,10 +315,21 @@ struct ChatView: View {
         return Theme.accent
     }
 
+    private static let groupWindow: TimeInterval = 5 * 60
+
+    private func continuesGroup(at index: Int) -> Bool {
+        guard index > 0 else { return false }
+        let previous = session.messages[index - 1], message = session.messages[index]
+        return !previous.isSystem && !message.isSystem && previous.isOwn == message.isOwn
+            && previous.senderSession == message.senderSession && previous.scope == message.scope
+            && message.date.timeIntervalSince(previous.date) < Self.groupWindow
+            && Calendar.current.isDate(previous.date, inSameDayAs: message.date)
+    }
+
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        model.client.sendText(html: HTMLText.htmlFromPlain(text), to: scope)
+        model.client.sendText(html: ChatMarkdown.html(from: text), to: scope)
         draft = ""
         Haptics.impact(.light)
     }
@@ -394,9 +416,16 @@ struct PhotoConfirmSheet: View {
 
 struct MessageRow: View {
     @Environment(AppModel.self) private var model
+    @Environment(MessageSelection.self) private var selection: MessageSelection?
     var message: ChatMessage
+    /// The same person's previous message, close enough in time that this
+    /// one joins its group: no avatar or name, a tighter gap.
+    var continuesGroup = false
     var onUser: (UInt32) -> Void
     @State private var viewedImage: ViewedImage?
+
+    private static let bubbleWidth: CGFloat = 300
+    private static let radius: CGFloat = 18
 
     private var rendered: HTMLText.Rendered { HTMLText.render(message.html) }
 
@@ -404,13 +433,28 @@ struct MessageRow: View {
         !String(rendered.text.characters).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private var bubbleText: AttributedString {
-        guard message.isOwn else { return rendered.text }
-        var restyled = rendered.text
+    private func bubbleText(_ text: AttributedString) -> AttributedString {
+        guard message.isOwn else { return text }
+        var restyled = text
         for run in restyled.runs where run.link != nil {
             restyled[run.range].swiftUI.foregroundColor = Theme.onOwnBubble
         }
         return restyled
+    }
+
+    private var textColor: Color { message.isOwn ? Theme.onOwnBubble : Theme.ink }
+    private var quietColor: Color { message.isOwn ? Theme.onOwnBubbleMuted : Theme.muted }
+    private var isSelecting: Bool { selection?.active == message.id }
+    private var failure: String? {
+        if case .failed(let reason) = message.delivery { return reason }
+        return nil
+    }
+
+    /// A message that is one run of prose is selected in place; anything
+    /// with code or quotes is selected as its whole text, laid over all of it.
+    private var isSingleProse: Bool {
+        if rendered.blocks.count == 1, case .prose = rendered.blocks[0] { return true }
+        return false
     }
 
     var body: some View {
@@ -425,52 +469,163 @@ struct MessageRow: View {
                 images
             }
         } else {
-            HStack(alignment: .top, spacing: 8) {
-                if message.isOwn { Spacer(minLength: 40) } else {
-                    Button { if let sender = message.senderSession { onUser(sender) } } label: {
-                        Avatar(name: message.senderName, texture: model.session.users[message.senderSession ?? 0]?.texture, size: 30)
+            HStack(alignment: .bottom, spacing: 8) {
+                if message.isOwn { Spacer(minLength: 48) } else {
+                    Group {
+                        if continuesGroup {
+                            Color.clear.frame(width: 30, height: 1)
+                        } else {
+                            Button { if let sender = message.senderSession { onUser(sender) } } label: {
+                                Avatar(name: message.senderName, texture: model.session.users[message.senderSession ?? 0]?.texture, size: 30)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
-                    .buttonStyle(.plain)
                 }
-                VStack(alignment: message.isOwn ? .trailing : .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        if !message.isOwn {
-                            Text(message.senderName).font(.caption.weight(.semibold)).foregroundStyle(Theme.ink).lineLimit(1)
-                        }
-                        scopeTag
-                        Text(message.date, style: .time).font(.caption2).foregroundStyle(Theme.muted)
+                VStack(alignment: message.isOwn ? .trailing : .leading, spacing: 4) {
+                    if !continuesGroup { header }
+                    bubble
+                    if let failure {
+                        Label("Not delivered · \(failure)", systemImage: "exclamationmark.circle.fill")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Theme.danger)
+                            .frame(maxWidth: Self.bubbleWidth, alignment: .trailing)
+                            .accessibilityIdentifier("chat-message-failed")
                     }
-                    .frame(maxWidth: 300, alignment: message.isOwn ? .trailing : .leading)
-                    VStack(alignment: .leading, spacing: 8) {
-                        if !hasText && rendered.images.isEmpty && rendered.unreadableImages > 0 {
-                            Label("Image couldn't be shown", systemImage: "photo.badge.exclamationmark")
-                                .font(.footnote)
-                                .foregroundStyle(message.isOwn ? Theme.onOwnBubbleMuted : Theme.muted)
-                        }
-                        if hasText {
-                            Text(bubbleText)
-                                .font(.body)
-                                .foregroundStyle(message.isOwn ? Theme.onOwnBubble : Theme.ink)
-                                .textSelection(.enabled)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .frame(maxWidth: 300, alignment: .leading)
-                        }
-                        images
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, hasText ? 8 : 12)
-                    .background(
-                        message.isOwn ? Theme.ownBubble : Theme.surface,
-                        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .strokeBorder(message.isOwn ? Color.clear : Theme.separator, lineWidth: 1)
-                    )
                 }
-                if !message.isOwn { Spacer(minLength: 40) }
+                if !message.isOwn { Spacer(minLength: 48) }
+            }
+            .padding(.top, continuesGroup ? 0 : 8)
+        }
+    }
+
+    @ViewBuilder
+    private var header: some View {
+        HStack(spacing: 6) {
+            if !message.isOwn {
+                Text(message.senderName).font(.caption.weight(.semibold)).foregroundStyle(Theme.ink).lineLimit(1)
+            }
+            scopeTag
+            if !message.isOwn {
+                Text(message.date, style: .time).font(.caption2).foregroundStyle(Theme.muted)
             }
         }
+        .frame(maxWidth: Self.bubbleWidth, alignment: message.isOwn ? .trailing : .leading)
+        .padding(.horizontal, 4)
+    }
+
+    private var bubble: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !hasText && rendered.images.isEmpty && rendered.unreadableImages > 0 {
+                Label("Image couldn't be shown", systemImage: "photo.badge.exclamationmark")
+                    .font(.footnote)
+                    .foregroundStyle(quietColor)
+            }
+            if hasText {
+                let selectsWhole = isSelecting && !isSingleProse
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(rendered.blocks.enumerated()), id: \.offset) { _, block in
+                        blockView(block)
+                    }
+                }
+                .opacity(selectsWhole ? 0 : 1)
+                .overlay(alignment: .topLeading) {
+                    if selectsWhole, let selection { selectable(rendered.text, selection: selection) }
+                }
+            }
+            images
+            if message.isOwn { ownFooter }
+        }
+        .padding(.horizontal, 13)
+        .padding(.top, hasText ? 8 : 12)
+        .padding(.bottom, message.isOwn ? 6 : (hasText ? 9 : 12))
+        .background(bubbleShape.fill(message.isOwn ? Theme.ownBubble : Theme.surface))
+        .overlay(bubbleShape.strokeBorder(failure != nil ? Theme.danger.opacity(0.7) : (message.isOwn ? Color.clear : Theme.separator), lineWidth: 1))
+        .contentShape(.contextMenuPreview, bubbleShape)
+        .contextMenu {
+            if hasText && !isSelecting {
+                Button("Copy", systemImage: "doc.on.doc") { MessageSelection.copy(rendered.text) }
+                if let selection {
+                    Button("Select Text", systemImage: "character.cursor.ibeam") { selection.begin(message.id) }
+                }
+            }
+            Button("Copy Conversation", systemImage: "text.bubble") {
+                UIPasteboard.general.string = MessageRow.transcript(model.session.messages)
+                Haptics.impact(.light)
+            }
+        }
+    }
+
+    private var bubbleShape: UnevenRoundedRectangle {
+        // The corner nearest the sender tightens when the next bubble is theirs too.
+        let tight: CGFloat = 6
+        return UnevenRoundedRectangle(
+            topLeadingRadius: !message.isOwn && continuesGroup ? tight : Self.radius,
+            bottomLeadingRadius: Self.radius,
+            bottomTrailingRadius: Self.radius,
+            topTrailingRadius: message.isOwn && continuesGroup ? tight : Self.radius,
+            style: .continuous
+        )
+    }
+
+    @ViewBuilder
+    private func blockView(_ block: HTMLText.Block) -> some View {
+        switch block {
+        case .prose(let text):
+            if isSingleProse {
+                Text(bubbleText(text))
+                    .font(.body)
+                    .foregroundStyle(textColor)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .opacity(isSelecting ? 0 : 1)
+                    .overlay {
+                        if isSelecting, let selection { selectable(text, selection: selection) }
+                    }
+                    .frame(maxWidth: Self.bubbleWidth, alignment: .leading)
+            } else {
+                Text(bubbleText(text))
+                    .font(.body)
+                    .foregroundStyle(textColor)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: Self.bubbleWidth, alignment: .leading)
+            }
+        case .quote(let text):
+            HStack(spacing: 10) {
+                Capsule().fill(message.isOwn ? Theme.onOwnBubbleMuted : Theme.accent.opacity(0.7)).frame(width: 3)
+                Text(bubbleText(text))
+                    .font(.body)
+                    .foregroundStyle(quietColor)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: Self.bubbleWidth, alignment: .leading)
+        case .code(let code):
+            ChatCodeBlock(code: code, onOwnBubble: message.isOwn)
+                .frame(maxWidth: Self.bubbleWidth, alignment: .leading)
+        }
+    }
+
+    private func selectable(_ text: AttributedString, selection: MessageSelection) -> some View {
+        SelectableMessageText(
+            text: text,
+            color: textColor,
+            linkColor: message.isOwn ? Theme.onOwnBubble : Theme.accent,
+            touched: { selection.noteTouchInside() },
+            finished: { selection.end(message.id) }
+        )
+    }
+
+    /// Your own messages carry their time and how far they have got.
+    private var ownFooter: some View {
+        HStack(spacing: 4) {
+            Text(message.date, style: .time)
+            if let delivery = message.delivery, failure == nil {
+                DeliveryMark(delivery: delivery)
+            }
+        }
+        .font(.caption2)
+        .foregroundStyle(quietColor)
+        .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
     @ViewBuilder
@@ -503,6 +658,99 @@ struct MessageRow: View {
         }
         .fullScreenCover(item: $viewedImage) { viewed in
             ImageViewerScreen(image: viewed.image)
+        }
+    }
+
+    /// The conversation as plain text, one message per paragraph.
+    static func transcript(_ messages: [ChatMessage]) -> String {
+        messages.filter { !$0.isSystem }.map { message in
+            let time = message.date.formatted(date: .numeric, time: .shortened)
+            let text = HTMLText.plainText(message.html)
+            return "\(message.senderName) · \(time)\n\(text.isEmpty ? "[image]" : text)"
+        }.joined(separator: "\n\n")
+    }
+}
+
+/// A clock while sending, one tick once written to the connection, two once
+/// the server confirms it.
+struct DeliveryMark: View {
+    let delivery: MessageDelivery
+
+    var body: some View {
+        Group {
+            switch delivery {
+            case .sending:
+                Image(systemName: "clock")
+            case .sent:
+                Image(systemName: "checkmark")
+            case .delivered:
+                HStack(spacing: -5) {
+                    Image(systemName: "checkmark")
+                    Image(systemName: "checkmark")
+                }
+            case .failed:
+                EmptyView()
+            }
+        }
+        .font(.icon(9, .bold))
+        .transition(.scale(scale: 0.5).combined(with: .opacity))
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: delivery)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier("chat-delivery")
+    }
+
+    private var label: String {
+        switch delivery {
+        case .sending: return "Sending"
+        case .sent: return "Sent"
+        case .delivered: return "Delivered to the server"
+        case .failed: return "Not delivered"
+        }
+    }
+}
+
+/// A fenced code block: monospaced, scrolls sideways rather than wrapping,
+/// with its own Copy button.
+struct ChatCodeBlock: View {
+    let code: String
+    var onOwnBubble = false
+    @State private var copied = false
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            Text(code)
+                .font(.footnote.monospaced())
+                .foregroundStyle(onOwnBubble ? Theme.onOwnBubble : Theme.ink)
+                .fixedSize()
+                .padding(.vertical, 10)
+                .padding(.leading, 12)
+                .padding(.trailing, 40)
+        }
+        .background(
+            onOwnBubble ? Color.black.opacity(0.18) : Theme.surfaceSunken,
+            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+        )
+        .overlay(alignment: .topTrailing) {
+            Button {
+                UIPasteboard.general.string = code
+                Haptics.impact(.light)
+                withAnimation(.snappy) { copied = true }
+                Task {
+                    try? await Task.sleep(for: .seconds(1.4))
+                    withAnimation(.snappy) { copied = false }
+                }
+            } label: {
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .font(.icon(12, .semibold))
+                    .contentTransition(.symbolEffect(.replace))
+                    .foregroundStyle(copied ? Theme.speaking : (onOwnBubble ? Theme.onOwnBubbleMuted : Theme.muted))
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(copied ? "Copied" : "Copy code")
+            .accessibilityIdentifier("chat-code-copy")
         }
     }
 }
