@@ -104,6 +104,19 @@ public enum MessageScope: Hashable, Sendable {
     case system
 }
 
+/// How far one of your own messages has got. Mumble has no read receipts,
+/// so the furthest it goes is the server accepting it.
+public enum MessageDelivery: Hashable, Sendable {
+    /// Queued on this device.
+    case sending
+    /// Written to the connection.
+    case sent
+    /// The server has handled it: a ping sent after it came back with no
+    /// refusal first, and the server handles a connection's messages in order.
+    case delivered
+    case failed(String)
+}
+
 public struct ChatMessage: Identifiable, Hashable, Sendable {
     public var id = UUID()
     public var date = Date()
@@ -112,6 +125,8 @@ public struct ChatMessage: Identifiable, Hashable, Sendable {
     public var html: String
     public var scope: MessageScope
     public var isOwn = false
+    /// Set on your own messages only.
+    public var delivery: MessageDelivery?
 
     public init(senderSession: UInt32?, senderName: String, html: String, scope: MessageScope, isOwn: Bool = false) {
         self.senderSession = senderSession

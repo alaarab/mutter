@@ -148,6 +148,12 @@ function videoStats(report, direction, sample) {
   return { rtp, stats };
 }
 
+// Echoes a watch's tag in its offer and answer. Older clients send no tag
+// and get none back.
+function withWatch(message, watch) {
+  return watch === undefined ? message : { ...message, n: watch };
+}
+
 export class ScreenShare extends EventTarget {
   sharing = null;
   camera = null;
@@ -236,6 +242,9 @@ export class ScreenShare extends EventTarget {
       return;
     }
     track.contentHint = contentHint;
+    if (contentHint === 'motion') {
+      track.applyConstraints?.({ frameRate: { ideal: 60, max: 60 } }).catch(() => {});
+    }
     const trackSettings = track.getSettings();
     this.sharing = {
       id: crypto.randomUUID().slice(0, 8),
@@ -470,7 +479,10 @@ export class ScreenShare extends EventTarget {
       return;
     }
     share.contentHint = hint;
-    share.stream.getVideoTracks()[0].contentHint = hint;
+    const track = share.stream.getVideoTracks()[0];
+    track.contentHint = hint;
+    // Capture asks for 30 fps; motion is worth 60 where the source has it.
+    track.applyConstraints?.({ frameRate: { ideal: hint === 'motion' ? 60 : 30, max: 60 } }).catch(() => {});
     for (const peer of share.peers.values()) {
       for (const transceiver of peer.getTransceivers()) {
         if (transceiver.sender.track?.kind === 'video') {
@@ -495,6 +507,8 @@ export class ScreenShare extends EventTarget {
     const viewer = {
       sender,
       id: offer.id,
+      // Tags this watch so an offer meant for an earlier one is ignored.
+      watch: Math.floor(Math.random() * 0x7fffffff),
       pc: connection,
       stream: new MediaStream(),
       state: 'connecting',
@@ -523,7 +537,7 @@ export class ScreenShare extends EventTarget {
       this.#emit('state');
     };
     this.#stateOf(connection).connectTimer = setTimeout(() => this.#giveUpIfStillConnecting(viewer), VIEWER_CONNECT_TIMEOUT_MS);
-    this.#send([sender], { t: 'watch', id: offer.id });
+    this.#send([sender], { t: 'watch', id: offer.id, n: viewer.watch });
     this.#emit('state');
   }
 
@@ -569,6 +583,8 @@ export class ScreenShare extends EventTarget {
     const connection = share.peers.get(viewer);
     share.peers.delete(viewer);
     if (connection) this.#closeConnection(connection);
+    // An offer still queued for that connection must not reach a later watch.
+    this.#queue = this.#queue.filter((item) => item.replaces !== `offer:${viewer}:${share.id}`);
   }
 
   #closeViewer() {
@@ -713,6 +729,7 @@ export class ScreenShare extends EventTarget {
     this.#closePeer(source, viewer);
     const connection = this.#newPeer();
     source.peers.set(viewer, connection);
+    this.#stateOf(connection).watch = message.n;
     const isCurrent = () => this.#sourceFor(source.id) === source && source.peers.get(viewer) === connection;
     for (const track of [...source.stream.getVideoTracks(), ...source.stream.getAudioTracks()]) {
       const transceiver = connection.addTransceiver(track, { direction: 'sendonly', streams: [source.stream] });
@@ -749,7 +766,7 @@ export class ScreenShare extends EventTarget {
         return;
       }
       this.#stateOf(connection).sdpSent = true;
-      this.#send([viewer], { t: 'offer', id: source.id, sdp: connection.localDescription.sdp }, `offer:${viewer}:${source.id}`);
+      this.#send([viewer], withWatch({ t: 'offer', id: source.id, sdp: connection.localDescription.sdp }, message.n), `offer:${viewer}:${source.id}`);
     } catch (error) {
       if (!isCurrent()) {
         return;
@@ -762,6 +779,12 @@ export class ScreenShare extends EventTarget {
   async #answer(sender, message) {
     const viewer = this.#viewerFor(sender, message.id);
     if (!viewer) {
+      return;
+    }
+    // An offer for an earlier watch of this share, or a second one for this
+    // watch, would set up a connection the sharer is no longer using.
+    if ((message.n !== undefined && message.n !== viewer.watch) || viewer.pc.remoteDescription) {
+      this.#diag('ignored an offer for an earlier watch');
       return;
     }
     const connection = viewer.pc;
@@ -793,14 +816,18 @@ export class ScreenShare extends EventTarget {
         return;
       }
       this.#stateOf(connection).sdpSent = true;
-      this.#send([sender], { t: 'answer', id: message.id, sdp: connection.localDescription.sdp }, `answer:${sender}:${message.id}`);
+      this.#send([sender], withWatch({ t: 'answer', id: message.id, sdp: connection.localDescription.sdp }, message.n), `answer:${sender}:${message.id}`);
     } catch (error) {
       if (!isCurrent()) {
         return;
       }
       this.#diag(`answer failed: ${error.message}`);
-      viewer.state = 'failed';
-      this.#emit(viewer === this.watching ? 'state' : 'feed', { sender });
+      if (viewer === this.watching) {
+        this.#failViewer(viewer);
+      } else {
+        viewer.state = 'failed';
+        this.#emit('feed', { sender });
+      }
     }
   }
 
@@ -939,6 +966,11 @@ export class ScreenShare extends EventTarget {
   async #onAnswer(sender, message) {
     const connection = this.#sourceFor(message.id)?.peers.get(sender);
     if (!connection) {
+      return;
+    }
+    const watch = this.#stateOf(connection)?.watch;
+    if (message.n !== undefined && watch !== undefined && message.n !== watch) {
+      this.#diag(`ignored an answer from ${sender} for an earlier watch`);
       return;
     }
     await connection
@@ -1112,8 +1144,9 @@ export class ScreenShare extends EventTarget {
       if (replaces) {
         this.#queue = this.#queue.filter((item) => item.replaces !== replaces);
       }
+      const essential = message.t === 'announce' || message.t === 'stop';
       for (const data of fragments) {
-        this.#queue.push({ receivers: online, data, messageId, replaces });
+        this.#queue.push({ receivers: online, data, messageId, replaces, essential });
       }
       this.#trimQueue();
       this.#drain();
@@ -1121,9 +1154,12 @@ export class ScreenShare extends EventTarget {
     return this.#sendChain;
   }
 
+  // Announce and stop are sent once and never repeated, so the backlog
+  // drops the oldest connection signalling instead; a viewer can retry that.
   #trimQueue() {
     while (this.#queue.length > MAX_QUEUED_FRAGMENTS) {
-      const oldest = this.#queue[0].messageId;
+      const oldest = this.#queue.find((item) => !item.essential)?.messageId;
+      if (oldest === undefined) return;
       this.#queue = this.#queue.filter((item) => item.messageId !== oldest);
       this.#diag('signalling backlog full: dropped the oldest queued message');
     }

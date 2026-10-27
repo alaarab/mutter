@@ -131,6 +131,7 @@ final class AudioEngine: VoiceSink {
     @ObservationIgnored private var selectedDeviceUID: String?
     @ObservationIgnored private var knownDeviceUIDs: Set<String> = []
     @ObservationIgnored private var rebuildScheduled = false
+    @ObservationIgnored private var playoutDiagnostics: DispatchSourceTimer?
 
     private static let format48kMono = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000, channels: 1, interleaved: false)!
     private static let maximumStreamCount = 64
@@ -176,6 +177,7 @@ final class AudioEngine: VoiceSink {
             // A headset already connected takes the call, as it would a phone call.
             if selectedDeviceUID == nil { selectedDeviceUID = Self.headsetInputs().first?.uid }
             applyOutputRoute()
+            startPlayoutDiagnostics()
         } catch {
             DiagnosticsLog.shared.add("audio", "engine start failed: \(error.localizedDescription)")
             lastError = error.localizedDescription
@@ -189,10 +191,29 @@ final class AudioEngine: VoiceSink {
         engine.stop()
         if let sourceNode { engine.detach(sourceNode) }
         sourceNode = nil
+        playoutDiagnostics?.cancel()
+        playoutDiagnostics = nil
         processingQueue.async { self.installCaptureState(encoder: nil) }
         isRunning = false
         isTransmitting = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    /// Reads each stream's playout counters once a second, off the render thread, so a crackle heard on a
+    /// device can be matched to an underrun, a loss or a skip in the exported log.
+    private func startPlayoutDiagnostics() {
+        playoutDiagnostics?.cancel()
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        timer.schedule(deadline: .now() + 1, repeating: 1, leeway: .milliseconds(200))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            let now = ProcessInfo.processInfo.systemUptime
+            for stream in withStreams({ Array(self.streams.values) }) {
+                if let summary = stream.diagnosticsSummary(now: now) { DiagnosticsLog.shared.add("audio", summary) }
+            }
+        }
+        timer.resume()
+        playoutDiagnostics = timer
     }
 
     private func installCaptureState(encoder freshEncoder: OpusEncoderWrapper?) {

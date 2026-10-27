@@ -2,40 +2,46 @@ import Foundation
 import os
 import MumbleProtocol
 
+/// One speaker's playout. Packets go into a JitterBuffer on the network thread; the render thread pulls
+/// decisions from it and decodes in playout order, so concealment and FEC happen exactly when audio is due.
 final class UserStream {
     let session: UInt32
     var volume: Float = 1.0
 
-    private let decoder: OpusDecoderWrapper
-    private var ring: [Float]
-    private var readIndex = 0
-    private var writeIndex = 0
-    private var available = 0
-    private var started = false
-    private var lastFrameNumber: UInt64 = 0
-    private var lastPacketAt = Date()
     private let lock = OSAllocatedUnfairLock()
-    private var fadeIn = 0
-    private let rampSamples = 96
+    private var jitter = JitterBuffer()
+    private var lastPacketAt = Date()
 
-    private let prebufferSamples: Int
-    private let capacity: Int
-    private let maximumBufferedSamples = 48 * 500
-    private let trimmedBufferedSamples = 48 * 120
+    // Owned by the render thread.
+    private let decoder: OpusDecoderWrapper
+    private var payload: [UInt8]
+    private var pcm: [Float]
+    private var pcmRead = 0
+    private var pcmCount = 0
+    private var lastWasQuiet = false
+    private let ramp: [Float]
 
-    private static let lateToleranceUnits: UInt64 = 100
-    private static let sequenceRestartGap: TimeInterval = 0.2
+    // Owned by the diagnostics reader.
+    private var pendingStatistics = JitterBuffer.Statistics()
+    private var lastReportAt: TimeInterval = -.infinity
 
-    init(session: UInt32, prebufferMs: Int = 40) throws {
+    // About -46 dBFS: background hiss after noise suppression, where a dropped or stretched frame is inaudible.
+    private static let quietRMS: Float = 0.005
+    private static let reportInterval: TimeInterval = 5
+
+    init(session: UInt32) throws {
         self.session = session
         decoder = try OpusDecoderWrapper()
-        prebufferSamples = 48 * prebufferMs
-        capacity = 48_000
-        ring = [Float](repeating: 0, count: capacity)
+        payload = [UInt8](repeating: 0, count: jitter.maximumPayloadBytes)
+        pcm = [Float](repeating: 0, count: OpusDecoderWrapper.maximumFrameSamples)
+        ramp = (0..<JitterBuffer.rampSamples).map { index in
+            let phase = Float(index + 1) / Float(JitterBuffer.rampSamples)
+            return 0.5 - 0.5 * cos(Float.pi * phase)
+        }
     }
 
     var isIdle: Bool {
-        synchronized { available == 0 && Date().timeIntervalSince(lastPacketAt) > 1.0 }
+        synchronized { jitter.isIdle && Date().timeIntervalSince(lastPacketAt) > 1.0 }
     }
 
     private func synchronized<Result>(_ body: () -> Result) -> Result {
@@ -45,107 +51,122 @@ final class UserStream {
     }
 
     func push(_ packet: AudioPacket) {
-        let secondsSinceLastPacket = synchronized { Date().timeIntervalSince(lastPacketAt) }
-        if lastFrameNumber != 0, packet.frameNumber < lastFrameNumber {
-            let unitsBehind = lastFrameNumber - packet.frameNumber
-            let isLate = unitsBehind <= Self.lateToleranceUnits && secondsSinceLastPacket < Self.sequenceRestartGap
-            if isLate {
-                synchronized { lastPacketAt = Date() }
-                return
-            }
-            lastFrameNumber = 0
-            decoder.reset()
-        }
-        let expected = lastFrameNumber
-        let missingUnits = packet.frameNumber > expected && expected != 0 ? packet.frameNumber - expected : 0
-        if let samplesPerPacket = lastPacketSamples,
-           missingUnits > 0, missingUnits <= UInt64(samplesPerPacket / 480 * 3) {
-
-            var missingSamples = Int(missingUnits) * 480
-            while missingSamples > 0 {
-                let count = min(missingSamples, samplesPerPacket)
-                if let plc = try? decoder.decode(nil, plcSamples: count) { write(plc) }
-                missingSamples -= count
-            }
-        }
-        if !packet.opusData.isEmpty, let pcm = try? decoder.decode(packet.opusData) {
-            lastPacketSamples = pcm.count
-            write(pcm)
-            let next = packet.frameNumber.addingReportingOverflow(UInt64(max(1, pcm.count / 480)))
-            lastFrameNumber = next.overflow ? 0 : next.partialValue
-        }
-        if packet.isTerminator {
-            lastFrameNumber = 0
-            decoder.reset()
-        }
-        synchronized { lastPacketAt = Date() }
-    }
-
-    private var lastPacketSamples: Int?
-
-    private func write(_ pcm: [Float]) {
+        let samples = packet.opusData.isEmpty ? 0 : OpusDecoderWrapper.samples(in: packet.opusData)
+        guard let samples else { return }
         synchronized {
-            for sample in pcm {
-                if available == capacity {
-                    readIndex = (readIndex + 1) % capacity
-                    available -= 1
-                }
-                ring[writeIndex] = sample
-                writeIndex = (writeIndex + 1) % capacity
-                available += 1
-            }
-            if started && available > maximumBufferedSamples {
-                let excess = available - trimmedBufferedSamples
-                readIndex = (readIndex + excess) % capacity
-                available -= excess
-                fadeIn = rampSamples
-            }
-            if !started && available >= prebufferSamples {
-                started = true
-                fadeIn = rampSamples
+            lastPacketAt = Date()
+            packet.opusData.withUnsafeBytes { bytes in
+                jitter.insert(frame: packet.frameNumber, samples: samples, payload: bytes, isTerminator: packet.isTerminator)
             }
         }
     }
 
     @discardableResult
     func mix(into out: UnsafeMutablePointer<Float>, frames: Int, masterGain: Float) -> Int {
-        synchronized { () -> Int in
-            guard started else { return 0 }
-            let count = min(frames, available)
-            if count == 0 {
-                started = false
-                return 0
+        let gain = volume * masterGain
+        var written = 0
+        while written < frames {
+            if pcmRead == pcmCount, !decodeNextStep() { break }
+            let count = min(frames - written, pcmCount - pcmRead)
+            pcm.withUnsafeBufferPointer { decoded in
+                for index in 0..<count { out[written + index] += decoded[pcmRead + index] * gain }
             }
-            let gain = volume * masterGain
-            let draining = count < frames || available - count < 48
-            let rampOut = draining ? min(count, rampSamples) : 0
-            for index in 0..<count {
-                var sampleGain = gain
-                if fadeIn > 0 {
-                    sampleGain *= Float(rampSamples - fadeIn) / Float(rampSamples)
-                    fadeIn -= 1
-                }
-                if rampOut > 0 && index >= count - rampOut {
-                    sampleGain *= Float(count - index) / Float(rampOut)
-                }
-                out[index] += ring[readIndex] * sampleGain
-                readIndex = (readIndex + 1) % capacity
-            }
-            available -= count
-            if count < frames { started = false }
-            return count
+            pcmRead += count
+            written += count
         }
+        if written < frames {
+            synchronized { jitter.idle(samples: frames - written) }
+        }
+        return written
     }
 
-    func reset() {
-        synchronized {
-            readIndex = 0
-            writeIndex = 0
-            available = 0
-            started = false
-            fadeIn = 0
+    /// Takes the next decision from the jitter buffer and decodes it into `pcm` with its gain ramp applied.
+    private func decodeNextStep() -> Bool {
+        pcmRead = 0
+        pcmCount = 0
+        let taken = synchronized { () -> (step: JitterBuffer.Step, length: Int)? in
+            guard let step = jitter.next(quiet: lastWasQuiet) else { return nil }
+            var length = 0
+            switch step.action {
+            case .play(let slot), .recover(let slot):
+                length = jitter.withPayload(slot: slot) { bytes in
+                    payload.withUnsafeMutableBytes { $0.copyMemory(from: bytes) }
+                    return bytes.count
+                }
+            case .conceal:
+                break
+            }
+            return (step, length)
         }
-        decoder.reset()
-        lastFrameNumber = 0
+        guard let taken else { return false }
+        let step = taken.step
+        if step.resetsDecoder { decoder.reset() }
+
+        var decoded = pcm.withUnsafeMutableBufferPointer { output in
+            payload.withUnsafeBytes { bytes -> Int in
+                let packet = UnsafeRawBufferPointer(rebasing: bytes[0..<taken.length])
+                switch step.action {
+                case .play:
+                    return decoder.decode(packet, samples: step.samples, into: output.baseAddress!, capacity: output.count)
+                case .recover:
+                    return decoder.decode(packet, fec: true, samples: step.samples, into: output.baseAddress!, capacity: output.count)
+                case .conceal:
+                    return decoder.decode(nil, samples: step.samples, into: output.baseAddress!, capacity: output.count)
+                }
+            }
+        }
+        if decoded < 0 {
+            // Keep time even if a packet is corrupt; the silence is ramped like everything else.
+            decoded = min(step.samples, pcm.count)
+            for index in 0..<decoded { pcm[index] = 0 }
+        }
+
+        pcm.withUnsafeMutableBufferPointer { output in
+            if case .conceal = step.action {} else {
+                var energy: Float = 0
+                for index in 0..<decoded { energy += output[index] * output[index] }
+                lastWasQuiet = decoded > 0 && (energy / Float(decoded)).squareRoot() < Self.quietRMS
+            }
+            let delta = step.gainTo - step.gainFrom
+            let rampLength = delta == 0 ? 0 : min(decoded, ramp.count)
+            for index in 0..<rampLength { output[index] *= step.gainFrom + delta * ramp[index] }
+            if step.gainTo != 1 {
+                for index in rampLength..<decoded { output[index] *= step.gainTo }
+            }
+        }
+        pcmCount = decoded
+        return true
+    }
+
+    /// Called off the render thread about once a second. Returns a log line when something went wrong, at most
+    /// once per `reportInterval`, carrying counts over in between so nothing is lost.
+    func diagnosticsSummary(now: TimeInterval) -> String? {
+        let latest = synchronized { jitter.takeStatistics() }
+        var pending = pendingStatistics
+        pending.underruns += latest.underruns
+        pending.concealedFrames += latest.concealedFrames
+        pending.recovered += latest.recovered
+        pending.late += latest.late
+        pending.duplicates += latest.duplicates
+        pending.reordered += latest.reordered
+        pending.trims += latest.trims
+        pending.drops += latest.drops
+        pending.stretches += latest.stretches
+        pending.targetSamples = latest.targetSamples
+        if let low = latest.lowestBufferedSamples {
+            pending.lowestBufferedSamples = min(pending.lowestBufferedSamples ?? low, low)
+        }
+        pendingStatistics = pending
+        guard pending.hasEvents, now - lastReportAt >= Self.reportInterval else { return nil }
+        lastReportAt = now
+        pendingStatistics = JitterBuffer.Statistics()
+
+        let counts = [("underruns", pending.underruns), ("plc 10ms", pending.concealedFrames), ("fec", pending.recovered),
+                      ("late", pending.late), ("dup", pending.duplicates), ("reordered", pending.reordered),
+                      ("trims", pending.trims), ("quiet drops", pending.drops), ("stretches", pending.stretches)]
+        var parts = counts.filter { $0.1 > 0 }.map { "\($0.0) \($0.1)" }
+        parts.append("target \(pending.targetSamples / 48) ms")
+        if let low = pending.lowestBufferedSamples { parts.append("low \(low / 48) ms") }
+        return "playout session \(session): " + parts.joined(separator: ", ")
     }
 }
