@@ -48,7 +48,8 @@ if (process.platform !== 'darwin') {
       ...moduleSearchPaths, path.join(root, `web/test/native/${name}.swift`), ...extra, ...protocolObjects, '-o', output], { stdio: 'pipe' });
     return output;
   };
-  const audio = compile('AudioProbe', [path.join(root, 'Mutter/Audio/UserStream.swift')]);
+  const audio = compile('AudioProbe', [path.join(root, 'Mutter/Audio/UserStream.swift'),
+    path.join(root, 'Mutter/Audio/JitterBuffer.swift')]);
   const liveActivity = compile('LiveActivityProbe', [path.join(root, 'Mutter/LiveActivity/LiveActivityFreshness.swift')]);
   const client = compile('ClientProbe', objects('MumbleClient'));
   const signal = compile('SignalProbe', [path.join(root, 'Mutter/ScreenShare/RTCSignaling.swift'),
@@ -68,7 +69,7 @@ if (process.platform !== 'darwin') {
     assert.match(execFileSync(broadcast, { encoding: 'utf8' }), /PASS/);
   });
 
-  test('native playout inserts exactly the missing audio duration', () => {
+  test('native playout adapts its delay, conceals and recovers losses, and never clicks', () => {
     assert.match(execFileSync(audio, { encoding: 'utf8' }), /PASS/);
   });
 
