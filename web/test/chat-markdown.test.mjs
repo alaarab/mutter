@@ -119,7 +119,7 @@ test('a long code block keeps its header in view while scrolling through it', { 
     const box = document.getElementById('messages');
     const code = ${block};
     box.scrollTop += code.getBoundingClientRect().top - box.getBoundingClientRect().top + code.offsetHeight / 2;
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await new Promise((resolve) => setTimeout(resolve, 150));
     const head = code.querySelector('.code-head').getBoundingClientRect();
     const blockTop = code.getBoundingClientRect().top;
     const boxTop = box.getBoundingClientRect().top;
