@@ -63,7 +63,7 @@ function copyChildren(from, into, insideLink) {
       if (insideLink) {
         into.append(node.textContent);
       } else {
-        appendLinkified(node.textContent, into);
+        linkify(node.textContent, into);
       }
       continue;
     }
@@ -146,7 +146,7 @@ function normaliseDataUri(source) {
   }
 }
 
-function appendLinkified(text, into) {
+export function linkify(text, into) {
   let last = 0;
   for (const match of text.matchAll(URL_PATTERN)) {
     if (match.index > last) {
