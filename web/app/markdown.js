@@ -15,7 +15,17 @@ const HEADING = /^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$/;
 const URL = /^https?:\/\/[^\s<>"']+/;
 const URL_TRAILING = /[.,;:!?)\]'"]+$/;
 
+// Markdown that renders to no visible text (a lone ```, > or "# ") is sent
+// as the plain text it was, so it never arrives as an empty bubble.
 export function markdownToHtml(source) {
+  const html = convert(source);
+  if (html.replace(/<[^>]*>/g, '').trim()) {
+    return html;
+  }
+  return source.replace(/\r\n?/g, '\n').split('\n').map(escapeText).join('<br />');
+}
+
+function convert(source) {
   const lines = source.replace(/\r\n?/g, '\n').split('\n');
   const out = [];
   // Whether the last thing written was a line of prose, which a following
@@ -60,7 +70,7 @@ export function markdownToHtml(source) {
       while (index < lines.length && QUOTE.test(lines[index])) {
         quoted.push(lines[index++].match(QUOTE)[1]);
       }
-      block(`<blockquote>${markdownToHtml(quoted.join('\n'))}</blockquote>`);
+      block(`<blockquote>${convert(quoted.join('\n'))}</blockquote>`);
       continue;
     }
     const heading = line.match(HEADING);

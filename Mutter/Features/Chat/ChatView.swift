@@ -521,6 +521,14 @@ struct MessageRow: View {
                     .font(.footnote)
                     .foregroundStyle(quietColor)
             }
+            // Nothing to show at all, as 0.1.1 sent a lone ```: say so rather
+            // than leave a bubble with only its time.
+            if !hasText && rendered.images.isEmpty && rendered.unreadableImages == 0 {
+                Text("Empty message")
+                    .font(.footnote.italic())
+                    .foregroundStyle(quietColor)
+                    .accessibilityIdentifier("chat-message-empty")
+            }
             if hasText {
                 let selectsWhole = isSelecting && !isSingleProse
                 VStack(alignment: .leading, spacing: 8) {
