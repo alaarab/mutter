@@ -1810,10 +1810,31 @@ body[data-tab="screen"] #stage {
 }
 
 .failed-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 11px;
   color: var(--danger);
   font-weight: 600;
   margin-top: 2px;
+}
+
+.failed-note .retry {
+  padding: 1px 8px;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  border-radius: var(--r6);
+  color: var(--danger);
+  font: inherit;
+  transition: background var(--t);
+}
+
+.failed-note .retry:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+.retry:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .tools {

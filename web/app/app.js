@@ -438,6 +438,7 @@ function exitSession() {
 
 client.addEventListener('state', () => {
   renderConnectionState();
+  messages.refreshRetry();
   if (client.state === 'connected') {
     enterSession();
   } else if (client.state === 'reconnecting') {
@@ -755,6 +756,7 @@ client.addEventListener('text', (event) => {
   messages.append(message);
 });
 client.addEventListener('text-failed', (event) => messages.markFailed(event.detail));
+client.addEventListener('text-removed', (event) => messages.remove(event.detail.id));
 client.addEventListener('text-delivery', (event) => messages.markDelivery(event.detail));
 
 const composer = $('chatInput');
