@@ -49,6 +49,7 @@ jobs:
             desktop/dist/*.zip
             desktop/dist/*.AppImage
           if-no-files-found: error
+          retention-days: 1
 
   release:
     needs: build

@@ -35,3 +35,4 @@ jobs:
         with:
           name: mutter-android-debug
           path: android/app/build/outputs/apk/debug/*.apk
+          retention-days: 1
